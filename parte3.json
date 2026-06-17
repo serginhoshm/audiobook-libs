@@ -1,0 +1,2666 @@
+{
+  "language": "es",
+  "language_probability": 1,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 3.28,
+      "text": "del pueblo, hablando de la siembra de primavera."
+    },
+    {
+      "start": 3.28,
+      "end": 6.04,
+      "text": "Debe estar por llegar."
+    },
+    {
+      "start": 6.04,
+      "end": 8.56,
+      "text": "Hermano, me compraste los zapatos."
+    },
+    {
+      "start": 8.56,
+      "end": 11.64,
+      "text": "Te estuve esperando toda la tarde."
+    },
+    {
+      "start": 11.64,
+      "end": 22.62,
+      "text": "Sí, sí, no te preocupes."
+    },
+    {
+      "start": 22.62,
+      "end": 28.72,
+      "text": "Guau, qué bonitos zapatos nuevos."
+    },
+    {
+      "start": 28.72,
+      "end": 33.4,
+      "text": "Traje tela para ustedes para que hagan abrigos nuevos."
+    },
+    {
+      "start": 33.4,
+      "end": 42.41,
+      "text": "Y leche en polvo para que Duobo y mamá se fortalezcan."
+    },
+    {
+      "start": 42.41,
+      "end": 45.41,
+      "text": "Esta tela, esta tela solo se consigue en la tienda"
+    },
+    {
+      "start": 45.81,
+      "end": 47.17,
+      "text": "y solo con cupones."
+    },
+    {
+      "start": 47.17,
+      "end": 48.85,
+      "text": "Qué difícil es de hallar."
+    },
+    {
+      "start": 48.85,
+      "end": 51.57,
+      "text": "Hermano, ¿acaso robaste?"
+    },
+    {
+      "start": 51.57,
+      "end": 54.17,
+      "text": "¿Cómo conseguiste tantas cosas buenas?"
+    },
+    {
+      "start": 54.17,
+      "end": 57.81,
+      "text": "Robar, las compré en la tienda."
+    },
+    {
+      "start": 57.81,
+      "end": 60.93,
+      "text": "Hoy en el mercado negro conocí a unos comerciantes"
+    },
+    {
+      "start": 60.93,
+      "end": 61.81,
+      "text": "foráneos."
+    },
+    {
+      "start": 61.81,
+      "end": 63.77,
+      "text": "Entregué suministros a la fábrica textil."
+    },
+    {
+      "start": 63.77,
+      "end": 66.57,
+      "text": "Cané un buen dinero y compré esto."
+    },
+    {
+      "start": 66.57,
+      "end": 69.25,
+      "text": "Además, ya entré a trabajar a la fábrica."
+    },
+    {
+      "start": 69.25,
+      "end": 71.13,
+      "text": "Soy comprador oficial."
+    },
+    {
+      "start": 71.13,
+      "end": 76.37,
+      "text": "Comprador, te volviste empleado de Ciudad."
+    },
+    {
+      "start": 76.37,
+      "end": 84.18,
+      "text": "CISP oficial, con plaza y prestaciones."
+    },
+    {
+      "start": 84.18,
+      "end": 85.66,
+      "text": "Bueno, ya está caliente."
+    },
+    {
+      "start": 85.66,
+      "end": 87.86,
+      "text": "A comer, mamá."
+    },
+    {
+      "start": 87.86,
+      "end": 89.14,
+      "text": "Hay mucha comida."
+    },
+    {
+      "start": 89.14,
+      "end": 90.3,
+      "text": "¿Por qué no comen?"
+    },
+    {
+      "start": 90.3,
+      "end": 92.22,
+      "text": "Hermana, llama a tu cuñada."
+    },
+    {
+      "start": 92.22,
+      "end": 93.82,
+      "text": "Preparen leche en polvo para todos."
+    },
+    {
+      "start": 93.82,
+      "end": 94.94,
+      "text": "Y también duraznos en amíbar."
+    },
+    {
+      "start": 94.94,
+      "end": 95.86,
+      "text": "Son cosas de calidad."
+    },
+    {
+      "start": 95.86,
+      "end": 96.86,
+      "text": "Coman, diála."
+    },
+    {
+      "start": 96.86,
+      "end": 98.14,
+      "text": "¿Por qué me miran?"
+    },
+    {
+      "start": 98.14,
+      "end": 100.42,
+      "text": "Solo conseguí un trabajo de comprador, nada más."
+    },
+    {
+      "start": 100.42,
+      "end": 103.82,
+      "text": "Mamá, cálientale el agua para la leche."
+    },
+    {
+      "start": 103.82,
+      "end": 106.26,
+      "text": "Iré por mi cuñada."
+    },
+    {
+      "start": 106.26,
+      "end": 111.37,
+      "text": "Fresca, como una flor de durazno."
+    },
+    {
+      "start": 111.49,
+      "end": 115.09,
+      "text": "Sióyan, ¿de verdad eres comprador en la fábrica?"
+    },
+    {
+      "start": 115.09,
+      "end": 119.53,
+      "text": "CISP oficial, con plaza y sin horario fijo."
+    },
+    {
+      "start": 119.53,
+      "end": 124.31,
+      "text": "Solo entrego mercancía cada 15 días."
+    },
+    {
+      "start": 124.31,
+      "end": 128.23,
+      "text": "Rúduo con su madre y mamá con mi hermana."
+    },
+    {
+      "start": 128.23,
+      "end": 131.95,
+      "text": "Mamá, tía, esto está delicioso."
+    },
+    {
+      "start": 131.95,
+      "end": 134.19,
+      "text": "¿Por qué no comen ustedes?"
+    },
+    {
+      "start": 134.19,
+      "end": 137.23,
+      "text": "¿Por qué miran a papá?"
+    },
+    {
+      "start": 137.23,
+      "end": 142.18,
+      "text": "Ayenene, jaja."
+    },
+    {
+      "start": 142.18,
+      "end": 145.26,
+      "text": "Llevaba años sin comer duraznos en amíbar."
+    },
+    {
+      "start": 145.26,
+      "end": 147.78,
+      "text": "No pensé volver a probarlos hoy."
+    },
+    {
+      "start": 147.78,
+      "end": 150.7,
+      "text": "Sióyan, si trabajas en la ciudad,"
+    },
+    {
+      "start": 150.7,
+      "end": 152.58,
+      "text": "¿qué pasará con Duelo y Duobo?"
+    },
+    {
+      "start": 152.58,
+      "end": 155.18,
+      "text": "Seguirán a vivir allá o se quedan aquí."
+    },
+    {
+      "start": 155.18,
+      "end": 157.54,
+      "text": "El registro de la niña sigue en el pueblo."
+    },
+    {
+      "start": 157.54,
+      "end": 159.98,
+      "text": "La escuela será un problema, mamá."
+    },
+    {
+      "start": 159.98,
+      "end": 161.18,
+      "text": "No se preocupen."
+    },
+    {
+      "start": 161.18,
+      "end": 163.18,
+      "text": "Compré una casita en la ciudad."
+    },
+    {
+      "start": 163.18,
+      "end": 165.1,
+      "text": "Mañana haré el cambio de papeles."
+    },
+    {
+      "start": 165.1,
+      "end": 167.74,
+      "text": "Ellas ya tendrán registro urbano."
+    },
+    {
+      "start": 167.74,
+      "end": 170.46,
+      "text": "Quiero que Duobo estudie en la ciudad."
+    },
+    {
+      "start": 170.46,
+      "end": 176.62,
+      "text": "¿Cómo no me las voy a llevar?"
+    },
+    {
+      "start": 176.62,
+      "end": 178.78,
+      "text": "Hermano, compraste una casa."
+    },
+    {
+      "start": 178.78,
+      "end": 179.98,
+      "text": "¿De dónde sacaste el dinero?"
+    },
+    {
+      "start": 179.98,
+      "end": 182.46,
+      "text": "Hoy trabajo, comida, casa."
+    },
+    {
+      "start": 182.46,
+      "end": 183.5,
+      "text": "Es demasiado increíble."
+    },
+    {
+      "start": 183.5,
+      "end": 185.02,
+      "text": "Casi no te reconozco."
+    },
+    {
+      "start": 185.02,
+      "end": 186.5,
+      "text": "No oladas escándalo."
+    },
+    {
+      "start": 186.5,
+      "end": 188.58,
+      "text": "Anoche fui a vender cordero."
+    },
+    {
+      "start": 188.58,
+      "end": 191.34,
+      "text": "Conocí al jefe de compras, Ding Xianwei."
+    },
+    {
+      "start": 191.34,
+      "end": 192.78,
+      "text": "Le vendí la carne."
+    },
+    {
+      "start": 192.78,
+      "end": 194.06,
+      "text": "Y así obtuve el empleo."
+    },
+    {
+      "start": 194.06,
+      "end": 196.62,
+      "text": "El viejo yú de la fábrica quería mudarse rápido con"
+    },
+    {
+      "start": 196.62,
+      "end": 197.38,
+      "text": "su lijo."
+    },
+    {
+      "start": 197.38,
+      "end": 198.46,
+      "text": "Por eso la vendía urgente."
+    },
+    {
+      "start": 198.46,
+      "end": 199.98,
+      "text": "El precio fue muy bueno."
+    },
+    {
+      "start": 199.98,
+      "end": 202.9,
+      "text": "Puedo pagar poco a poco con mis ahoros y mi sueldo"
+    },
+    {
+      "start": 202.9,
+      "end": 203.62,
+      "text": "anual."
+    },
+    {
+      "start": 203.62,
+      "end": 205.26,
+      "text": "Casi quedará saldada."
+    },
+    {
+      "start": 205.26,
+      "end": 207.06,
+      "text": "Es verdad lo que dices."
+    },
+    {
+      "start": 207.06,
+      "end": 209.9,
+      "text": "¿Realmente tendremos registro en la ciudad?"
+    },
+    {
+      "start": 209.9,
+      "end": 211.94,
+      "text": "¿Duobo podrá estudiar allá?"
+    },
+    {
+      "start": 211.94,
+      "end": 213.66,
+      "text": "Claro que sí."
+    },
+    {
+      "start": 213.66,
+      "end": 215.86,
+      "text": "Mañana mismo hacemos los trámites."
+    },
+    {
+      "start": 215.86,
+      "end": 218.82,
+      "text": "Nos mudaremos a la ciudad."
+    },
+    {
+      "start": 218.82,
+      "end": 220.78,
+      "text": "Ya tenemos a alguien en la ciudad."
+    },
+    {
+      "start": 220.78,
+      "end": 224.58,
+      "text": "Si ustedes se mudan, serán ciudadanos urbanos."
+    },
+    {
+      "start": 224.58,
+      "end": 226.66,
+      "text": "Ya no tendrán que trabajar en el campo."
+    },
+    {
+      "start": 226.66,
+      "end": 229.78,
+      "text": "Dueruek y Duobo tendrán una gran vida."
+    },
+    {
+      "start": 229.78,
+      "end": 233.26,
+      "text": "Tu papá se pondrá muy feliz al saberlo."
+    },
+    {
+      "start": 233.26,
+      "end": 235.34,
+      "text": "Ya no pasaremos hambre, hermano."
+    },
+    {
+      "start": 237.14,
+      "end": 240.62,
+      "text": "Si se llevan a Duobo, nadie jugará conmigo."
+    },
+    {
+      "start": 240.62,
+      "end": 243.06,
+      "text": "Niña, por favor, que tu hermano trabaje en la ciudad."
+    },
+    {
+      "start": 243.06,
+      "end": 244.14,
+      "text": "Es una noticia maravillosa."
+    },
+    {
+      "start": 244.14,
+      "end": 246.26,
+      "text": "¿Por qué pones esa cara si nadie juega contigo?"
+    },
+    {
+      "start": 246.26,
+      "end": 248.3,
+      "text": "Mamá, jugará contigo."
+    },
+    {
+      "start": 248.3,
+      "end": 249.66,
+      "text": "No es que no volvamos."
+    },
+    {
+      "start": 249.66,
+      "end": 251.34,
+      "text": "Es por la escuela de Duobo."
+    },
+    {
+      "start": 251.34,
+      "end": 253.38,
+      "text": "Cuando terminen las clases, volveremos a visitarlos."
+    },
+    {
+      "start": 253.38,
+      "end": 256.22,
+      "text": "¿Por qué no se van a vivir un tiempo con nosotros?"
+    },
+    {
+      "start": 256.22,
+      "end": 257.34,
+      "text": "En invierno no se siembra."
+    },
+    {
+      "start": 257.34,
+      "end": 258.66,
+      "text": "Verano en el pueblo."
+    },
+    {
+      "start": 258.66,
+      "end": 260.06,
+      "text": "Invierno en la ciudad."
+    },
+    {
+      "start": 260.06,
+      "end": 261.46,
+      "text": "¿En serio?"
+    },
+    {
+      "start": 261.46,
+      "end": 263.94,
+      "text": "La casa de la ciudad es tan grande."
+    },
+    {
+      "start": 263.94,
+      "end": 266.54,
+      "text": "Claro, tiene cinco o seis habitaciones."
+    },
+    {
+      "start": 266.54,
+      "end": 267.98,
+      "text": "Tiene luz y agua corriente."
+    },
+    {
+      "start": 267.98,
+      "end": 269.5,
+      "text": "Y un baño."
+    },
+    {
+      "start": 269.5,
+      "end": 270.94,
+      "text": "Conducha de agua caliente."
+    },
+    {
+      "start": 270.94,
+      "end": 273.22,
+      "text": "Mañana Dueruek y yo arreglaremos todo."
+    },
+    {
+      "start": 273.22,
+      "end": 276.98,
+      "text": "En unos días iremos por ustedes en la carreta."
+    },
+    {
+      "start": 276.98,
+      "end": 278.74,
+      "text": "Ahora que tengo la carreta de la fábrica,"
+    },
+    {
+      "start": 278.74,
+      "end": 279.7,
+      "text": "es más fácil viajar."
+    },
+    {
+      "start": 279.7,
+      "end": 281.1,
+      "text": "No hace falta caminar."
+    },
+    {
+      "start": 281.1,
+      "end": 281.58,
+      "text": "Ja, ja."
+    },
+    {
+      "start": 284.46,
+      "end": 295.54,
+      "text": "Ja, ja."
+    },
+    {
+      "start": 295.54,
+      "end": 304.01,
+      "text": "Ja, ja."
+    },
+    {
+      "start": 304.01,
+      "end": 307.53,
+      "text": "Estos zapatos son para todos."
+    },
+    {
+      "start": 307.53,
+      "end": 309.29,
+      "text": "Los pies de Duobo son muy pequeños."
+    },
+    {
+      "start": 309.29,
+      "end": 310.41,
+      "text": "No hay talla."
+    },
+    {
+      "start": 310.41,
+      "end": 312.85,
+      "text": "Tú y mi hermana busquen algodón."
+    },
+    {
+      "start": 312.85,
+      "end": 315.17,
+      "text": "Y háganle ropa nueva a todos."
+    },
+    {
+      "start": 315.17,
+      "end": 316.97,
+      "text": "Y unos zapatos para Duoduo."
+    },
+    {
+      "start": 316.97,
+      "end": 318.77,
+      "text": "No creo que Dueruek sepa hacer eso."
+    },
+    {
+      "start": 318.77,
+      "end": 320.01,
+      "text": "Sin problema."
+    },
+    {
+      "start": 320.01,
+      "end": 321.41,
+      "text": "Cuenta con ello."
+    },
+    {
+      "start": 321.41,
+      "end": 323.85,
+      "text": "Hadan uno para mi hermana también."
+    },
+    {
+      "start": 323.85,
+      "end": 324.85,
+      "text": "Ya vátense."
+    },
+    {
+      "start": 324.85,
+      "end": 325.89,
+      "text": "Están cansados."
+    },
+    {
+      "start": 325.89,
+      "end": 326.97,
+      "text": "Duerman pronto."
+    },
+    {
+      "start": 326.97,
+      "end": 328.57,
+      "text": "Jan, de tú primero."
+    },
+    {
+      "start": 328.57,
+      "end": 329.37,
+      "text": "Yo me quedo con Duoduo."
+    },
+    {
+      "start": 329.37,
+      "end": 330.89,
+      "text": "Terminaremos el almíbar y la leche."
+    },
+    {
+      "start": 330.89,
+      "end": 331.61,
+      "text": "Y vamos."
+    },
+    {
+      "start": 331.61,
+      "end": 332.33,
+      "text": "Está bien."
+    },
+    {
+      "start": 332.33,
+      "end": 340.95,
+      "text": "Iré a calentar el can."
+    },
+    {
+      "start": 340.95,
+      "end": 343.55,
+      "text": "Cuñada, esta leche les es deliciosa."
+    },
+    {
+      "start": 343.55,
+      "end": 346.75,
+      "text": "Pero si se van a la ciudad, creo que ya no podré"
+    },
+    {
+      "start": 346.75,
+      "end": 348.43,
+      "text": "beberla."
+    },
+    {
+      "start": 348.43,
+      "end": 350.03,
+      "text": "En el pueblo no tienes nada que hacer."
+    },
+    {
+      "start": 350.03,
+      "end": 352.51,
+      "text": "Mejor vente con nosotros un tiempo."
+    },
+    {
+      "start": 352.51,
+      "end": 355.15,
+      "text": "Así tendremos compañía."
+    },
+    {
+      "start": 355.15,
+      "end": 355.63,
+      "text": "Qué bien."
+    },
+    {
+      "start": 355.63,
+      "end": 356.19,
+      "text": "Sí."
+    },
+    {
+      "start": 356.19,
+      "end": 356.75,
+      "text": "Yo voy."
+    },
+    {
+      "start": 356.75,
+      "end": 357.59,
+      "text": "Yo voy."
+    },
+    {
+      "start": 357.59,
+      "end": 358.67,
+      "text": "Nada de eso."
+    },
+    {
+      "start": 358.67,
+      "end": 360.43,
+      "text": "Ellos estarán en la ciudad."
+    },
+    {
+      "start": 360.43,
+      "end": 362.43,
+      "text": "Quizá tengan otro bebé."
+    },
+    {
+      "start": 362.43,
+      "end": 369.22,
+      "text": "Solo los estorbarás."
+    },
+    {
+      "start": 369.22,
+      "end": 376.14,
+      "text": "Mamá, tengo sueño."
+    },
+    {
+      "start": 376.14,
+      "end": 379.42,
+      "text": "Dueruek, no llevarás a Duoduo a dormir."
+    },
+    {
+      "start": 379.42,
+      "end": 382.66,
+      "text": "Déjala dormir con ustedes, Doy."
+    },
+    {
+      "start": 382.66,
+      "end": 384.34,
+      "text": "Quiero preguntarle algo hacia Jan."
+    },
+    {
+      "start": 384.38,
+      "end": 386.58,
+      "text": "¿Qué está pasando realmente, Doy?"
+    },
+    {
+      "start": 386.58,
+      "end": 387.54,
+      "text": "¿Cómo compró la casa?"
+    },
+    {
+      "start": 387.54,
+      "end": 388.42,
+      "text": "Así de repente."
+    },
+    {
+      "start": 388.42,
+      "end": 389.78,
+      "text": "¿Y el puesto de comprador?"
+    },
+    {
+      "start": 389.78,
+      "end": 390.62,
+      "text": "Está bien."
+    },
+    {
+      "start": 390.62,
+      "end": 391.94,
+      "text": "Hablen tranquilos."
+    },
+    {
+      "start": 391.94,
+      "end": 394.02,
+      "text": "Duoduo se queda con nosotros."
+    },
+    {
+      "start": 394.02,
+      "end": 397.22,
+      "text": "Fue tan lindo dormir con ella la noche."
+    },
+    {
+      "start": 397.22,
+      "end": 411.68,
+      "text": "Hoy la volveré a arrullar."
+    },
+    {
+      "start": 411.68,
+      "end": 413.2,
+      "text": "¿De dónde salió todo esto?"
+    },
+    {
+      "start": 413.2,
+      "end": 415.96,
+      "text": "¿Por qué tanta comida?"
+    },
+    {
+      "start": 415.96,
+      "end": 417.72,
+      "text": "Papá, por fin llegaste."
+    },
+    {
+      "start": 417.72,
+      "end": 419.84,
+      "text": "Xiaoyani es el nuevo comprador de la fábrica."
+    },
+    {
+      "start": 419.84,
+      "end": 421.56,
+      "text": "Toficial y complaza."
+    },
+    {
+      "start": 421.56,
+      "end": 423.32,
+      "text": "Compró una casa grande en la ciudad."
+    },
+    {
+      "start": 423.32,
+      "end": 424.0,
+      "text": "Mañana."
+    },
+    {
+      "start": 424.0,
+      "end": 425.04,
+      "text": "Haz el cambio de nombre."
+    },
+    {
+      "start": 425.08,
+      "end": 427.16,
+      "text": "Serán ciudadanos citadinos."
+    },
+    {
+      "start": 427.16,
+      "end": 429.8,
+      "text": "Mag, por eso vi una mula en el patio."
+    },
+    {
+      "start": 429.8,
+      "end": 431.64,
+      "text": "Por fin tenemos a alguien con empleo."
+    },
+    {
+      "start": 431.64,
+      "end": 432.56,
+      "text": "Qué bien."
+    },
+    {
+      "start": 432.56,
+      "end": 434.84,
+      "text": "Ahora alguien trae salario."
+    },
+    {
+      "start": 434.84,
+      "end": 436.56,
+      "text": "Ya no pasaremos hambre."
+    },
+    {
+      "start": 436.56,
+      "end": 439.04,
+      "text": "No, debo ir a preguntarle no."
+    },
+    {
+      "start": 439.04,
+      "end": 440.2,
+      "text": "Mejor déjalo."
+    },
+    {
+      "start": 440.2,
+      "end": 441.6,
+      "text": "Xiaoyani ha trabajado mucho hoy."
+    },
+    {
+      "start": 441.6,
+      "end": 444.84,
+      "text": "Hender carne, medicinas, conseguir empleo y casa."
+    },
+    {
+      "start": 444.84,
+      "end": 445.92,
+      "text": "Está cansado."
+    },
+    {
+      "start": 445.92,
+      "end": 447.16,
+      "text": "Que descanse."
+    },
+    {
+      "start": 447.16,
+      "end": 449.92,
+      "text": "Ten, bebe leche y come duraznos."
+    },
+    {
+      "start": 449.92,
+      "end": 451.44,
+      "text": "Bien."
+    },
+    {
+      "start": 451.44,
+      "end": 459.86,
+      "text": "Bien, bien."
+    },
+    {
+      "start": 459.86,
+      "end": 464.18,
+      "text": "Papá, quiero dos piezas de durazno."
+    },
+    {
+      "start": 464.18,
+      "end": 473.86,
+      "text": "Come, compartiremos uno."
+    },
+    {
+      "start": 473.86,
+      "end": 476.26,
+      "text": "¿Dónde se bañó este lombreloy?"
+    },
+    {
+      "start": 476.26,
+      "end": 500.1,
+      "text": "Huele tan bien."
+    },
+    {
+      "start": 500.1,
+      "end": 501.38,
+      "text": "Es medianoche."
+    },
+    {
+      "start": 501.38,
+      "end": 504.22,
+      "text": "¿Qué hacen despiertos?"
+    },
+    {
+      "start": 504.22,
+      "end": 505.74,
+      "text": "Desde que sané."
+    },
+    {
+      "start": 505.74,
+      "end": 508.46,
+      "text": "Te veo cada día más hermosa."
+    },
+    {
+      "start": 508.46,
+      "end": 512.62,
+      "text": "Esposa, cuando estemos instalados en la ciudad y la"
+    },
+    {
+      "start": 512.62,
+      "end": 523.52,
+      "text": "vida sea estable, tendremos otro hijo."
+    },
+    {
+      "start": 523.52,
+      "end": 525.36,
+      "text": "Ya que estás despierto, habla."
+    },
+    {
+      "start": 525.36,
+      "end": 527.2,
+      "text": "¿Qué pasó estos dos días?"
+    },
+    {
+      "start": 527.2,
+      "end": 530.68,
+      "text": "Pescado, cordero y de repente comprador."
+    },
+    {
+      "start": 530.68,
+      "end": 533.64,
+      "text": "¿De dónde sacaste el dinero para la casa?"
+    },
+    {
+      "start": 533.64,
+      "end": 537.12,
+      "text": "Aunque seas comprador, con 35 almes no alcanza para una"
+    },
+    {
+      "start": 537.12,
+      "end": 537.92,
+      "text": "casa así."
+    },
+    {
+      "start": 537.92,
+      "end": 540.68,
+      "text": "¿Y por qué te darían el empleo gratis sin entregar"
+    },
+    {
+      "start": 540.68,
+      "end": 541.96,
+      "text": "suministros antes?"
+    },
+    {
+      "start": 541.96,
+      "end": 543.84,
+      "text": "Y los dulces y la leche de esta noche."
+    },
+    {
+      "start": 543.84,
+      "end": 545.28,
+      "text": "Nunca los había visto en la ciudad."
+    },
+    {
+      "start": 545.28,
+      "end": 547.6,
+      "text": "¿Qué está pasando aquí?"
+    },
+    {
+      "start": 547.6,
+      "end": 549.8,
+      "text": "Si no fueras mi esposa, serías una gran detective."
+    },
+    {
+      "start": 549.8,
+      "end": 551.2,
+      "text": "Tu razonamiento es brillante."
+    },
+    {
+      "start": 551.2,
+      "end": 552.76,
+      "text": "Recuerda que soy estudiante."
+    },
+    {
+      "start": 552.76,
+      "end": 554.24,
+      "text": "Tengo algo de conocimiento."
+    },
+    {
+      "start": 554.24,
+      "end": 555.12,
+      "text": "No cambies de tema."
+    },
+    {
+      "start": 555.68,
+      "end": 557.28,
+      "text": "Tengo opción."
+    },
+    {
+      "start": 557.28,
+      "end": 558.28,
+      "text": "¿Tú qué crees?"
+    },
+    {
+      "start": 558.28,
+      "end": 559.48,
+      "text": "Habla ya."
+    },
+    {
+      "start": 559.48,
+      "end": 561.96,
+      "text": "Si no, no vuelves a entrar a la cama."
+    },
+    {
+      "start": 561.96,
+      "end": 565.44,
+      "text": "Bien, bien, contaré todo."
+    },
+    {
+      "start": 565.44,
+      "end": 573.02,
+      "text": "Al despertar, podía sacar comida de la nada."
+    },
+    {
+      "start": 573.02,
+      "end": 574.14,
+      "text": "Así fue."
+    },
+    {
+      "start": 574.14,
+      "end": 575.06,
+      "text": "¿Me crees?"
+    },
+    {
+      "start": 575.06,
+      "end": 576.06,
+      "text": "Yo no."
+    },
+    {
+      "start": 576.06,
+      "end": 578.26,
+      "text": "Mientes, un supermercado."
+    },
+    {
+      "start": 578.26,
+      "end": 580.42,
+      "text": "¿Dónde hay supermercados en este pueblo?"
+    },
+    {
+      "start": 580.42,
+      "end": 581.38,
+      "text": "No miento."
+    },
+    {
+      "start": 581.38,
+      "end": 583.82,
+      "text": "Al mejorar mi salud, apareció este supermercado."
+    },
+    {
+      "start": 583.82,
+      "end": 585.94,
+      "text": "Tiene comida, utensilios, todo."
+    },
+    {
+      "start": 585.94,
+      "end": 588.46,
+      "text": "Se reabastece solo."
+    },
+    {
+      "start": 588.46,
+      "end": 589.38,
+      "text": "Llévame a verlo."
+    },
+    {
+      "start": 589.38,
+      "end": 590.78,
+      "text": "Si no, no creo nada."
+    },
+    {
+      "start": 590.78,
+      "end": 591.98,
+      "text": "Vamos, esposa."
+    },
+    {
+      "start": 591.98,
+      "end": 592.58,
+      "text": "Síleme."
+    },
+    {
+      "start": 592.58,
+      "end": 596.16,
+      "text": "Te llevaré."
+    },
+    {
+      "start": 596.16,
+      "end": 597.2,
+      "text": "Prepárate."
+    },
+    {
+      "start": 597.2,
+      "end": 616.47,
+      "text": "No intentes nada raro."
+    },
+    {
+      "start": 616.47,
+      "end": 619.79,
+      "text": "¿Dónde, dónde estamos?"
+    },
+    {
+      "start": 619.79,
+      "end": 624.34,
+      "text": "Tantas cosas."
+    },
+    {
+      "start": 624.34,
+      "end": 626.42,
+      "text": "Ya viste, mi amor."
+    },
+    {
+      "start": 626.42,
+      "end": 627.98,
+      "text": "Este es el supermercado."
+    },
+    {
+      "start": 627.98,
+      "end": 629.3,
+      "text": "Hay una farmacia dentro."
+    },
+    {
+      "start": 629.3,
+      "end": 632.22,
+      "text": "De aquí saqué la medicina de mi cuñado."
+    },
+    {
+      "start": 632.22,
+      "end": 634.9,
+      "text": "Tanta comida rica."
+    },
+    {
+      "start": 634.9,
+      "end": 637.18,
+      "text": "Cuánta tela bonita."
+    },
+    {
+      "start": 637.22,
+      "end": 646.0,
+      "text": "Y todas estas botellas."
+    },
+    {
+      "start": 646.0,
+      "end": 647.0,
+      "text": "Qué rico."
+    },
+    {
+      "start": 647.0,
+      "end": 648.48,
+      "text": "Qué fruta es esta."
+    },
+    {
+      "start": 648.48,
+      "end": 649.76,
+      "text": "No parece uva."
+    },
+    {
+      "start": 649.76,
+      "end": 651.16,
+      "text": "Es uva chinemuscat."
+    },
+    {
+      "start": 651.16,
+      "end": 652.36,
+      "text": "Es un tipo de uva."
+    },
+    {
+      "start": 652.36,
+      "end": 654.92,
+      "text": "Todo lo que tomamos de los estantes se repone solo al"
+    },
+    {
+      "start": 654.92,
+      "end": 655.8,
+      "text": "poco tiempo."
+    },
+    {
+      "start": 655.8,
+      "end": 657.76,
+      "text": "Así que tenemos comida infinita en casa."
+    },
+    {
+      "start": 657.76,
+      "end": 659.4,
+      "text": "Ya nunca pasaremos hambre."
+    },
+    {
+      "start": 659.4,
+      "end": 661.44,
+      "text": "¿Dónde lavaste las uvas?"
+    },
+    {
+      "start": 661.44,
+      "end": 663.44,
+      "text": "No vi agua por aquí."
+    },
+    {
+      "start": 663.44,
+      "end": 665.4,
+      "text": "El supermercado tiene un baño, es decir,"
+    },
+    {
+      "start": 665.4,
+      "end": 667.24,
+      "text": "un lugar para ir al sanitario y también para"
+    },
+    {
+      "start": 667.24,
+      "end": 668.08,
+      "text": "lavar cosas."
+    },
+    {
+      "start": 668.08,
+      "end": 670.24,
+      "text": "Te enseñaré."
+    },
+    {
+      "start": 670.24,
+      "end": 671.6,
+      "text": "Esto es el inodoro."
+    },
+    {
+      "start": 671.6,
+      "end": 675.24,
+      "text": "Tras usarlo, presionas este botón y se descarra solo."
+    },
+    {
+      "start": 675.24,
+      "end": 676.68,
+      "text": "Ya no hay que tirar agua sucia."
+    },
+    {
+      "start": 676.68,
+      "end": 679.04,
+      "text": "Y esto, abres la llave y sale agua."
+    },
+    {
+      "start": 679.04,
+      "end": 680.4,
+      "text": "Tiene agua fría y caliente."
+    },
+    {
+      "start": 680.4,
+      "end": 683.0,
+      "text": "Con una tina puedes bañarte y lavar ropa."
+    },
+    {
+      "start": 683.0,
+      "end": 684.92,
+      "text": "Quiero bañarme."
+    },
+    {
+      "start": 684.92,
+      "end": 687.68,
+      "text": "¿Podrías ponerme agua caliente, por favor?"
+    },
+    {
+      "start": 687.68,
+      "end": 690.76,
+      "text": "En el pueblo solo usamos una toalla y uno nunca se"
+    },
+    {
+      "start": 690.76,
+      "end": 691.68,
+      "text": "siente bien."
+    },
+    {
+      "start": 691.68,
+      "end": 692.96,
+      "text": "Con tantas facilidades aquí."
+    },
+    {
+      "start": 692.96,
+      "end": 694.24,
+      "text": "Me bañaré de inmediato."
+    },
+    {
+      "start": 694.24,
+      "end": 695.56,
+      "text": "Claro que sí."
+    },
+    {
+      "start": 695.56,
+      "end": 698.56,
+      "text": "En este estante hay shampoo y jabón y detergente para"
+    },
+    {
+      "start": 698.56,
+      "end": 699.6,
+      "text": "la ropa."
+    },
+    {
+      "start": 699.6,
+      "end": 701.36,
+      "text": "Esta es la lavadora."
+    },
+    {
+      "start": 701.36,
+      "end": 703.56,
+      "text": "Metes la ropa y echas jabón."
+    },
+    {
+      "start": 703.56,
+      "end": 704.88,
+      "text": "Se lava sola perfectamente."
+    },
+    {
+      "start": 704.88,
+      "end": 706.32,
+      "text": "Y también la centrifuga."
+    },
+    {
+      "start": 706.32,
+      "end": 708.84,
+      "text": "Hace poco le entré y me bañé."
+    },
+    {
+      "start": 708.84,
+      "end": 710.64,
+      "text": "La temperatura aquí es perfecta."
+    },
+    {
+      "start": 710.64,
+      "end": 711.8,
+      "text": "No se siente frío bañarse."
+    },
+    {
+      "start": 711.8,
+      "end": 712.68,
+      "text": "De acuerdo."
+    },
+    {
+      "start": 712.68,
+      "end": 714.84,
+      "text": "Calentaré agua en el hervidor."
+    },
+    {
+      "start": 714.84,
+      "end": 716.12,
+      "text": "También hay ropa de mujer."
+    },
+    {
+      "start": 716.12,
+      "end": 718.64,
+      "text": "Te traeré algo para que te cambies."
+    },
+    {
+      "start": 718.64,
+      "end": 721.2,
+      "text": "Lavaré tu ropa vieja en la lavadora."
+    },
+    {
+      "start": 721.2,
+      "end": 721.96,
+      "text": "Qué bien."
+    },
+    {
+      "start": 721.96,
+      "end": 733.12,
+      "text": "Gracias, Xiaoyuan."
+    },
+    {
+      "start": 733.12,
+      "end": 735.44,
+      "text": "Dui Dui, el agua está lista."
+    },
+    {
+      "start": 735.44,
+      "end": 737.32,
+      "text": "Pásame la ropa que te quitaste."
+    },
+    {
+      "start": 737.32,
+      "end": 738.64,
+      "text": "La echaré a la lavadora."
+    },
+    {
+      "start": 738.64,
+      "end": 740.32,
+      "text": "Estará limpia en un momento."
+    },
+    {
+      "start": 740.32,
+      "end": 741.52,
+      "text": "Traje ropa nueva."
+    },
+    {
+      "start": 741.52,
+      "end": 750.02,
+      "text": "Ponte esto al terminar."
+    },
+    {
+      "start": 750.02,
+      "end": 753.62,
+      "text": "Esposa, te ves hermosa."
+    },
+    {
+      "start": 753.62,
+      "end": 754.98,
+      "text": "No digas tonterías."
+    },
+    {
+      "start": 754.98,
+      "end": 756.38,
+      "text": "Claro que no."
+    },
+    {
+      "start": 756.38,
+      "end": 758.18,
+      "text": "Siempre la has sido hermosa."
+    },
+    {
+      "start": 758.18,
+      "end": 760.46,
+      "text": "Con esto te ves aún mejor."
+    },
+    {
+      "start": 760.46,
+      "end": 774.74,
+      "text": "Pareces una chica moderna."
+    },
+    {
+      "start": 774.74,
+      "end": 778.74,
+      "text": "Xiaoyuan, ¿qué es esto?"
+    },
+    {
+      "start": 778.74,
+      "end": 781.7,
+      "text": "Parece una casa de cristal."
+    },
+    {
+      "start": 781.7,
+      "end": 782.86,
+      "text": "Es una casa bajo las estrellas."
+    },
+    {
+      "start": 782.86,
+      "end": 784.1,
+      "text": "También llamada casa de cristal."
+    },
+    {
+      "start": 784.1,
+      "end": 786.54,
+      "text": "En serio, es muy romántico."
+    },
+    {
+      "start": 786.54,
+      "end": 789.18,
+      "text": "De noche puedes ver las estrellas desde adentro."
+    },
+    {
+      "start": 789.18,
+      "end": 790.98,
+      "text": "Qué colchón tan suave."
+    },
+    {
+      "start": 790.98,
+      "end": 793.26,
+      "text": "Es más blando que el can de casa."
+    },
+    {
+      "start": 793.26,
+      "end": 794.46,
+      "text": "Te gusta."
+    },
+    {
+      "start": 794.46,
+      "end": 796.58,
+      "text": "Cuando arreglemos la casa en la ciudad,"
+    },
+    {
+      "start": 796.58,
+      "end": 806.34,
+      "text": "pondré uno así en nuestra habitación."
+    },
+    {
+      "start": 806.34,
+      "end": 808.18,
+      "text": "¿Qué pasa, esposa?"
+    },
+    {
+      "start": 808.18,
+      "end": 810.54,
+      "text": "Mi ropa se está lavando."
+    },
+    {
+      "start": 810.54,
+      "end": 811.94,
+      "text": "¿Qué hago si no seca?"
+    },
+    {
+      "start": 811.94,
+      "end": 814.94,
+      "text": "Tenemos que ir a hacer el trámite hoy."
+    },
+    {
+      "start": 814.94,
+      "end": 816.3,
+      "text": "No te preocupes, esposa."
+    },
+    {
+      "start": 816.3,
+      "end": 817.86,
+      "text": "La lavadora tiene función de secado."
+    },
+    {
+      "start": 817.86,
+      "end": 818.98,
+      "text": "Usaré el calentador eléctrico."
+    },
+    {
+      "start": 818.98,
+      "end": 819.7,
+      "text": "Un poco."
+    },
+    {
+      "start": 819.7,
+      "end": 822.9,
+      "text": "Podrás poner de la enseguida."
+    },
+    {
+      "start": 822.9,
+      "end": 823.94,
+      "text": "Listo, esposa."
+    },
+    {
+      "start": 823.94,
+      "end": 824.74,
+      "text": "Todo seco."
+    },
+    {
+      "start": 824.74,
+      "end": 828.42,
+      "text": "Huele muy bien, ¿no?"
+    },
+    {
+      "start": 828.42,
+      "end": 829.7,
+      "text": "Huele delicioso."
+    },
+    {
+      "start": 829.7,
+      "end": 832.94,
+      "text": "Un día traeremos a Duoduo a bañarse aquí."
+    },
+    {
+      "start": 832.94,
+      "end": 836.22,
+      "text": "Ha crecido tanto y nunca se ha bañado así de rico."
+    },
+    {
+      "start": 836.22,
+      "end": 838.34,
+      "text": "Eso no se puede, esposa."
+    },
+    {
+      "start": 838.34,
+      "end": 839.5,
+      "text": "Nuestra hija es muy pequeña."
+    },
+    {
+      "start": 839.5,
+      "end": 842.38,
+      "text": "Si dice algo por error sobre nuestro supermercado y la"
+    },
+    {
+      "start": 842.38,
+      "end": 845.02,
+      "text": "comida ilimitada, sería un problema."
+    },
+    {
+      "start": 845.02,
+      "end": 847.1,
+      "text": "No quiero que me lleven a estudiar por esto."
+    },
+    {
+      "start": 847.1,
+      "end": 848.34,
+      "text": "Debemos ser discretos."
+    },
+    {
+      "start": 848.34,
+      "end": 849.66,
+      "text": "Ahora soy comprador."
+    },
+    {
+      "start": 849.66,
+      "end": 851.38,
+      "text": "Puedo sacar comida a menudo."
+    },
+    {
+      "start": 851.38,
+      "end": 853.78,
+      "text": "Traeré lo que sea para la familia."
+    },
+    {
+      "start": 853.78,
+      "end": 855.46,
+      "text": "Pero esto debe ser secreto."
+    },
+    {
+      "start": 855.46,
+      "end": 856.9,
+      "text": "Solo nosotros dos lo sabemos."
+    },
+    {
+      "start": 856.9,
+      "end": 858.98,
+      "text": "Cuando Duoduo se bañe, iremos a la ciudad."
+    },
+    {
+      "start": 858.98,
+      "end": 860.62,
+      "text": "La casa ya tiene agua corriente."
+    },
+    {
+      "start": 860.62,
+      "end": 863.1,
+      "text": "Y una ducha improvisada con un balde."
+    },
+    {
+      "start": 863.1,
+      "end": 865.58,
+      "text": "Se bañará igual de bien, ¿verdad?"
+    },
+    {
+      "start": 865.58,
+      "end": 866.78,
+      "text": "Tienes razón."
+    },
+    {
+      "start": 866.78,
+      "end": 868.38,
+      "text": "No lo había pensado bien."
+    },
+    {
+      "start": 868.38,
+      "end": 874.15,
+      "text": "Nadie más debe enterarse de esto."
+    },
+    {
+      "start": 874.15,
+      "end": 876.59,
+      "text": "Bañaremos a Duoduo en la casa de la ciudad."
+    },
+    {
+      "start": 876.59,
+      "end": 878.79,
+      "text": "Iremos sacando los suministros poco a poco."
+    },
+    {
+      "start": 878.79,
+      "end": 881.27,
+      "text": "Venderemos en la fábrica y ahorraremos."
+    },
+    {
+      "start": 881.27,
+      "end": 882.91,
+      "text": "Compraremos más propiedades después."
+    },
+    {
+      "start": 882.91,
+      "end": 885.15,
+      "text": "Las casas valdrán mucho en el futuro."
+    },
+    {
+      "start": 885.15,
+      "end": 886.79,
+      "text": "Cuando vayamos a visitar a tus padres a Pekín,"
+    },
+    {
+      "start": 886.79,
+      "end": 888.55,
+      "text": "compraremos una allá también."
+    },
+    {
+      "start": 888.55,
+      "end": 891.47,
+      "text": "Así, cuando vayamos de visita, estaremos más cómodos."
+    },
+    {
+      "start": 891.47,
+      "end": 893.67,
+      "text": "Descuida, guardaré en el secreto."
+    },
+    {
+      "start": 893.67,
+      "end": 895.15,
+      "text": "Solo nosotros lo sabemos."
+    },
+    {
+      "start": 895.15,
+      "end": 896.35,
+      "text": "No diré nada a nadie."
+    },
+    {
+      "start": 896.35,
+      "end": 898.35,
+      "text": "Ni a mamá ni a mi hermana."
+    },
+    {
+      "start": 898.35,
+      "end": 899.71,
+      "text": "Qué obediente eres, esposa."
+    },
+    {
+      "start": 899.71,
+      "end": 900.87,
+      "text": "Ya no hagamos ruido."
+    },
+    {
+      "start": 900.87,
+      "end": 901.87,
+      "text": "Salgamos de aquí."
+    },
+    {
+      "start": 901.87,
+      "end": 903.27,
+      "text": "Nuestra hija debe haber despertado."
+    },
+    {
+      "start": 903.27,
+      "end": 904.59,
+      "text": "Mamá ya debe tener la comida."
+    },
+    {
+      "start": 904.59,
+      "end": 905.15,
+      "text": "Lista."
+    },
+    {
+      "start": 905.15,
+      "end": 906.59,
+      "text": "Vamos a desayunar."
+    },
+    {
+      "start": 906.59,
+      "end": 908.95,
+      "text": "Y tenemos que ir a registrar la casa."
+    },
+    {
+      "start": 908.95,
+      "end": 910.67,
+      "text": "Si te gusta esta casa de cristal,"
+    },
+    {
+      "start": 910.67,
+      "end": 912.83,
+      "text": "la trasladaremos al patio de la ciudad."
+    },
+    {
+      "start": 912.83,
+      "end": 914.39,
+      "text": "En invierno, con nieve afuera,"
+    },
+    {
+      "start": 914.39,
+      "end": 916.47,
+      "text": "con la estufa encendida adentro."
+    },
+    {
+      "start": 916.47,
+      "end": 918.87,
+      "text": "Ustedes dos estarán calientitas viendo la nieve."
+    },
+    {
+      "start": 918.87,
+      "end": 921.39,
+      "text": "Y en verano cenarán viendo las estrellas."
+    },
+    {
+      "start": 921.39,
+      "end": 924.67,
+      "text": "Será muy cómodo, pues, si la movemos."
+    },
+    {
+      "start": 924.67,
+      "end": 925.55,
+      "text": "El súper repone."
+    },
+    {
+      "start": 925.55,
+      "end": 927.15,
+      "text": "Otra automáticamente."
+    },
+    {
+      "start": 927.15,
+      "end": 928.11,
+      "text": "¿En serio?"
+    },
+    {
+      "start": 928.11,
+      "end": 930.63,
+      "text": "¿Se verá hermosa en el patio?"
+    },
+    {
+      "start": 930.63,
+      "end": 932.43,
+      "text": "Claro que sí."
+    },
+    {
+      "start": 932.43,
+      "end": 936.43,
+      "text": "Entonces, esta noche tendrás que halagarme."
+    },
+    {
+      "start": 936.43,
+      "end": 938.19,
+      "text": "Ni lo sueñes."
+    },
+    {
+      "start": 938.19,
+      "end": 941.19,
+      "text": "Déjame cambiarme y vámonos."
+    },
+    {
+      "start": 941.19,
+      "end": 948.68,
+      "text": "Duobo ya debe estar despierta."
+    },
+    {
+      "start": 948.68,
+      "end": 949.36,
+      "text": "Agárate bien."
+    },
+    {
+      "start": 949.36,
+      "end": 957.91,
+      "text": "Nos vamos."
+    },
+    {
+      "start": 957.95,
+      "end": 959.43,
+      "text": "Xiaoyang."
+    },
+    {
+      "start": 959.43,
+      "end": 963.7,
+      "text": "Siento que esto del súper no es real."
+    },
+    {
+      "start": 963.7,
+      "end": 967.1,
+      "text": "Parece un sueño."
+    },
+    {
+      "start": 967.1,
+      "end": 968.86,
+      "text": "No piense en eso, esposa."
+    },
+    {
+      "start": 968.86,
+      "end": 970.42,
+      "text": "Vamos con mis padres."
+    },
+    {
+      "start": 970.42,
+      "end": 972.98,
+      "text": "Me congelo de solo pensar."
+    },
+    {
+      "start": 972.98,
+      "end": 973.66,
+      "text": "Jajaja."
+    },
+    {
+      "start": 973.66,
+      "end": 975.42,
+      "text": "En el súper hay más de 20 grados."
+    },
+    {
+      "start": 975.42,
+      "end": 978.06,
+      "text": "Viviría ahí toda la vida."
+    },
+    {
+      "start": 978.06,
+      "end": 980.26,
+      "text": "En casa sí, hace mucho frío."
+    },
+    {
+      "start": 980.26,
+      "end": 982.7,
+      "text": "Qué cómodo es el súper."
+    },
+    {
+      "start": 982.7,
+      "end": 985.26,
+      "text": "Especialmente en ese colchón suave."
+    },
+    {
+      "start": 985.26,
+      "end": 987.58,
+      "text": "He acuestado y todo es suavidad."
+    },
+    {
+      "start": 987.58,
+      "end": 989.22,
+      "text": "Cuando nos movemos a la ciudad,"
+    },
+    {
+      "start": 989.22,
+      "end": 991.86,
+      "text": "mudaré los colchones al patio."
+    },
+    {
+      "start": 991.86,
+      "end": 993.9,
+      "text": "Dormiremos en colchones suaves."
+    },
+    {
+      "start": 993.9,
+      "end": 995.94,
+      "text": "Cambiaremos sábanas y cobijas."
+    },
+    {
+      "start": 995.94,
+      "end": 998.38,
+      "text": "Y comerán carne todos los días."
+    },
+    {
+      "start": 998.38,
+      "end": 1006.19,
+      "text": "Muy bien."
+    },
+    {
+      "start": 1006.19,
+      "end": 1008.39,
+      "text": "Pasen, pasen, muera."
+    },
+    {
+      "start": 1008.39,
+      "end": 1009.71,
+      "text": "No encendieron fuego."
+    },
+    {
+      "start": 1009.71,
+      "end": 1011.15,
+      "text": "¿Por qué tanto frío?"
+    },
+    {
+      "start": 1011.15,
+      "end": 1014.23,
+      "text": "Nos levantamos tarde, mamá."
+    },
+    {
+      "start": 1014.23,
+      "end": 1016.19,
+      "text": "¿Cómo iríamos a la ciudad con Xiaoyang?"
+    },
+    {
+      "start": 1016.19,
+      "end": 1018.19,
+      "text": "Preferimos venir directo."
+    },
+    {
+      "start": 1018.19,
+      "end": 1019.55,
+      "text": "Coman primero."
+    },
+    {
+      "start": 1019.55,
+      "end": 1021.07,
+      "text": "Ya alimenté a Duobo."
+    },
+    {
+      "start": 1021.07,
+      "end": 1022.35,
+      "text": "Juega con su tía."
+    },
+    {
+      "start": 1022.35,
+      "end": 1024.87,
+      "text": "Xiaoyang, enséñame tu credencial."
+    },
+    {
+      "start": 1024.87,
+      "end": 1026.99,
+      "text": "Por fin alguien de la familia con empleo oficial."
+    },
+    {
+      "start": 1026.99,
+      "end": 1028.83,
+      "text": "Tendremos mucho prestigio en el pueblo."
+    },
+    {
+      "start": 1028.83,
+      "end": 1029.83,
+      "text": "Claro, papá."
+    },
+    {
+      "start": 1029.83,
+      "end": 1030.55,
+      "text": "Aquí está."
+    },
+    {
+      "start": 1030.55,
+      "end": 1031.11,
+      "text": "Qué bien."
+    },
+    {
+      "start": 1031.11,
+      "end": 1031.67,
+      "text": "Jaja."
+    },
+    {
+      "start": 1031.67,
+      "end": 1032.35,
+      "text": "Paga."
+    },
+    {
+      "start": 1032.35,
+      "end": 1034.43,
+      "text": "Cuando Duobo y yo arreglemos la casa,"
+    },
+    {
+      "start": 1034.43,
+      "end": 1036.15,
+      "text": "los llevaré a vivir un tiempo."
+    },
+    {
+      "start": 1036.15,
+      "end": 1037.55,
+      "text": "Incluso hasta la sierra primavera."
+    },
+    {
+      "start": 1037.55,
+      "end": 1038.99,
+      "text": "Es nuestra propia casa."
+    },
+    {
+      "start": 1038.99,
+      "end": 1039.91,
+      "text": "Muy espaciosa."
+    },
+    {
+      "start": 1039.91,
+      "end": 1042.03,
+      "text": "Con un par de días, basta."
+    },
+    {
+      "start": 1042.03,
+      "end": 1043.43,
+      "text": "Allá no conozco a nadie."
+    },
+    {
+      "start": 1043.43,
+      "end": 1044.19,
+      "text": "Me aburriré."
+    },
+    {
+      "start": 1044.19,
+      "end": 1046.47,
+      "text": "En el pueblo tengo a mis amigos."
+    },
+    {
+      "start": 1046.47,
+      "end": 1048.99,
+      "text": "Para jugar a gedrez y platicar."
+    },
+    {
+      "start": 1048.99,
+      "end": 1052.63,
+      "text": "Ahora que eres comprador, no nos faltará comida."
+    },
+    {
+      "start": 1052.63,
+      "end": 1054.39,
+      "text": "Tengan más hijos."
+    },
+    {
+      "start": 1054.39,
+      "end": 1055.99,
+      "text": "Ojalá un varón."
+    },
+    {
+      "start": 1055.99,
+      "end": 1057.67,
+      "text": "Para que sirva el linaje."
+    },
+    {
+      "start": 1057.67,
+      "end": 1059.67,
+      "text": "Entendido, papá."
+    },
+    {
+      "start": 1059.67,
+      "end": 1061.63,
+      "text": "Entremos más hijos."
+    },
+    {
+      "start": 1061.63,
+      "end": 1063.63,
+      "text": "Xiaoyang es el único varón."
+    },
+    {
+      "start": 1063.63,
+      "end": 1066.19,
+      "text": "Ya queríamos un nieto."
+    },
+    {
+      "start": 1066.19,
+      "end": 1068.75,
+      "text": "Cuando estemos estables en la ciudad,"
+    },
+    {
+      "start": 1068.75,
+      "end": 1072.82,
+      "text": "le daremos un nieto varón."
+    },
+    {
+      "start": 1072.82,
+      "end": 1074.78,
+      "text": "Mamá, te extrañé."
+    },
+    {
+      "start": 1074.78,
+      "end": 1078.22,
+      "text": "¿Dónde estabas?"
+    },
+    {
+      "start": 1078.22,
+      "end": 1080.14,
+      "text": "Pequeña malagradecida."
+    },
+    {
+      "start": 1080.14,
+      "end": 1082.18,
+      "text": "Tu tía jugó contigo toda la mañana."
+    },
+    {
+      "start": 1082.18,
+      "end": 1083.74,
+      "text": "Y apenas ves a tu madre."
+    },
+    {
+      "start": 1083.74,
+      "end": 1084.66,
+      "text": "Me olvidas."
+    },
+    {
+      "start": 1084.66,
+      "end": 1085.78,
+      "text": "Quiero a mamá."
+    },
+    {
+      "start": 1085.78,
+      "end": 1087.18,
+      "text": "Huele rico."
+    },
+    {
+      "start": 1087.18,
+      "end": 1089.82,
+      "text": "La tía no huele igual."
+    },
+    {
+      "start": 1089.82,
+      "end": 1091.98,
+      "text": "Dodo no extraña a papá."
+    },
+    {
+      "start": 1091.98,
+      "end": 1093.02,
+      "text": "Papá huele mal."
+    },
+    {
+      "start": 1093.02,
+      "end": 1094.58,
+      "text": "No lo quiero."
+    },
+    {
+      "start": 1094.58,
+      "end": 1095.98,
+      "text": "Ven a mis brazos."
+    },
+    {
+      "start": 1095.98,
+      "end": 1102.23,
+      "text": "A ver si es cierto."
+    },
+    {
+      "start": 1102.23,
+      "end": 1103.79,
+      "text": "Guau, huele rico."
+    },
+    {
+      "start": 1103.79,
+      "end": 1110.01,
+      "text": "Ja, ja, ja, ja."
+    },
+    {
+      "start": 1110.01,
+      "end": 1112.73,
+      "text": "Mamá, cuiden a Dodo hoy."
+    },
+    {
+      "start": 1112.73,
+      "end": 1114.73,
+      "text": "Xiaoyang y yo volveremos a la tardecer."
+    },
+    {
+      "start": 1114.73,
+      "end": 1116.97,
+      "text": "Dodo, hazle caso a tu abuela y tía."
+    },
+    {
+      "start": 1116.97,
+      "end": 1119.97,
+      "text": "Volveré con duraznos en Almibar para ti."
+    },
+    {
+      "start": 1119.97,
+      "end": 1122.21,
+      "text": "Cuñada, yo también quiero."
+    },
+    {
+      "start": 1122.21,
+      "end": 1123.41,
+      "text": "Habrá para todas."
+    },
+    {
+      "start": 1123.41,
+      "end": 1124.65,
+      "text": "No se preocupen."
+    },
+    {
+      "start": 1124.65,
+      "end": 1125.97,
+      "text": "Xiaoyang, duele."
+    },
+    {
+      "start": 1125.97,
+      "end": 1127.29,
+      "text": "Vámonos ya."
+    },
+    {
+      "start": 1127.29,
+      "end": 1129.33,
+      "text": "El jefe del pueblo está en el comité."
+    },
+    {
+      "start": 1129.33,
+      "end": 1139.13,
+      "text": "Les hará el comprobante rápido para que vuelvan pronto."
+    },
+    {
+      "start": 1139.13,
+      "end": 1142.21,
+      "text": "Consuegro, ¿de dónde esa carreta?"
+    },
+    {
+      "start": 1142.21,
+      "end": 1145.33,
+      "text": "Mi hijo la usa para el trabajo."
+    },
+    {
+      "start": 1145.33,
+      "end": 1148.37,
+      "text": "Es comprador en la fábrica textil."
+    },
+    {
+      "start": 1148.37,
+      "end": 1150.17,
+      "text": "Compró una casa en la ciudad."
+    },
+    {
+      "start": 1150.17,
+      "end": 1154.21,
+      "text": "Vinimos por el documento para cambiar su registro."
+    },
+    {
+      "start": 1154.21,
+      "end": 1156.85,
+      "text": "Xiaoyang, comprador."
+    },
+    {
+      "start": 1156.85,
+      "end": 1158.57,
+      "text": "Y de donde sacaron dinero para la casa."
+    },
+    {
+      "start": 1158.57,
+      "end": 1161.77,
+      "text": "Casó una oveja salvaje."
+    },
+    {
+      "start": 1161.77,
+      "end": 1164.29,
+      "text": "La vendió al jefe de compras."
+    },
+    {
+      "start": 1164.29,
+      "end": 1167.29,
+      "text": "La casa es de alguien de la fábrica."
+    },
+    {
+      "start": 1167.29,
+      "end": 1169.21,
+      "text": "Pararemos poco a poco."
+    },
+    {
+      "start": 1169.21,
+      "end": 1171.85,
+      "text": "Qué éxito."
+    },
+    {
+      "start": 1171.85,
+      "end": 1178.02,
+      "text": "Les haré el documento enseguida."
+    },
+    {
+      "start": 1178.02,
+      "end": 1178.98,
+      "text": "Adelante, adelante."
+    },
+    {
+      "start": 1178.98,
+      "end": 1183.79,
+      "text": "Siéntense, siéntense."
+    },
+    {
+      "start": 1183.79,
+      "end": 1184.43,
+      "text": "Listo."
+    },
+    {
+      "start": 1184.43,
+      "end": 1185.99,
+      "text": "Aquí está."
+    },
+    {
+      "start": 1185.99,
+      "end": 1188.19,
+      "text": "Vayan a la ciudad a los trámites."
+    },
+    {
+      "start": 1188.19,
+      "end": 1189.19,
+      "text": "Gracias, Diyuan."
+    },
+    {
+      "start": 1189.19,
+      "end": 1189.87,
+      "text": "Habrá."
+    },
+    {
+      "start": 1189.87,
+      "end": 1190.71,
+      "text": "Nos vamos."
+    },
+    {
+      "start": 1190.71,
+      "end": 1192.03,
+      "text": "Platiquen tranquilos."
+    },
+    {
+      "start": 1192.03,
+      "end": 1192.91,
+      "text": "Con cuidado."
+    },
+    {
+      "start": 1192.91,
+      "end": 1194.67,
+      "text": "Ja, ja."
+    },
+    {
+      "start": 1194.67,
+      "end": 1197.63,
+      "text": "Qué cambio ha dado tu familia."
+    },
+    {
+      "start": 1197.63,
+      "end": 1199.27,
+      "text": "Un hijo con empleo en la ciudad."
+    },
+    {
+      "start": 1199.27,
+      "end": 1202.03,
+      "text": "Tendrán una vida increíble."
+    },
+    {
+      "start": 1202.03,
+      "end": 1205.87,
+      "text": "Xiaoyang, estos días o traes pescado o piernas de"
+    },
+    {
+      "start": 1205.87,
+      "end": 1206.43,
+      "text": "cordero."
+    },
+    {
+      "start": 1206.43,
+      "end": 1207.83,
+      "text": "Qué envidia."
+    },
+    {
+      "start": 1207.83,
+      "end": 1209.39,
+      "text": "La suerte cambia."
+    },
+    {
+      "start": 1209.39,
+      "end": 1212.19,
+      "text": "Quizá luego necesitemos su ayuda."
+    },
+    {
+      "start": 1212.19,
+      "end": 1215.35,
+      "text": "Naturalmente, mientras yo tenga comida,"
+    },
+    {
+      "start": 1215.35,
+      "end": 1217.99,
+      "text": "mi familia no pasará hambre."
+    },
+    {
+      "start": 1217.99,
+      "end": 1232.55,
+      "text": "Ja, ja, ja, ja, ja."
+    },
+    {
+      "start": 1232.55,
+      "end": 1235.51,
+      "text": "Xiaoyang, no íbamos a la ciudad."
+    },
+    {
+      "start": 1235.51,
+      "end": 1243.89,
+      "text": "¿Por qué ataste la carreta aquí?"
+    },
+    {
+      "start": 1243.89,
+      "end": 1247.51,
+      "text": "¿Cómo llegamos aquí?"
+    },
+    {
+      "start": 1247.51,
+      "end": 1250.35,
+      "text": "Yueyue, hace mucho frío afuera."
+    },
+    {
+      "start": 1250.35,
+      "end": 1252.19,
+      "text": "Quédate aquí."
+    },
+    {
+      "start": 1252.19,
+      "end": 1255.95,
+      "text": "Te avisaré cuando estemos en la casa."
+    },
+    {
+      "start": 1255.95,
+      "end": 1258.35,
+      "text": "Come lo que quieras."
+    },
+    {
+      "start": 1258.35,
+      "end": 1264.95,
+      "text": "Duerme un rato en el colchón."
+    },
+    {
+      "start": 1264.95,
+      "end": 1267.39,
+      "text": "Bien, Yueyue."
+    },
+    {
+      "start": 1267.39,
+      "end": 1269.99,
+      "text": "Tardaré una hora en llegar."
+    },
+    {
+      "start": 1269.99,
+      "end": 1272.15,
+      "text": "Te recogeré al llegar."
+    },
+    {
+      "start": 1272.15,
+      "end": 1274.87,
+      "text": "Si no puedes dormir, pon las sábanas en la lavadora."
+    },
+    {
+      "start": 1275.27,
+      "end": 1279.15,
+      "text": "Así al llegar, estará todo listo."
+    },
+    {
+      "start": 1279.15,
+      "end": 1280.47,
+      "text": "¿Por qué no me lo dijiste antes?"
+    },
+    {
+      "start": 1280.47,
+      "end": 1282.43,
+      "text": "Me estaba congelando en la carreta."
+    },
+    {
+      "start": 1282.43,
+      "end": 1284.35,
+      "text": "Apenas lo recordé."
+    },
+    {
+      "start": 1284.35,
+      "end": 1286.35,
+      "text": "Hay abrigos en el súper."
+    },
+    {
+      "start": 1286.35,
+      "end": 1292.96,
+      "text": "Te daré uno para salir."
+    },
+    {
+      "start": 1292.96,
+      "end": 1294.52,
+      "text": "Usa este."
+    },
+    {
+      "start": 1294.52,
+      "end": 1296.32,
+      "text": "Es grueso, no sentirás frío."
+    },
+    {
+      "start": 1296.32,
+      "end": 1298.16,
+      "text": "Quiero el rosa."
+    },
+    {
+      "start": 1298.16,
+      "end": 1299.56,
+      "text": "Es lindo."
+    },
+    {
+      "start": 1299.56,
+      "end": 1300.64,
+      "text": "Úsalo después."
+    },
+    {
+      "start": 1300.64,
+      "end": 1302.56,
+      "text": "Es muy llamativo ahora."
+    },
+    {
+      "start": 1302.56,
+      "end": 1305.44,
+      "text": "En esta época, nadie usa colores así."
+    },
+    {
+      "start": 1305.44,
+      "end": 1308.84,
+      "text": "Atraerás muchas miradas y problemas."
+    },
+    {
+      "start": 1308.84,
+      "end": 1322.14,
+      "text": "Mejor usaré el negro."
+    },
+    {
+      "start": 1322.14,
+      "end": 1323.02,
+      "text": "Qué calor."
+    },
+    {
+      "start": 1323.02,
+      "end": 1324.9,
+      "text": "Hay 25 grados aquí."
+    },
+    {
+      "start": 1324.9,
+      "end": 1326.62,
+      "text": "Ponte el vestido de anoche."
+    },
+    {
+      "start": 1326.62,
+      "end": 1327.42,
+      "text": "Es fresco."
+    },
+    {
+      "start": 1327.42,
+      "end": 1330.38,
+      "text": "Te traje frutas y pasteles."
+    },
+    {
+      "start": 1330.38,
+      "end": 1334.87,
+      "text": "Escansa un poco."
+    },
+    {
+      "start": 1334.87,
+      "end": 1337.67,
+      "text": "Ayer no pudimos disfrutarlo bien."
+    },
+    {
+      "start": 1337.67,
+      "end": 1341.11,
+      "text": "Este vestido es precioso."
+    },
+    {
+      "start": 1341.11,
+      "end": 1342.19,
+      "text": "Come algo."
+    },
+    {
+      "start": 1342.19,
+      "end": 1344.23,
+      "text": "Siempre eres hermosa."
+    },
+    {
+      "start": 1344.23,
+      "end": 1345.35,
+      "text": "Todo te queda bien."
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+ESTATISTICAS DA TRADUCAO
+=======================
+
+Linhas traduzidas: 1777
+Erros: 1
+Caracteres processados: 52570
+Tempo total: 3188.41 segundos
