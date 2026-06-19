@@ -1,27 +1,30 @@
 #!/bin/bash
 
-# Garante que o script pare se houver erros inesperados na execução de comandos críticos
 set -e
 
-ENTRADA="livro_capitulos.txt"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
 
-# Captura a data atual no formato YYYY-MM-DD
+ENTRADA="$ROOT_DIR/data/inputs/livro_capitulos.txt"
+PIPER_BIN="$ROOT_DIR/bin/piper"
+MODELS_DIR="$ROOT_DIR/data/models"
+OUTPUT_DIR="$ROOT_DIR/data/outputs"
+
 DATA_ATUAL=$(date +%Y-%m-%d)
 
 echo "==============================================================="
 echo "🎙️  GERADOR DE AUDIOBOOK INTERATIVO AVANÇADO (PIPER TTS)"
 echo "==============================================================="
 
-# 1. Validações Iniciais
-if [ ! -f "./piper" ]; then
-    echo "❌ Erro: O atalho './piper' não foi encontrado."
-    echo "Por favor, execute o script 'instalar-ambiente.sh' primeiro."
+if [ ! -f "$PIPER_BIN" ]; then
+    echo "❌ Erro: O atalho '$PIPER_BIN' não foi encontrado."
+    echo "Por favor, execute o script setup/setup-piper.sh primeiro."
     exit 1
 fi
 
 if [ ! -f "$ENTRADA" ]; then
     echo "❌ Erro: Arquivo '$ENTRADA' não encontrado."
-    echo "Por favor, execute o 'extrair-texto.py' antes para gerar o texto."
+    echo "Por favor, execute scripts/extrair-texto.py antes para gerar o texto."
     exit 1
 fi
 
@@ -110,7 +113,8 @@ case "$OPCAO_PAUSA" in
 esac
 
 # Define o nome do arquivo final usando a máscara: YYYY-MM-DD_NomeLocutor_output.wav
-SAIDA="${DATA_ATUAL}_${SUFIXO_ARQUIVO}_output.wav"
+mkdir -p "$OUTPUT_DIR"
+SAIDA="$OUTPUT_DIR/${DATA_ATUAL}_${SUFIXO_ARQUIVO}_output.wav"
 
 echo ""
 echo "==============================================================="
@@ -120,16 +124,21 @@ echo "💾 Arquivo de saída: $SAIDA"
 echo "==============================================================="
 
 # 4. Download Inteligente
-if [ ! -f "$MODELO" ]; then
+MODELO_CAMINHO="$MODELS_DIR/$MODELO"
+CONFIG_CAMINHO="$MODELS_DIR/$CONFIG_MODELO"
+
+if [ ! -f "$MODELO_CAMINHO" ]; then
     echo "📥 Modelo '$MODELO' não encontrado. Baixando..."
-    wget -c "${URL_BASE}/${MODELO}"
+    mkdir -p "$MODELS_DIR"
+    wget -c "${URL_BASE}/${MODELO}" -O "$MODELO_CAMINHO"
 else
     echo "✅ Modelo de voz já existe localmente."
 fi
 
-if [ ! -f "$CONFIG_MODELO" ]; then
+if [ ! -f "$CONFIG_CAMINHO" ]; then
     echo "📥 Configuração '$CONFIG_MODELO' não encontrada. Baixando..."
-    wget -c "${URL_BASE}/${CONFIG_MODELO}"
+    mkdir -p "$MODELS_DIR"
+    wget -c "${URL_BASE}/${CONFIG_MODELO}" -O "$CONFIG_CAMINHO"
 else
     echo "✅ Arquivo de configuração já existe localmente."
 fi
@@ -142,7 +151,7 @@ echo "⏳ Processando... O tempo estimado depende do tamanho do texto."
 echo "---------------------------------------------------------------"
 
 # Executa o Piper injetando o modelo e a pausa customizada escolhida
-cat "$ENTRADA" | ./piper --model "$MODELO" --sentence-silence "$PAUSA_FRASE" --output_file "$SAIDA"
+cat "$ENTRADA" | "$PIPER_BIN" --model "$MODELO_CAMINHO" --sentence-silence "$PAUSA_FRASE" --output_file "$SAIDA"
 
 if [ $? -eq 0 ]; then
     echo ""

@@ -2,10 +2,13 @@
 
 set -e
 
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
 if [ ! -d ".venv" ]; then
     echo "Ambiente não encontrado."
     echo "Execute primeiro:"
-    echo "./setup.sh"
+    echo "./setup/setup-whisper.sh"
     exit 1
 fi
 
@@ -13,6 +16,7 @@ source .venv/bin/activate
 
 MODELO="medium"
 LINGUA="es"
+PARTES_DIR="$ROOT_DIR/data/outputs"
 
 cat > .transcrever.py << 'PYTHON'
 from faster_whisper import WhisperModel
@@ -111,7 +115,7 @@ with open(base.with_suffix(".json"), "w", encoding="utf-8") as f:
 print(f"Concluído: {audio.name}")
 PYTHON
 
-for arquivo in parte1.mp3 parte2.mp3 parte3.mp3 parte4.mp3
+for arquivo in "$PARTES_DIR"/parte1.mp3 "$PARTES_DIR"/parte2.mp3 "$PARTES_DIR"/parte3.mp3 "$PARTES_DIR"/parte4.mp3
 do
     if [ -f "$arquivo" ]; then
         python .transcrever.py \

@@ -3,10 +3,11 @@
 import re
 from pathlib import Path
 
-ARQUIVO_SAIDA = "input.srt"
+ROOT = Path(__file__).resolve().parents[1]
+ARQUIVO_SAIDA = ROOT / "data" / "inputs" / "input.srt"
 
 arquivos = sorted(
-    Path(".").glob("parte*.srt")
+    (ROOT / "data" / "outputs").glob("parte*.srt")
 )
 
 if not arquivos:
