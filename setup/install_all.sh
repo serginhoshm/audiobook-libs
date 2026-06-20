@@ -118,6 +118,11 @@ ensure_translation_deps() {
   ensure_python_pkg "tqdm" "tqdm" ""
 }
 
+ensure_sync_deps() {
+  info "Verificando dependências para sincronização SRT"
+  ensure_python_pkg "pysrt" "pysrt" ""
+}
+
 ensure_piper() {
   info "Verificando instalação do Piper TTS"
   ensure_python_pkg "piper-tts" "piper" ""
@@ -158,6 +163,7 @@ main() {
   ensure_python_tooling
   ensure_whisper
   ensure_translation_deps
+  ensure_sync_deps
   ensure_piper
   ensure_model
 

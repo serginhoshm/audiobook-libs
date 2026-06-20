@@ -2,10 +2,23 @@
 
 set -e
 
+# Esperado pelo fluxo de geração de audiobook:
+# - A entrada principal é o arquivo de legenda SRT em português brasileiro:
+#   data/outputs/output.srt
+# - O áudio final deve ser gerado em português (Brasil).
+# - Cada fala do áudio deve respeitar os tempos definidos no SRT,
+#   preservando a duração de cada trecho e o tempo total do arquivo.
+# - O áudio produzido ao final deve ter duração total compatível com o
+#   tempo acumulado do SRT, ou seja, o último timestamp do arquivo deve
+#   coincidir com a duração final do áudio gerado.
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-ENTRADA="$ROOT_DIR/data/inputs/livro_capitulos.txt"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
+
+# Arquivo SRT obrigatório para sincronização temporal do áudio final.
+SRT_ENTRADA="$ROOT_DIR/data/outputs/output.srt"
 PIPER_BIN="$ROOT_DIR/bin/piper"
 MODELS_DIR="$ROOT_DIR/data/models"
 OUTPUT_DIR="$ROOT_DIR/data/outputs"
@@ -22,11 +35,14 @@ if [ ! -f "$PIPER_BIN" ]; then
     exit 1
 fi
 
-if [ ! -f "$ENTRADA" ]; then
-    echo "❌ Erro: Arquivo '$ENTRADA' não encontrado."
-    echo "Por favor, execute scripts/extrair-texto.py antes para gerar o texto."
+if [ ! -f "$SRT_ENTRADA" ]; then
+    echo "❌ Erro: Arquivo SRT '$SRT_ENTRADA' não encontrado."
+    echo "Este script agora trabalha apenas com o arquivo SRT fornecido."
     exit 1
 fi
+
+echo "✅ Arquivo SRT detectado: $SRT_ENTRADA"
+echo "   O áudio final será gerado respeitando os intervalos definidos nele."
 
 # 2. SELEÇÃO DE LOCOTOR
 echo "---------------------------------------------------------------"
@@ -145,22 +161,23 @@ fi
 
 # 5. Processamento do Áudio
 echo "---------------------------------------------------------------"
-echo "🔊 Iniciando a síntese de voz..."
-echo "📄 Texto de entrada: $ENTRADA"
-echo "⏳ Processando... O tempo estimado depende do tamanho do texto."
+echo "🔊 Iniciando a síntese de voz com base apenas no SRT..."
+echo "📄 Arquivo SRT utilizado: $SRT_ENTRADA"
+echo "🕒 O áudio gerado seguirá exatamente os intervalos definidos no SRT."
 echo "---------------------------------------------------------------"
 
-# Executa o Piper injetando o modelo e a pausa customizada escolhida
-cat "$ENTRADA" | "$PIPER_BIN" --model "$MODELO_CAMINHO" --sentence-silence "$PAUSA_FRASE" --output_file "$SAIDA"
-
-if [ $? -eq 0 ]; then
+if "$PYTHON_BIN" scripts/gerar-sincronizado.py \
+    --srt "$SRT_ENTRADA" \
+    --output "$SAIDA" \
+    --model "$MODELO_CAMINHO" \
+    --piper "$PIPER_BIN"; then
     echo ""
     echo "=================================================="
-    echo "🎉 AUDIOBOOK GERADO COM SUCESSO!"
+    echo "🎉 AUDIOBOOK SINCRONIZADO GERADO COM SUCESSO!"
     echo "🎙️  Voz utilizada: $NOME_VOZ"
-    echo "⏱️  Pausa aplicada: ${PAUSA_FRASE}s"
     echo "🎵 Arquivo final: $SAIDA"
     echo "=================================================="
 else
-    echo "❌ Ocorreu um erro durante a geração com o Piper."
+    echo "❌ Ocorreu um erro durante a geração sincronizada com o SRT."
+    exit 1
 fi
