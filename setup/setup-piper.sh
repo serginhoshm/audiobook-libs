@@ -1,41 +1,55 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Garante que o script pare imediatamente se houver algum erro
 set -e
 
 echo "==============================================================="
-echo "🚀 Iniciando Configuração do Piper TTS no Zorin OS (Ubuntu)"
+echo "🚀 Iniciando configuração do Piper TTS"
 echo "==============================================================="
 
-# 1. Atualizar a lista de pacotes e instalar dependências do Ubuntu/Zorin
-echo "📦 Instalando dependências do sistema via APT (solicitará sua senha sudo)..."
-sudo apt update
-sudo apt install -y python3-pip python3-venv wget tar coreutils build-essential
+if command -v dnf >/dev/null 2>&1; then
+    echo "📦 Instalando dependências do sistema com dnf..."
+    sudo dnf install -y \
+        python3-pip \
+        python3-virtualenv \
+        wget \
+        tar \
+        coreutils \
+        gcc-c++
+elif command -v apt-get >/dev/null 2>&1; then
+    echo "📦 Instalando dependências do sistema com apt-get..."
+    sudo apt-get update
+    sudo apt-get install -y \
+        python3-pip \
+        python3-venv \
+        wget \
+        tar \
+        coreutils \
+        build-essential
+else
+    echo "Gerenciador de pacotes não suportado neste sistema."
+    echo "Instale manualmente python3-pip, python3-venv, wget, tar, coreutils e build tools."
+    exit 1
+fi
 
-# 2. Garantir que estamos na pasta correta
 PASTA_TRABALHO="$HOME/audiobook-libs"
 mkdir -p "$PASTA_TRABALHO"
 cd "$PASTA_TRABALHO"
 
-# 3. Criar o Ambiente Virtual do Python (venv)
-echo "🐍 Criando ambiente virtual Python isolado (venv)..."
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-    echo "✅ Ambiente venv criado com sucesso."
+echo "🐍 Criando ambiente virtual Python isolado..."
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+    echo "✅ Ambiente .venv criado com sucesso."
 else
-    echo "ℹ️ Ambiente venv já detectado. Pulando criação."
+    echo "ℹ️ Ambiente .venv já detectado. Pulando criação."
 fi
 
-# 4. Instalar o Piper dentro do Ambiente Virtual
 echo "📥 Atualizando o pip e instalando o Piper TTS..."
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install piper-tts
+./.venv/bin/pip install --upgrade pip
+./.venv/bin/pip install piper-tts
 
-# 5. Criar o atalho local para execução direta
 echo "🔗 Criando atalho local para o executável do Piper..."
-ln -sf "$PASTA_TRABALHO/venv/bin/piper" "$PASTA_TRABALHO/piper"
+ln -sf "$PASTA_TRABALHO/.venv/bin/piper" "$PASTA_TRABALHO/piper"
 
-# 6. Baixar o modelo de voz em Português se não estiver presente
 MODELO="pt_BR-faber-medium.onnx"
 CONFIG_MODELO="pt_BR-faber-medium.onnx.json"
 
@@ -55,7 +69,7 @@ else
 fi
 
 echo "==============================================================="
-echo "🎉 AMBIENTE CONFIGURADO COM SUCESSO NO ZORIN OS!"
+echo "🎉 AMBIENTE CONFIGURADO COM SUCESSO"
 echo "==============================================================="
 echo "O Piper e suas dependências em Python estão prontos."
 echo "Um atalho foi gerado em: $PASTA_TRABALHO/piper"

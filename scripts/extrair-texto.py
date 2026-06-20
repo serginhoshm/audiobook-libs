@@ -42,7 +42,18 @@ def extrair_texto_srt(arquivo_entrada, arquivo_saida, arquivo_capitulos=None):
 
 if __name__ == "__main__":
     ROOT = Path(__file__).resolve().parents[1]
-    INPUT = ROOT / "data" / "outputs" / "output.srt"
+    candidatos = [
+        ROOT / "data" / "outputs" / "audio_entrada.pt.srt",
+        ROOT / "data" / "outputs" / "audio_entrada.srt",
+        ROOT / "data" / "outputs" / "output.srt",
+    ]
+    INPUT = next((c for c in candidatos if c.exists()), None)
+
+    if INPUT is None:
+        print("Erro: nenhum arquivo SRT encontrado em data/outputs.")
+        print("Esperado um destes arquivos: audio_entrada.pt.srt, audio_entrada.srt ou output.srt.")
+        sys.exit(1)
+
     OUTPUT = ROOT / "data" / "inputs" / "livro.txt"
     CAPITULOS = ROOT / "data" / "inputs" / "livro_capitulos.txt"
     extrair_texto_srt(INPUT, OUTPUT, CAPITULOS)

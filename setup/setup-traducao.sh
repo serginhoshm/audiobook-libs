@@ -7,11 +7,8 @@ echo " Configuração do ambiente de tradução"
 echo "========================================="
 echo
 
-# Remove ambiente antigo
 if [ -d ".venv" ]; then
-
     echo "Ambiente virtual existente encontrado."
-
     if ! rm -rf .venv 2>/dev/null; then
         echo
         echo "Não foi possível remover .venv."
@@ -27,30 +24,44 @@ if [ -d ".venv" ]; then
     fi
 fi
 
-echo "[1/5] Criando ambiente virtual..."
+if command -v dnf >/dev/null 2>&1; then
+    echo "Detectado Fedora/RHEL com dnf."
+    sudo dnf install -y \
+        python3 \
+        python3-pip \
+        python3-virtualenv
+elif command -v apt-get >/dev/null 2>&1; then
+    echo "Detectado Debian/Ubuntu com apt-get."
+    sudo apt-get update
+    sudo apt-get install -y \
+        python3 \
+        python3-pip \
+        python3-venv
+else
+    echo "Gerenciador de pacotes não suportado neste sistema."
+    echo "Instale manualmente python3, python3-pip e python3-venv antes de continuar."
+    exit 1
+fi
 
+echo "[1/5] Criando ambiente virtual..."
 python3 -m venv .venv
 
 echo
 echo "[2/5] Ativando ambiente..."
-
 source .venv/bin/activate
 
 echo
 echo "[3/5] Atualizando pip..."
-
 python -m pip install --upgrade pip
 
 echo
 echo "[4/5] Instalando dependências..."
-
 pip install \
     deep-translator \
     tqdm
 
 echo
 echo "[5/5] Testando instalação..."
-
 python << 'PYTHON'
 from deep_translator import GoogleTranslator
 

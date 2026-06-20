@@ -16,7 +16,16 @@ source .venv/bin/activate
 
 MODELO="medium"
 LINGUA="es"
-PARTES_DIR="$ROOT_DIR/data/outputs"
+INPUT_AUDIO="$ROOT_DIR/data/inputs/audio_entrada.mp3"
+OUTPUT_DIR="$ROOT_DIR/data/outputs"
+
+if [ ! -f "$INPUT_AUDIO" ]; then
+    echo "ERRO: arquivo de áudio não encontrado em $INPUT_AUDIO"
+    echo "Coloque o arquivo audio_entrada.mp3 na pasta data/inputs antes de executar este passo."
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
 
 cat > .transcrever.py << 'PYTHON'
 from faster_whisper import WhisperModel
@@ -27,6 +36,8 @@ import sys
 MODEL_SIZE = sys.argv[1]
 LANGUAGE = sys.argv[2]
 INPUT_FILE = sys.argv[3]
+OUTPUT_DIR = Path(sys.argv[4])
+
 
 def srt_time(sec):
     h = int(sec // 3600)
@@ -35,6 +46,7 @@ def srt_time(sec):
     ms = int((sec - int(sec)) * 1000)
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
+
 def vtt_time(sec):
     h = int(sec // 3600)
     m = int((sec % 3600) // 60)
@@ -42,8 +54,9 @@ def vtt_time(sec):
     ms = int((sec - int(sec)) * 1000)
     return f"{h:02}:{m:02}:{s:02}.{ms:03}"
 
+
 audio = Path(INPUT_FILE)
-base = audio.with_suffix("")
+base = OUTPUT_DIR / audio.stem
 
 print(f"\nProcessando {audio.name}")
 
@@ -115,17 +128,11 @@ with open(base.with_suffix(".json"), "w", encoding="utf-8") as f:
 print(f"Concluído: {audio.name}")
 PYTHON
 
-for arquivo in "$PARTES_DIR"/parte1.mp3 "$PARTES_DIR"/parte2.mp3 "$PARTES_DIR"/parte3.mp3 "$PARTES_DIR"/parte4.mp3
-do
-    if [ -f "$arquivo" ]; then
-        python .transcrever.py \
-            "$MODELO" \
-            "$LINGUA" \
-            "$arquivo"
-    else
-        echo "Ignorado: $arquivo não encontrado"
-    fi
-done
+python .transcrever.py \
+    "$MODELO" \
+    "$LINGUA" \
+    "$INPUT_AUDIO" \
+    "$OUTPUT_DIR"
 
 rm -f .transcrever.py
 

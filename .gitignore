@@ -6,3 +6,4 @@ __pycache__/
 .venv/
 venv/
 .transcrever.py
+data/inputs/audio_entrada.mp3

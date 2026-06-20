@@ -1,14 +1,27 @@
 #!/usr/bin/env python3
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from pydub import AudioSegment
 import pysrt
 
 ROOT = Path(__file__).resolve().parents[1]
-ARQUIVO_SRT = ROOT / "data" / "outputs" / "output.srt"
-AUDIO_FINAL = ROOT / "data" / "outputs" / "audiobook_sincronizado.wav"
+
+candidatos_srt = [
+    ROOT / "data" / "outputs" / "audio_entrada.pt.srt",
+    ROOT / "data" / "outputs" / "audio_entrada.srt",
+    ROOT / "data" / "outputs" / "output.srt",
+]
+ARQUIVO_SRT = next((c for c in candidatos_srt if c.exists()), None)
+
+if ARQUIVO_SRT is None:
+    print("Erro: nenhum arquivo SRT encontrado em data/outputs.")
+    print("Esperado um destes arquivos: audio_entrada.pt.srt, audio_entrada.srt ou output.srt.")
+    sys.exit(1)
+
+AUDIO_FINAL = ROOT / "data" / "outputs" / "audio_entrada_sincronizado.wav"
 MODELO_VOZ = ROOT / "data" / "models" / "pt_BR-jeff-medium.onnx"
 PIPER = ROOT / "bin" / "piper"
 TEMP_DIR = ROOT / "data" / "outputs" / "temp_audio"

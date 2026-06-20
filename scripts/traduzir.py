@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 
 import re
+import sys
 from pathlib import Path
 
 from deep_translator import GoogleTranslator
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUT = ROOT / "data" / "inputs" / "input.srt"
-OUTPUT = ROOT / "data" / "outputs" / "output.srt"
+
+INPUT_CANDIDATOS = [
+    ROOT / "data" / "outputs" / "audio_entrada.srt",
+    ROOT / "data" / "outputs" / "output.srt",
+]
+
+INPUT = next((caminho for caminho in INPUT_CANDIDATOS if caminho.exists()), None)
+if INPUT is None:
+    print("Erro: nenhum arquivo SRT encontrado em data/outputs.")
+    print("Esperado: data/outputs/audio_entrada.srt (ou output.srt).")
+    sys.exit(1)
+
+OUTPUT = ROOT / "data" / "outputs" / "audio_entrada.pt.srt"
 
 with open(INPUT, "r", encoding="utf-8") as f:
     linhas = f.readlines()
