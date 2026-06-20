@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+set -o pipefail
 
 # Esperado pelo fluxo de geração de audiobook:
 # - A entrada principal é o arquivo de legenda SRT em português brasileiro:
@@ -34,6 +35,7 @@ SCRIPT_START_TIME=$(date +%s)
 # Source logging functions
 source "$ROOT_DIR/scripts/log_helpers.sh"
 
+{
 log_header
 echo "🎙️  GERADOR DE AUDIOBOOK INTERATIVO AVANÇADO (PIPER TTS)"
 echo "==============================================================="
@@ -101,6 +103,8 @@ case "$OPCAO_VOZ" in
 esac
 
 CONFIG_MODELO="${MODELO}.json"
+MODELO_CAMINHO="$MODELS_DIR/$MODELO"
+CONFIG_CAMINHO="$MODELS_DIR/$CONFIG_MODELO"
 
 # 3. SELEÇÃO DO TEMPO DE PAUSA (RITMO)
 log_section "Seleção de Ritmo"
