@@ -127,15 +127,15 @@ ensure_piper() {
   info "Verificando instalação do Piper TTS"
   ensure_python_pkg "piper-tts" "piper" ""
 
-  if [ ! -x "$ROOT_DIR/piper" ] || [ ! -L "$ROOT_DIR/piper" ]; then
+  if [ ! -x "$ROOT_DIR/bin/piper" ] || [ ! -L "$ROOT_DIR/bin/piper" ]; then
     if [ -x "$VENV_DIR/bin/piper" ]; then
-      ln -sf "$VENV_DIR/bin/piper" "$ROOT_DIR/piper"
-      info "Atalho para o Piper criado em $ROOT_DIR/piper"
+      ln -sf "$VENV_DIR/bin/piper" "$ROOT_DIR/bin/piper"
+      info "Atalho para o Piper criado em $ROOT_DIR/bin/piper"
     else
       warn "Executável do Piper ainda não encontrado após instalação; você pode precisar executar novamente este script."
     fi
   else
-    info "Atalho para o Piper já existe em $ROOT_DIR/piper"
+    info "Atalho para o Piper já existe em $ROOT_DIR/bin/piper"
   fi
 }
 
@@ -171,7 +171,7 @@ main() {
   echo
   echo "Como usar:"
   echo "  source .venv/bin/activate"
-  echo "  ./piper --help"
+  echo "  ./bin/piper --help"
 }
 
 main "$@"
