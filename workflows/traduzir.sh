@@ -20,6 +20,7 @@ fi
 
 if [ ! -f "data/inputs/input.srt" ]; then
     echo "ERRO: data/inputs/input.srt não encontrado."
+    echo "Coloque seu arquivo de legenda em data/inputs/input.srt antes de executar este passo."
     exit 1
 fi
 
@@ -29,4 +30,6 @@ cp -f "data/inputs/input.srt" "data/inputs/input.original.srt"
 python3 scripts/traduzir.py
 
 echo
-echo "Concluído."
+printf 'Arquivo traduzido gerado em: %s\n' "data/outputs/output.srt"
+echo
+printf 'Concluído.\n'

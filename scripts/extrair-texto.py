@@ -24,10 +24,14 @@ def extrair_texto_srt(arquivo_entrada, arquivo_saida, arquivo_capitulos=None):
                     texto_legenda += "."
                 linhas_limpas.append(texto_legenda)
 
+    if not linhas_limpas:
+        print(f"⚠️ Nenhum texto foi encontrado em '{arquivo_entrada}'.")
+        return
+
     arquivo_saida.parent.mkdir(parents=True, exist_ok=True)
     with open(arquivo_saida, 'w', encoding='utf-8') as f:
         f.write("\n".join(linhas_limpas) + "\n")
-    print(f"✅ Texto limpo extraído para '{arquivo_saida}'")
+    print(f"✅ Texto limpo extraído para '{arquivo_saida}' ({len(linhas_limpas)} frases)")
 
     if arquivo_capitulos:
         arquivo_capitulos.parent.mkdir(parents=True, exist_ok=True)
