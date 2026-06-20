@@ -8,3 +8,4 @@ venv/
 .transcrever.py
 data/inputs/
 data/outputs/
+logs/

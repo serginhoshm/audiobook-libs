@@ -23,31 +23,35 @@ PIPER_BIN="$ROOT_DIR/bin/piper"
 MODELS_DIR="$ROOT_DIR/data/models"
 OUTPUT_DIR="$ROOT_DIR/data/outputs"
 
-DATA_ATUAL=$(date +%Y-%m-%d)
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-echo "==============================================================="
+# Setup logging
+mkdir -p "$ROOT_DIR/logs"
+LOG_FILE="$ROOT_DIR/logs/gerar-audiobook-${TIMESTAMP}.log"
+SCRIPT_NAME="gerar-audiobook"
+SCRIPT_START_TIME=$(date +%s)
+
+# Source logging functions
+source "$ROOT_DIR/scripts/log_helpers.sh"
+
+log_header
 echo "🎙️  GERADOR DE AUDIOBOOK INTERATIVO AVANÇADO (PIPER TTS)"
 echo "==============================================================="
 
 if [ ! -f "$PIPER_BIN" ]; then
-    echo "❌ Erro: O atalho '$PIPER_BIN' não foi encontrado."
-    echo "Por favor, execute o script setup/setup-piper.sh primeiro."
+    log_error "O atalho '$PIPER_BIN' não foi encontrado."
+    log_summary "FALHA" "Piper não encontrado em $PIPER_BIN"
     exit 1
 fi
 
 if [ ! -f "$SRT_ENTRADA" ]; then
-    echo "❌ Erro: Arquivo SRT '$SRT_ENTRADA' não encontrado."
-    echo "Este script agora trabalha apenas com o arquivo SRT fornecido."
+    log_error "Arquivo SRT '$SRT_ENTRADA' não encontrado."
+    log_summary "FALHA" "Arquivo SRT ausente"
     exit 1
 fi
 
 echo "✅ Arquivo SRT detectado: $SRT_ENTRADA"
-echo "   O áudio final será gerado respeitando os intervalos definidos nele."
-
-# 2. SELEÇÃO DE LOCOTOR
-echo "---------------------------------------------------------------"
-echo "1️⃣  Escolha a voz que deseja usar para narrar a história:"
-echo "---------------------------------------------------------------"
+log_section "Seleção de Voz"
 echo "A) Jeff (Medium)   - Voz masculina, muito natural, ótima para livros"
 echo "B) Faber (Medium)  - Voz masculina, ritmo firme e claro"
 echo "C) Ricardo (Low)   - Voz masculina, modelo mais leve e rápido"
@@ -99,10 +103,7 @@ esac
 CONFIG_MODELO="${MODELO}.json"
 
 # 3. SELEÇÃO DO TEMPO DE PAUSA (RITMO)
-echo ""
-echo "---------------------------------------------------------------"
-echo "2️⃣  Escolha o tempo de pausa (silêncio) entre as frases:"
-echo "---------------------------------------------------------------"
+log_section "Seleção de Ritmo"
 echo "1) 0.25s [Ritmo focado]  - Leitura bem dinâmica e direta"
 echo "2) 0.50s [Padrão rádio] - Pausa curta, ritmo convencional de notícias"
 echo "3) 0.75s [Narrador]     - Excelente equilíbrio para romances e histórias"
@@ -128,9 +129,9 @@ case "$OPCAO_PAUSA" in
         ;;
 esac
 
-# Define o nome do arquivo final usando a máscara: YYYY-MM-DD_NomeLocutor_output.wav
+# Define o nome do arquivo final usando a máscara: output_YYYYMMDD_hhmmss.wav
 mkdir -p "$OUTPUT_DIR"
-SAIDA="$OUTPUT_DIR/${DATA_ATUAL}_${SUFIXO_ARQUIVO}_output.wav"
+SAIDA="$OUTPUT_DIR/output_${TIMESTAMP}.wav"
 
 echo ""
 echo "==============================================================="
@@ -140,8 +141,8 @@ echo "💾 Arquivo de saída: $SAIDA"
 echo "==============================================================="
 
 # 4. Download Inteligente
-MODELO_CAMINHO="$MODELS_DIR/$MODELO"
-CONFIG_CAMINHO="$MODELS_DIR/$CONFIG_MODELO"
+log_section "Verificação e Download de Modelo"
+log_step "Preparando diretório de modelos"
 
 if [ ! -f "$MODELO_CAMINHO" ]; then
     echo "📥 Modelo '$MODELO' não encontrado. Baixando..."
@@ -160,24 +161,19 @@ else
 fi
 
 # 5. Processamento do Áudio
-echo "---------------------------------------------------------------"
-echo "🔊 Iniciando a síntese de voz com base apenas no SRT..."
-echo "📄 Arquivo SRT utilizado: $SRT_ENTRADA"
-echo "🕒 O áudio gerado seguirá exatamente os intervalos definidos no SRT."
-echo "---------------------------------------------------------------"
+log_section "Síntese de Voz"
+log_step "Iniciando processamento do SRT"
 
 if "$PYTHON_BIN" scripts/gerar-sincronizado.py \
     --srt "$SRT_ENTRADA" \
     --output "$SAIDA" \
     --model "$MODELO_CAMINHO" \
     --piper "$PIPER_BIN"; then
-    echo ""
-    echo "=================================================="
-    echo "🎉 AUDIOBOOK SINCRONIZADO GERADO COM SUCESSO!"
-    echo "🎙️  Voz utilizada: $NOME_VOZ"
-    echo "🎵 Arquivo final: $SAIDA"
-    echo "=================================================="
+    log_step "Áudio sincronizado gerado com sucesso"
+    log_summary "SUCCESS" ""
 else
-    echo "❌ Ocorreu um erro durante a geração sincronizada com o SRT."
+    log_error "Falha na geração sincronizada com o SRT."
+    log_summary "FALHA" "Erro durante síntese de voz"
     exit 1
 fi
+} 2>&1 | tee -a "$LOG_FILE"

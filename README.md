@@ -21,15 +21,12 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 2. Coloque o áudio de entrada em `data/inputs/audio_entrada.mp3`.
 3. Execute `workflows/transcrever.sh` para gerar `data/outputs/audio_entrada.srt`, `.json`, `.vtt`, `.tsv` e `.txt`.
 4. Execute `workflows/traduzir.sh` para gerar `data/outputs/audio_entrada.pt.srt`.
-5. Execute `python3 scripts/extrair-texto.py` para criar `data/inputs/livro.txt` e `data/inputs/livro_capitulos.txt`.
-6. Execute `workflows/gerar-audiobook.sh` para gerar o áudio final.
+5. Execute `workflows/gerar-audiobook.sh` para gerar o áudio final.
 
 ## Saídas esperadas
 
 - `data/outputs/audio_entrada.srt` — legenda original em espanhol
 - `data/outputs/audio_entrada.pt.srt` — legenda traduzida para português
-- `data/inputs/livro.txt` — texto limpo em linha única por frase
-- `data/inputs/livro_capitulos.txt` — texto com pausas visuais para leitura
 - `data/outputs/<data>_<voz>_output.wav` — áudio final gerado pelo Piper
 
 ## Observações
@@ -38,3 +35,14 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 - Os scripts Python usam caminhos relativos à raiz do projeto, então podem ser executados de qualquer diretório.
 - O arquivo principal de configuração do ambiente está em `setup/`.
 - É recomendável manter os arquivos grandes em `data/` e não misturá-los com os scripts.
+
+## Mudanças recentes
+
+- Adicionados wrappers em `workflows/` com logging estruturado e nomes de log com timestamp.
+- Removido `scripts/extrair-texto.py` (obsoleto) e documentação atualizada para refletir essa remoção.
+- Criado `workflows/test-e2e.sh` para validação ponta a ponta usando `data/input/audio-model.mp3` como ativo de teste.
+- Ajustes e correções em `workflows/gerar-audiobook.sh` (tratamento de pipes, `set -o pipefail`, definição de `MODELO_CAMINHO`/`CONFIG_CAMINHO`).
+- Para síntese, mantenha os modelos em `data/models/` (ex.: `pt_BR-faber-medium.onnx` e `.json`).
+- Para executar o fluxo de verificação completa: rode `workflows/test-e2e.sh`.
+
+Se desejar, posso também incluir um changelog separado em `CHANGES.md` ou detalhar exemplos de execução no final deste README.

@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 import argparse
+import logging
 import os
 import subprocess
 import sys
+import time
 import wave
 from pathlib import Path
 
 import pysrt
+
+# Configure logging
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 
 def parse_args():
@@ -76,8 +82,14 @@ def concatenar_frames(frames_lista, params, destino):
 
 
 def main():
+    start_time = time.time()
     args = parse_args()
     ROOT = Path(__file__).resolve().parents[1]
+    
+    logging.info("═" * 60)
+    logging.info("[INICIO] gerar-sincronizado")
+    logging.info(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logging.info("═" * 60)
 
     candidatos_srt = [
         ROOT / "data" / "outputs" / "audio_entrada.pt.srt",
@@ -87,9 +99,11 @@ def main():
     ARQUIVO_SRT = args.srt if args.srt else next((c for c in candidatos_srt if c.exists()), None)
 
     if ARQUIVO_SRT is None:
-        print("Erro: nenhum arquivo SRT encontrado em data/outputs.")
-        print("Esperado um destes arquivos: audio_entrada.pt.srt, audio_entrada.srt ou output.srt.")
+        logging.error("Nenhum arquivo SRT encontrado em data/outputs.")
+        logging.error("Esperado um destes arquivos: audio_entrada.pt.srt, audio_entrada.srt ou output.srt.")
         return 1
+    
+    logging.info(f"✓ Arquivo SRT: {ARQUIVO_SRT}")
 
     AUDIO_FINAL = args.output if args.output else ROOT / "data" / "outputs" / "audio_entrada_sincronizado.wav"
     MODELO_VOZ = args.model if args.model else ROOT / "data" / "models" / "pt_BR-jeff-medium.onnx"
@@ -97,22 +111,25 @@ def main():
     TEMP_DIR = ROOT / "data" / "outputs" / "temp_audio"
 
     if not PIPER.exists():
-        print(f"Erro: executável do Piper não encontrado em '{PIPER}'.")
+        logging.error(f"Executável do Piper não encontrado em '{PIPER}'.")
         return 1
     if not MODELO_VOZ.exists():
-        print(f"Erro: modelo do Piper não encontrado em '{MODELO_VOZ}'.")
+        logging.error(f"Modelo do Piper não encontrado em '{MODELO_VOZ}'.")
         return 1
+    
+    logging.info("✓ Validações completas")
+    logging.info("▶ Sincronização de Áudio")
 
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"🎬 Lendo arquivo de legendas SRT: {ARQUIVO_SRT}")
+    logging.info(f"Lendo arquivo de legendas SRT: {ARQUIVO_SRT}")
     legendas = pysrt.open(str(ARQUIVO_SRT), encoding='utf-8')
 
     audio_frames = []
     params = None
     tempo_atual_ms = 0
 
-    print("🎙️ Iniciando síntese sincronizada por timestamp...")
+    logging.info("Iniciando síntese sincronizada por timestamp...")
 
     for i, legenda in enumerate(legendas):
         inicio_ms = (
@@ -164,8 +181,8 @@ def main():
             if params is None:
                 params = frase_static_params
             elif frase_static_params[:3] != params[:3]:
-                print(
-                    f"⚠️  Configuração de áudio diferente para a legenda {i}: {frase_static_params} vs {params}."
+                logging.warning(
+                    f"Configuração de áudio diferente para legenda {i}: {frase_static_params} vs {params}."
                 )
 
             duracao_limite_ms = max(0, fim_ms - inicio_ms)
@@ -197,7 +214,7 @@ def main():
             os.remove(temp_wav)
 
         if i % 100 == 0:
-            print(f"📦 Processadas {i}/{len(legendas)} legendas...")
+            logging.info(f"Processadas {i}/{len(legendas)} legendas...")
 
     # garante que o áudio final respeite a duração total capturada no SRT
     if legendas and params is not None:
@@ -216,11 +233,25 @@ def main():
                 audio_frames.append(frames_para_silencio(params, silencio_necessario))
 
     if params is None:
-        print("Erro: nenhum trecho de áudio foi gerado.")
+        logging.error("Nenhum trecho de áudio foi gerado.")
+        logging.info("═" * 60)
+        logging.info("[FALHA] gerar-sincronizado")
         return 1
 
     concatenar_frames(audio_frames, params, AUDIO_FINAL)
-    print(f"🎉 Sucesso! Áudio sincronizado gerado em: {AUDIO_FINAL}")
+    
+    # Calcula tempo decorrido
+    elapsed_time = time.time() - start_time
+    hours, remainder = divmod(int(elapsed_time), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    
+    logging.info("═" * 60)
+    logging.info("[SUCESSO] gerar-sincronizado")
+    logging.info(f"Status: SUCCESS")
+    logging.info(f"Tempo: {elapsed_str}")
+    logging.info(f"Arquivo: {AUDIO_FINAL}")
+    logging.info("═" * 60)
     return 0
 
 

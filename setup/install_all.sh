@@ -7,6 +7,18 @@ VENV_DIR="$ROOT_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_DIR/bin/pip"
 
+# Setup logging
+mkdir -p "$ROOT_DIR/logs"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="$ROOT_DIR/logs/install_all-${TIMESTAMP}.log"
+SCRIPT_NAME="install_all"
+SCRIPT_START_TIME=$(date +%s)
+
+# Source logging functions
+source "$ROOT_DIR/scripts/log_helpers.sh"
+
+{
+
 info() {
   echo
   echo "==> $*"
@@ -156,7 +168,9 @@ ensure_model() {
 }
 
 main() {
+  log_header
   cd "$ROOT_DIR"
+  log_section "Instalação de Dependências"
   require_root_or_sudo
   ensure_system_deps
   ensure_virtualenv
@@ -167,7 +181,8 @@ main() {
   ensure_piper
   ensure_model
 
-  info "Instalação concluída com sucesso."
+  log_step "Instalação concluída com sucesso"
+  log_summary "SUCCESS" ""
   echo
   echo "Como usar:"
   echo "  source .venv/bin/activate"
@@ -175,3 +190,4 @@ main() {
 }
 
 main "$@"
+} 2>&1 | tee -a "$LOG_FILE"

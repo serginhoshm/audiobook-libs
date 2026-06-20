@@ -5,29 +5,42 @@ set -e
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Setup logging
+mkdir -p "$ROOT_DIR/logs"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="$ROOT_DIR/logs/transcrever-${TIMESTAMP}.log"
+SCRIPT_NAME="transcrever"
+SCRIPT_START_TIME=$(date +%s)
+
+# Source logging functions
+source "$ROOT_DIR/scripts/log_helpers.sh"
+
+{
+
 if [ ! -d ".venv" ]; then
-    echo "Ambiente não encontrado."
-    echo "Execute primeiro:"
-    echo "./setup/setup-whisper.sh"
+    log_error "Ambiente virtual não encontrado."
+    log_summary "FALHA" "Ambiente Python não configurado"
     exit 1
 fi
 
-source .venv/bin/activate
-
-MODELO="medium"
+log_header
+log_section "Verificação de Pré-requisitos"
+log_step "Validando arquivo de entrada"
 LINGUA="es"
 INPUT_AUDIO="$ROOT_DIR/data/inputs/audio_entrada.mp3"
 OUTPUT_DIR="$ROOT_DIR/data/outputs"
 
 if [ ! -f "$INPUT_AUDIO" ]; then
-    echo "ERRO: arquivo de áudio não encontrado em $INPUT_AUDIO"
-    echo "Coloque o arquivo audio_entrada.mp3 na pasta data/inputs antes de executar este passo."
+    log_error "Arquivo de áudio não encontrado em $INPUT_AUDIO"
+    log_summary "FALHA" "Arquivo de entrada ausente"
     exit 1
 fi
 
-mkdir -p "$OUTPUT_DIR"
+log_step "Arquivo de entrada válido"
+log_section "Transcrição de Áudio"
 
-cat > .transcrever.py << 'PYTHON'
+mkdir -p "$OUTPUT_DIR"
+log_step "Iniciando transcrição..."
 from faster_whisper import WhisperModel
 from pathlib import Path
 import json
@@ -136,6 +149,7 @@ python .transcrever.py \
 
 rm -f .transcrever.py
 
-echo
-echo "Processamento concluído."
+log_step "Processamento concluído"
+log_summary "SUCCESS" ""
+} 2>&1 | tee -a "$LOG_FILE"
 
