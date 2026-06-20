@@ -4,256 +4,99 @@ import logging
 import os
 import subprocess
 import sys
-import time
 import wave
 from pathlib import Path
-
 import pysrt
 
-# Configure logging
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Gera áudio sincronizado a partir de um arquivo SRT usando Piper."
-    )
-    parser.add_argument(
-        "--srt",
-        type=Path,
-        default=None,
-        help="Caminho para o arquivo SRT. Se omitido, tenta localizar um arquivo padrão.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Caminho do arquivo WAV final. Se omitido, usa data/outputs/audio_entrada_sincronizado.wav.",
-    )
-    parser.add_argument(
-        "--model",
-        type=Path,
-        default=None,
-        help="Caminho para o modelo ONNX do Piper.",
-    )
-    parser.add_argument(
-        "--piper",
-        type=Path,
-        default=None,
-        help="Caminho para o executável do Piper.",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--srt", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--piper", type=Path, required=True)
+    parser.add_argument("--pause_duration", type=float, default=0.0)
     return parser.parse_args()
 
-
-def abrir_wave(caminho):
-    with wave.open(str(caminho), "rb") as wav:
-        params = wav.getparams()
-        frames = wav.readframes(wav.getnframes())
-    return params, frames
-
-
-def static_params_from_wave(wav_params):
-    return (
-        wav_params.nchannels,
-        wav_params.sampwidth,
-        wav_params.framerate,
-        0,
-        wav_params.comptype,
-        wav_params.compname,
-    )
-
-
-def frames_para_silencio(params, duracao_ms):
-    if duracao_ms <= 0:
-        return b""
-    bytes_por_segundo = params[0] * params[1] * params[2]
-    return b"\x00" * int((bytes_por_segundo * duracao_ms) / 1000)
-
-
-def concatenar_frames(frames_lista, params, destino):
-    if not frames_lista:
-        return
-
-    with wave.open(str(destino), "wb") as wav:
-        wav.setparams(params)
-        for frames in frames_lista:
-            wav.writeframes(frames)
-
+def ms_to_bytes(ms, params):
+    # Garante que o número de bytes seja par (importante para 16-bit)
+    num_bytes = int((params.nchannels * params.sampwidth * params.framerate * ms) / 1000)
+    return num_bytes - (num_bytes % (params.nchannels * params.sampwidth))
 
 def main():
-    start_time = time.time()
     args = parse_args()
-    ROOT = Path(__file__).resolve().parents[1]
+    temp_wav = Path("temp_frase.wav")
     
-    logging.info("═" * 60)
-    logging.info("[INICIO] gerar-sincronizado")
-    logging.info(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logging.info("═" * 60)
-
-    candidatos_srt = [
-        ROOT / "data" / "outputs" / "audio_entrada.pt.srt",
-        ROOT / "data" / "outputs" / "audio_entrada.srt",
-        ROOT / "data" / "outputs" / "output.srt",
-    ]
-    ARQUIVO_SRT = args.srt if args.srt else next((c for c in candidatos_srt if c.exists()), None)
-
-    if ARQUIVO_SRT is None:
-        logging.error("Nenhum arquivo SRT encontrado em data/outputs.")
-        logging.error("Esperado um destes arquivos: audio_entrada.pt.srt, audio_entrada.srt ou output.srt.")
-        return 1
-    
-    logging.info(f"✓ Arquivo SRT: {ARQUIVO_SRT}")
-
-    AUDIO_FINAL = args.output if args.output else ROOT / "data" / "outputs" / "audio_entrada_sincronizado.wav"
-    MODELO_VOZ = args.model if args.model else ROOT / "data" / "models" / "pt_BR-jeff-medium.onnx"
-    PIPER = args.piper if args.piper else ROOT / "bin" / "piper"
-    TEMP_DIR = ROOT / "data" / "outputs" / "temp_audio"
-
-    if not PIPER.exists():
-        logging.error(f"Executável do Piper não encontrado em '{PIPER}'.")
-        return 1
-    if not MODELO_VOZ.exists():
-        logging.error(f"Modelo do Piper não encontrado em '{MODELO_VOZ}'.")
-        return 1
-    
-    logging.info("✓ Validações completas")
-    logging.info("▶ Sincronização de Áudio")
-
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
-
-    logging.info(f"Lendo arquivo de legendas SRT: {ARQUIVO_SRT}")
-    legendas = pysrt.open(str(ARQUIVO_SRT), encoding='utf-8')
-
+    try:
+        legendas = pysrt.open(str(args.srt), encoding='utf-8')
+    except:
+        legendas = pysrt.open(str(args.srt), encoding='iso-8859-1')
+        
     audio_frames = []
-    params = None
-    tempo_atual_ms = 0
+    final_params = None
+    current_clock_ms = 0 # O tempo exato onde o áudio "está"
+    
+    logging.info(f"Processando {len(legendas)} entradas do SRT...")
 
-    logging.info("Iniciando síntese sincronizada por timestamp...")
+    for i, leg in enumerate(legendas):
+        texto = leg.text.replace('\r', '').replace('\n', ' ').strip()
+        if not texto: continue
 
-    for i, legenda in enumerate(legendas):
-        inicio_ms = (
-            legenda.start.hours * 3600000
-            + legenda.start.minutes * 60000
-            + legenda.start.seconds * 1000
-            + legenda.start.milliseconds
-        )
+        # Tempo de início desejado para esta fala
+        target_start_ms = (leg.start.hours * 3600000 + leg.start.minutes * 60000 + 
+                           leg.start.seconds * 1000 + leg.start.milliseconds)
 
-        fim_ms = (
-            legenda.end.hours * 3600000
-            + legenda.end.minutes * 60000
-            + legenda.end.seconds * 1000
-            + legenda.end.milliseconds
-        )
-
-        texto = legenda.text.replace('\n', ' ').strip()
-        if not texto:
-            continue
-
-        if inicio_ms > tempo_atual_ms:
-            silencio_necessario = inicio_ms - tempo_atual_ms
-            if silencio_necessario > 0:
-                if params is None:
-                    params = (1, 2, 16000, 0, "NONE", "not compressed")
-                audio_frames.append(frames_para_silencio(params, silencio_necessario))
-                tempo_atual_ms = inicio_ms
-
-        temp_wav = TEMP_DIR / f"temp_{i}.wav"
+        # Gera o áudio da frase
         subprocess.run(
-            [
-                str(PIPER),
-                "--model",
-                str(MODELO_VOZ),
-                "--output_file",
-                str(temp_wav),
-            ],
-            input=texto,
-            text=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
+            [str(args.piper), "--model", str(args.model), "--output_file", str(temp_wav)],
+            input=texto, text=True, check=True, capture_output=True
         )
 
-        if temp_wav.exists():
-            frase_params, frase_frames = abrir_wave(temp_wav)
-            frase_static_params = static_params_from_wave(frase_params)
+        with wave.open(str(temp_wav), "rb") as wav:
+            params = wav.getparams()
+            frames = wav.readframes(wav.getnframes())
+            if final_params is None:
+                final_params = params
+            
+            # 1. Sincronização: Se o relógio atual ainda não chegou no tempo da legenda, preenche com silêncio
+            if target_start_ms > current_clock_ms:
+                gap_ms = target_start_ms - current_clock_ms
+                audio_frames.append(b"\x00" * ms_to_bytes(gap_ms, final_params))
+                current_clock_ms = target_start_ms
 
-            if params is None:
-                params = frase_static_params
-            elif frase_static_params[:3] != params[:3]:
-                logging.warning(
-                    f"Configuração de áudio diferente para legenda {i}: {frase_static_params} vs {params}."
-                )
+            # 2. Adiciona a fala gerada
+            audio_frames.append(frames)
+            
+            # Calcula a duração real do que o Piper gerou
+            duracao_fala_ms = (len(frames) / (params.nchannels * params.sampwidth * params.framerate)) * 1000
+            current_clock_ms += duracao_fala_ms
+            
+            # 3. Adiciona a pequena pausa extra (se houver)
+            if args.pause_duration > 0:
+                p_ms = int(args.pause_duration * 1000)
+                audio_frames.append(b"\x00" * ms_to_bytes(p_ms, final_params))
+                current_clock_ms += p_ms
 
-            duracao_limite_ms = max(0, fim_ms - inicio_ms)
-            if duracao_limite_ms > 0:
-                duracao_frase_ms = int(
-                    (len(frase_frames) / (frase_static_params[1] * frase_static_params[0] * (frase_static_params[2] / 1000))) * 1000
-                )
-                if duracao_frase_ms > duracao_limite_ms:
-                    frames_permitidos = int(
-                        (duracao_limite_ms / 1000)
-                        * frase_static_params[2]
-                        * frase_static_params[1]
-                        * frase_static_params[0]
-                    )
-                    frase_frames = frase_frames[:frames_permitidos]
-                elif duracao_frase_ms < duracao_limite_ms:
-                    frames_faltantes = int(
-                        ((duracao_limite_ms - duracao_frase_ms) / 1000)
-                        * frase_static_params[2]
-                        * frase_static_params[1]
-                        * frase_static_params[0]
-                    )
-                    frase_frames += b"\x00" * frames_faltantes
+        if temp_wav.exists(): os.remove(temp_wav)
 
-            audio_frames.append(frase_frames)
-            tempo_atual_ms += int(
-                (len(frase_frames) / (frase_static_params[1] * frase_static_params[0] * (frase_static_params[2] / 1000))) * 1000
-            )
-            os.remove(temp_wav)
-
-        if i % 100 == 0:
-            logging.info(f"Processadas {i}/{len(legendas)} legendas...")
-
-    # garante que o áudio final respeite a duração total capturada no SRT
-    if legendas and params is not None:
-        ultimo_fim_ms = max(
-            (
-                legenda.end.hours * 3600000
-                + legenda.end.minutes * 60000
-                + legenda.end.seconds * 1000
-                + legenda.end.milliseconds
-            )
-            for legenda in legendas
-        )
-        if tempo_atual_ms < ultimo_fim_ms:
-            silencio_necessario = ultimo_fim_ms - tempo_atual_ms
-            if silencio_necessario > 0:
-                audio_frames.append(frames_para_silencio(params, silencio_necessario))
-
-    if params is None:
-        logging.error("Nenhum trecho de áudio foi gerado.")
-        logging.info("═" * 60)
-        logging.info("[FALHA] gerar-sincronizado")
-        return 1
-
-    concatenar_frames(audio_frames, params, AUDIO_FINAL)
+    # 4. Padding Final: Garante que o áudio tenha a duração da última legenda
+    target_end_ms = (legendas[-1].end.hours * 3600000 + legendas[-1].end.minutes * 60000 + 
+                     legendas[-1].end.seconds * 1000 + legendas[-1].end.milliseconds)
     
-    # Calcula tempo decorrido
-    elapsed_time = time.time() - start_time
-    hours, remainder = divmod(int(elapsed_time), 3600)
-    minutes, seconds = divmod(remainder, 60)
-    elapsed_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-    
-    logging.info("═" * 60)
-    logging.info("[SUCESSO] gerar-sincronizado")
-    logging.info(f"Status: SUCCESS")
-    logging.info(f"Tempo: {elapsed_str}")
-    logging.info(f"Arquivo: {AUDIO_FINAL}")
-    logging.info("═" * 60)
+    if target_end_ms > current_clock_ms:
+        gap_ms = target_end_ms - current_clock_ms
+        audio_frames.append(b"\x00" * ms_to_bytes(gap_ms, final_params))
+        current_clock_ms = target_end_ms
+
+    # Salva o arquivo final
+    with wave.open(str(args.output), "wb") as out:
+        out.setparams(final_params)
+        for frame in audio_frames:
+            out.writeframes(frame)
+
+    logging.info(f"✅ Finalizado. Duração calculada: {current_clock_ms/1000:.2f}s")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
