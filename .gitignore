@@ -9,3 +9,4 @@ venv/
 data/inputs/
 data/outputs/
 logs/
+data/input/audio_entrada.mp3
