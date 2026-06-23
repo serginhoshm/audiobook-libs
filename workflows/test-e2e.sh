@@ -30,13 +30,20 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
 
     log_header
     log_section "Passo 1: Transcrição"
-    bash workflows/1-transcrever.sh "$E2E_AUDIO" "audio_model" "es" "tiny" "$E2E_DIR"
+    bash workflows/1-transcrever.sh --input-file "$E2E_AUDIO" "audio_model" "es" "tiny" "$E2E_DIR"
 
     log_section "Passo 2: Tradução"
-    bash workflows/2-traduzir.sh "$E2E_TRANSCRIPT_SRT" "$E2E_TRANSLATED_SRT"
+    bash workflows/2-traduzir.sh --input-srt "$E2E_TRANSCRIPT_SRT" "$E2E_TRANSLATED_SRT"
 
     log_section "Passo 3: Geração de Áudio"
-    printf 'B\n3\n' | bash workflows/3-gerar-audiobook.sh "$E2E_TRANSLATED_SRT" "$E2E_OUTPUT_WAV"
+    bash workflows/3-gerar-audiobook.sh --input-srt "$E2E_TRANSLATED_SRT" "$E2E_OUTPUT_WAV"
+
+    if [ ! -f "$E2E_OUTPUT_WAV" ]; then
+        log_error "Saida de audio E2E nao encontrada: $E2E_OUTPUT_WAV"
+        log_summary "FALHA" "E2E WAV ausente"
+        exit 1
+    fi
+
     log_step "Áudio de teste gerado: $E2E_OUTPUT_WAV"
 
     log_summary "SUCCESS" ""

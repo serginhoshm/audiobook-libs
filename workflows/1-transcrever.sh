@@ -6,50 +6,100 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
-INPUT_AUDIO="${1:-}"
-OUTPUT_BASE="${2:-}"
-LANGUAGE="${3:-es}"
+MODE_ARG="${1:-}"
+INPUT_AUDIO=""
+OUTPUT_BASE=""
+LANGUAGE="es"
 # Opções de MODEL_SIZE (da menor para a maior precisão):
 # tiny, base, small, medium, large
-MODEL_SIZE="${4:-medium}"
-OUTPUT_DIR="${5:-$ROOT_DIR/data/outputs}"
+MODEL_SIZE="medium"
+OUTPUT_DIR="$ROOT_DIR/data/outputs"
+SOURCE_FILE_NAME=""
+JOB_ID=""
+JOB_CODE=""
 
-mkdir -p "$ROOT_DIR/logs"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_FILE="$ROOT_DIR/logs/transcrever-${TIMESTAMP}.log"
-SCRIPT_NAME="transcrever"
-SCRIPT_START_TIME=$(date +%s)
+source "$ROOT_DIR/workflows/job_utils.sh"
 
-source "$ROOT_DIR/scripts/log_helpers.sh"
+bash "$ROOT_DIR/workflows/0-indexar-inputs.sh" >/dev/null 2>&1 || true
 
-{
-    if [ ! -d ".venv" ]; then
-        log_error "Ambiente virtual não encontrado."
-        log_summary "FALHA" "Ambiente Python não configurado"
-        exit 1
-    fi
-
-    log_header
-    log_section "Verificação de Pré-requisitos"
-    log_step "Validando arquivo de entrada"
+if [ "$MODE_ARG" = "--input-file" ]; then
+    INPUT_AUDIO="${2:-}"
+    OUTPUT_BASE="${3:-}"
+    LANGUAGE="${4:-es}"
+    MODEL_SIZE="${5:-medium}"
+    OUTPUT_DIR="${6:-$ROOT_DIR/data/outputs}"
+    SOURCE_FILE_NAME="$(basename "$INPUT_AUDIO")"
+    JOB_ID="e2e"
+    JOB_CODE="E2E"
 
     if [ -z "$INPUT_AUDIO" ]; then
-        log_error "Uso: $0 <arquivo_de_áudio> [output_base] [lingua] [model_size] [output_dir]"
-        log_summary "FALHA" "Arquivo de entrada ausente"
-        exit 1
-    fi
-
-    if [ ! -f "$INPUT_AUDIO" ]; then
-        log_error "Arquivo de áudio não encontrado em $INPUT_AUDIO"
-        log_summary "FALHA" "Arquivo de entrada ausente"
+        echo "Uso: $0 --input-file <arquivo_de_audio> [output_base] [lingua] [model_size] [output_dir]"
         exit 1
     fi
 
     if [ -z "$OUTPUT_BASE" ]; then
         OUTPUT_BASE="$(basename "${INPUT_AUDIO%.*}")"
     fi
+else
+    JOB_ID_INPUT="$MODE_ARG"
+    LANGUAGE="${2:-es}"
+    MODEL_SIZE="${3:-medium}"
+    OUTPUT_DIR="${4:-$ROOT_DIR/data/outputs}"
+
+    if [ -z "$JOB_ID_INPUT" ]; then
+        if ! JOB_ID_INPUT="$(job_prompt_select_id)"; then
+            exit 1
+        fi
+    fi
+
+    if ! job_get_record_by_id "$JOB_ID_INPUT"; then
+        echo "Job ID invalido ou inexistente: $JOB_ID_INPUT"
+        echo "Execute workflows/0-indexar-inputs.sh para indexar arquivos de data/input/."
+        exit 1
+    fi
+
+    INPUT_AUDIO="$ROOT_DIR/$JOB_RELATIVE_PATH"
+    SOURCE_FILE_NAME="$JOB_FILE_NAME"
+    OUTPUT_BASE="$(job_output_base "$JOB_ID" "$SOURCE_FILE_NAME")"
+fi
+
+SOURCE_SLUG="$(job_slug "${SOURCE_FILE_NAME%.*}")"
+if [ -z "$SOURCE_SLUG" ]; then
+    SOURCE_SLUG="input"
+fi
+
+mkdir -p "$ROOT_DIR/logs"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="$ROOT_DIR/logs/transcrever-job${JOB_ID}-${SOURCE_SLUG}-${TIMESTAMP}.log"
+SCRIPT_NAME="transcrever [${JOB_CODE}]"
+SCRIPT_START_TIME=$(date +%s)
+
+source "$ROOT_DIR/scripts/log_helpers.sh"
+
+{
+    if [ ! -d ".venv" ]; then
+        job_record_step "$JOB_ID" "$JOB_CODE" "1-transcrever" "FAILED" "Ambiente Python nao configurado"
+        log_error "Ambiente virtual não encontrado."
+        log_summary "FALHA" "Ambiente Python não configurado"
+        exit 1
+    fi
+
+    job_record_step "$JOB_ID" "$JOB_CODE" "1-transcrever" "STARTED" "$SOURCE_FILE_NAME"
+
+    log_header
+    log_section "Verificação de Pré-requisitos"
+    log_step "Validando arquivo de entrada"
+
+    if [ ! -f "$INPUT_AUDIO" ]; then
+        job_record_step "$JOB_ID" "$JOB_CODE" "1-transcrever" "FAILED" "Arquivo de entrada ausente"
+        log_error "Arquivo de áudio não encontrado em $INPUT_AUDIO"
+        log_summary "FALHA" "Arquivo de entrada ausente"
+        exit 1
+    fi
 
     log_step "Arquivo de entrada válido: $INPUT_AUDIO"
+    log_step "Job ID: $JOB_ID"
+    log_step "Job Code: $JOB_CODE"
     log_section "Configurações de Transcrição"
     log_step "Idioma: $LANGUAGE"
     log_step "Modelo: $MODEL_SIZE (precisão: menor→tiny, base, small, medium, large←maior)"
@@ -72,5 +122,6 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
 
     log_step "[3/3] Salvando arquivos de saída..."
     log_step "Processamento concluído com sucesso"
+    job_record_step "$JOB_ID" "$JOB_CODE" "1-transcrever" "SUCCESS" "$OUTPUT_DIR/$OUTPUT_BASE.srt"
     log_summary "SUCCESS" ""
 } 2>&1 | tee -a "$LOG_FILE"

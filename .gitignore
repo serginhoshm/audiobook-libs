@@ -6,7 +6,15 @@ __pycache__/
 .venv/
 venv/
 .transcrever.py
-data/inputs/
 data/outputs/
 logs/
-data/input/audio_entrada.mp3
+data/input/**
+!data/input/.gitignore
+!data/input/.gitkeep
+data/e2e/*.json
+data/e2e/*.srt
+data/e2e/*.tsv
+data/e2e/*.txt
+data/e2e/*.vtt
+data/e2e/output_*.wav
+!data/e2e/mini_test.wav
