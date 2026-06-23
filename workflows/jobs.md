@@ -47,3 +47,5 @@ This file is the central workflow database mapping job ids to input files.
 | 2026-06-23 14:51:26 | e2e | E2E | 2-traduzir | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/audio_model.pt.srt |
 | 2026-06-23 14:51:26 | e2e | E2E | 3-gerar-audiobook | STARTED | /home/sergio-vnt/audiobook-libs/data/e2e/audio_model.pt.srt |
 | 2026-06-23 14:51:29 | e2e | E2E | 3-gerar-audiobook | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/output_20260623_145119.wav |
+| 2026-06-23 15:08:40 | 0003 | J0003 | 1-transcrever | SUCCESS | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário.srt |
+| 2026-06-23 15:09:22 | 0003 | J0003 | 2-traduzir | STARTED | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário.srt |
