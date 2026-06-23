@@ -9,7 +9,9 @@ PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 INPUT_AUDIO="${1:-$ROOT_DIR/data/inputs/audio_entrada.mp3}"
 OUTPUT_BASE="${2:-$(basename "${INPUT_AUDIO%.*}")}"
 LANGUAGE="${3:-es}"
-MODEL_SIZE="${4:-tiny}"
+# Opções de MODEL_SIZE (da menor para a maior precisão):
+# tiny, base, small, medium, large
+MODEL_SIZE="${4:-medium}"
 
 if [ ! -f "$INPUT_AUDIO" ] && [ -f "$ROOT_DIR/data/input/audio-model.mp3" ]; then
     INPUT_AUDIO="$ROOT_DIR/data/input/audio-model.mp3"
@@ -50,11 +52,18 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     fi
 
     log_step "Arquivo de entrada válido"
+    log_section "Configurações de Transcrição"
+    log_step "Idioma: $LANGUAGE"
+    log_step "Modelo: $MODEL_SIZE (precisão: menor→tiny, base, small, medium, large←maior)"
+    
     log_section "Transcrição de Áudio"
 
     mkdir -p "$OUTPUT_DIR"
-    log_step "Iniciando transcrição..."
+    log_step "Iniciando transcrição com modelo $MODEL_SIZE..."
 
+    log_step "[1/3] Carregando modelo $MODEL_SIZE..."
+    log_step "[2/3] Processando áudio..."
+    
     "$PYTHON_BIN" scripts/transcrever.py \
         "$INPUT_AUDIO" \
         "$OUTPUT_DIR" \
@@ -62,6 +71,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         "$MODEL_SIZE" \
         "$OUTPUT_BASE"
 
-    log_step "Processamento concluído"
+    log_step "[3/3] Salvando arquivos de saída..."
+    log_step "Processamento concluído com sucesso"
     log_summary "SUCCESS" ""
 } 2>&1 | tee -a "$LOG_FILE"
