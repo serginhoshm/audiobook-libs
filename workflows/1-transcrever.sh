@@ -113,7 +113,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     log_step "[1/3] Carregando modelo $MODEL_SIZE..."
     log_step "[2/3] Processando áudio..."
     
-    "$PYTHON_BIN" scripts/transcrever.py \
+    "$PYTHON_BIN" -u scripts/transcrever.py \
         "$INPUT_AUDIO" \
         "$OUTPUT_DIR" \
         "$LANGUAGE" \

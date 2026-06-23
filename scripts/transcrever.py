@@ -2,9 +2,14 @@
 
 import argparse
 import json
+import logging
+import sys
 from pathlib import Path
 
 from faster_whisper import WhisperModel
+
+
+logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 
 
 def parse_args():
@@ -50,6 +55,8 @@ def main():
         compute_type="int8"
     )
 
+    logging.info(f"[whisper] Modelo carregado: {args.model_size}")
+
     segments, info = model.transcribe(
         str(audio),
         language=args.language,
@@ -57,7 +64,25 @@ def main():
         vad_filter=True
     )
 
-    segments = list(segments)
+    duration = getattr(info, "duration", None)
+    if duration:
+        logging.info(f"[whisper] Iniciando transcricao de {audio.name} ({duration:.1f}s)")
+    else:
+        logging.info(f"[whisper] Iniciando transcricao de {audio.name}")
+
+    collected_segments = []
+    for index, seg in enumerate(segments, start=1):
+        collected_segments.append(seg)
+        if duration and duration > 0:
+            percent = min((seg.end / duration) * 100, 100)
+            logging.info(
+                f"[whisper] Segmento {index}: {seg.start:.1f}s -> {seg.end:.1f}s ({percent:.1f}%)"
+            )
+        else:
+            logging.info(f"[whisper] Segmento {index}: {seg.start:.1f}s -> {seg.end:.1f}s")
+
+    segments = collected_segments
+    logging.info(f"[whisper] Transcricao concluida com {len(segments)} segmentos")
 
     with open(base.with_suffix(".txt"), "w", encoding="utf-8") as f:
         for seg in segments:
@@ -97,7 +122,7 @@ def main():
     with open(base.with_suffix(".json"), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    print(f"Concluído: {audio.name}")
+    print(f"Concluido: {audio.name}", flush=True)
 
 
 if __name__ == "__main__":

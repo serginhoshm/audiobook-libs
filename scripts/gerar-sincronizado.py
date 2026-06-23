@@ -36,12 +36,22 @@ def main():
     audio_frames = []
     final_params = None
     current_clock_ms = 0 # O tempo exato onde o áudio "está"
+    total_legendas = len(legendas)
     
-    logging.info(f"Processando {len(legendas)} entradas do SRT...")
+    logging.info(f"Processando {total_legendas} entradas do SRT...")
 
     for i, leg in enumerate(legendas):
         texto = leg.text.replace('\r', '').replace('\n', ' ').strip()
-        if not texto: continue
+        if not texto:
+            continue
+
+        logging.info("[%s/%s] Gerando audio para legenda em %02d:%02d:%02d,%03d", 
+                     i + 1,
+                     total_legendas,
+                     leg.start.hours,
+                     leg.start.minutes,
+                     leg.start.seconds,
+                     leg.start.milliseconds)
 
         # Tempo de início desejado para esta fala
         target_start_ms = (leg.start.hours * 3600000 + leg.start.minutes * 60000 + 
@@ -50,7 +60,7 @@ def main():
         # Gera o áudio da frase
         subprocess.run(
             [str(args.piper), "--model", str(args.model), "--output_file", str(temp_wav)],
-            input=texto, text=True, check=True, capture_output=True
+            input=texto, text=True, check=True
         )
 
         with wave.open(str(temp_wav), "rb") as wav:
@@ -77,6 +87,8 @@ def main():
                 p_ms = int(args.pause_duration * 1000)
                 audio_frames.append(b"\x00" * ms_to_bytes(p_ms, final_params))
                 current_clock_ms += p_ms
+
+        logging.info("[%s/%s] Audio acumulado: %.2fs", i + 1, total_legendas, current_clock_ms / 1000)
 
         if temp_wav.exists(): os.remove(temp_wav)
 

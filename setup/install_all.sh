@@ -46,6 +46,7 @@ ensure_system_deps() {
       python3-pip \
       python3-virtualenv \
       ffmpeg \
+      socat \
       wget \
       tar \
       coreutils \
@@ -58,13 +59,14 @@ ensure_system_deps() {
       python3-pip \
       python3-venv \
       ffmpeg \
+      socat \
       wget \
       tar \
       coreutils \
       build-essential
   else
     echo "Gerenciador de pacotes não suportado neste sistema." >&2
-    echo "Instale manualmente ffmpeg, python3, python3-pip, python3-venv, wget, tar e build tools." >&2
+    echo "Instale manualmente ffmpeg, socat, python3, python3-pip, python3-venv, wget, tar e build tools." >&2
     exit 1
   fi
 }

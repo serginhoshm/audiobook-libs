@@ -131,7 +131,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     log_section "Geração de Áudio"
     log_step "Gerando áudio sincronizado..."
 
-    $PYTHON_BIN scripts/gerar-sincronizado.py \
+    "$PYTHON_BIN" -u scripts/gerar-sincronizado.py \
         --srt "$INPUT_SRT" \
         --output "$SAIDA" \
         --model "$MODELS_DIR/$MODELO" \
