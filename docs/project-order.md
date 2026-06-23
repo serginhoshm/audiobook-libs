@@ -9,7 +9,7 @@
 ## Etapa 2 — Transcrição com Whisper
 - O áudio deve ser processado com Whisper para identificar o idioma e gerar a transcrição.
 - Como o projeto está sendo preparado para trabalhar com áudio em espanhol, o idioma deve ser configurado como `es`.
-- O mecanismo existente usa o script [workflows/transcrever.sh](workflows/transcrever.sh) e o modelo `medium`.
+- O mecanismo existente usa o script [workflows/1-transcrever.sh](workflows/1-transcrever.sh) e o modelo `medium`.
 - A saída deve ser gerada na pasta `data/outputs/`.
 - Como agora existe apenas um arquivo de áudio, a lógica deve processar uma única entrada e gerar os formatos abaixo, quando suportados pelo Whisper:
   - `.srt`

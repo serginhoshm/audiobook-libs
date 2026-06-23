@@ -6,17 +6,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
-INPUT_AUDIO="${1:-$ROOT_DIR/data/inputs/audio_entrada.mp3}"
-OUTPUT_BASE="${2:-$(basename "${INPUT_AUDIO%.*}")}"
+INPUT_AUDIO="${1:-}"
+OUTPUT_BASE="${2:-}"
 LANGUAGE="${3:-es}"
 # Opções de MODEL_SIZE (da menor para a maior precisão):
 # tiny, base, small, medium, large
 MODEL_SIZE="${4:-medium}"
-
-if [ ! -f "$INPUT_AUDIO" ] && [ -f "$ROOT_DIR/data/input/audio-model.mp3" ]; then
-    INPUT_AUDIO="$ROOT_DIR/data/input/audio-model.mp3"
-    OUTPUT_BASE="audio_model"
-fi
+OUTPUT_DIR="${5:-$ROOT_DIR/data/outputs}"
 
 mkdir -p "$ROOT_DIR/logs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -37,24 +33,27 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     log_section "Verificação de Pré-requisitos"
     log_step "Validando arquivo de entrada"
 
-    OUTPUT_DIR="$ROOT_DIR/data/outputs"
+    if [ -z "$INPUT_AUDIO" ]; then
+        log_error "Uso: $0 <arquivo_de_áudio> [output_base] [lingua] [model_size] [output_dir]"
+        log_summary "FALHA" "Arquivo de entrada ausente"
+        exit 1
+    fi
 
     if [ ! -f "$INPUT_AUDIO" ]; then
         log_error "Arquivo de áudio não encontrado em $INPUT_AUDIO"
-        if [ -f "$ROOT_DIR/data/input/audio-model.mp3" ]; then
-            INPUT_AUDIO="$ROOT_DIR/data/input/audio-model.mp3"
-            OUTPUT_BASE="audio_model"
-            log_step "Usando arquivo de teste: $INPUT_AUDIO"
-        else
-            log_summary "FALHA" "Arquivo de entrada ausente"
-            exit 1
-        fi
+        log_summary "FALHA" "Arquivo de entrada ausente"
+        exit 1
     fi
 
-    log_step "Arquivo de entrada válido"
+    if [ -z "$OUTPUT_BASE" ]; then
+        OUTPUT_BASE="$(basename "${INPUT_AUDIO%.*}")"
+    fi
+
+    log_step "Arquivo de entrada válido: $INPUT_AUDIO"
     log_section "Configurações de Transcrição"
     log_step "Idioma: $LANGUAGE"
     log_step "Modelo: $MODEL_SIZE (precisão: menor→tiny, base, small, medium, large←maior)"
+    log_step "Diretório de saída: $OUTPUT_DIR"
     
     log_section "Transcrição de Áudio"
 

@@ -19,9 +19,9 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
    - `setup/setup-traducao.sh`
    - `setup/setup-piper.sh`
 2. Coloque o áudio de entrada em `data/inputs/audio_entrada.mp3`.
-3. Execute `workflows/transcrever.sh` para gerar `data/outputs/audio_entrada.srt`, `.json`, `.vtt`, `.tsv` e `.txt`.
-4. Execute `workflows/traduzir.sh` para gerar `data/outputs/audio_entrada.pt.srt`.
-5. Execute `workflows/gerar-audiobook.sh` para gerar o áudio final.
+3. Execute `workflows/1-transcrever.sh <arquivo_de_áudio>` para gerar a transcrição em `data/outputs/`.
+4. Execute `workflows/2-traduzir.sh <arquivo_srt>` para gerar a tradução em `data/outputs/`.
+5. Execute `workflows/3-gerar-audiobook.sh <arquivo_srt>` para gerar o áudio final.
 
 ## Saídas esperadas
 
@@ -36,11 +36,17 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 - O arquivo principal de configuração do ambiente está em `setup/`.
 - É recomendável manter os arquivos grandes em `data/` e não misturá-los com os scripts.
 
+## E2E de referência
+
+- Os ativos de teste ponta a ponta ficam em `data/e2e/`.
+- O teste escreve todos os artefatos para `data/e2e/`, sem usar `data/inputs/` ou `data/outputs/`.
+- Execute `bash workflows/test-e2e.sh` para rodar a validação com `data/e2e/mini_test.wav`.
+
 ## Mudanças recentes
 
 - Adicionados wrappers em `workflows/` com logging estruturado e nomes de log com timestamp.
 - Removido `scripts/extrair-texto.py` (obsoleto) e documentação atualizada para refletir essa remoção.
-- Criado `workflows/test-e2e.sh` para validação ponta a ponta usando `data/input/audio-model.mp3` como ativo de teste.
+- Criado `workflows/test-e2e.sh` para validação ponta a ponta usando `data/e2e/mini_test.wav` como ativo de teste e escrevendo todos os resultados em `data/e2e/`.
 - Ajustes e correções em `workflows/gerar-audiobook.sh` (tratamento de pipes, `set -o pipefail`, definição de `MODELO_CAMINHO`/`CONFIG_CAMINHO`).
 - Para síntese, mantenha os modelos em `data/models/` (ex.: `pt_BR-faber-medium.onnx` e `.json`).
 - Para executar o fluxo de verificação completa: rode `workflows/test-e2e.sh`.

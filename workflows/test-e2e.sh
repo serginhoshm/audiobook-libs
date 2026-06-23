@@ -15,25 +15,29 @@ SCRIPT_START_TIME=$(date +%s)
 source "$ROOT_DIR/scripts/log_helpers.sh"
 
 {
-    if [ ! -f "$ROOT_DIR/data/input/audio-model.mp3" ]; then
-        log_error "Arquivo de teste data/input/audio-model.mp3 não encontrado."
+    E2E_DIR="$ROOT_DIR/data/e2e"
+    mkdir -p "$E2E_DIR"
+    E2E_AUDIO="$E2E_DIR/mini_test.wav"
+    E2E_TRANSCRIPT_SRT="$E2E_DIR/audio_model.srt"
+    E2E_TRANSLATED_SRT="$E2E_DIR/audio_model.pt.srt"
+    E2E_OUTPUT_WAV="$E2E_DIR/output_$(date +%Y%m%d_%H%M%S).wav"
+
+    if [ ! -f "$E2E_AUDIO" ]; then
+        log_error "Arquivo de teste $E2E_AUDIO não encontrado."
         log_summary "FALHA" "Test audio missing"
         exit 1
     fi
 
     log_header
     log_section "Passo 1: Transcrição"
-    bash workflows/transcrever.sh "$ROOT_DIR/data/input/audio-model.mp3" "audio_model" "es" "tiny"
+    bash workflows/1-transcrever.sh "$E2E_AUDIO" "audio_model" "es" "tiny" "$E2E_DIR"
 
     log_section "Passo 2: Tradução"
-    bash workflows/traduzir.sh "$ROOT_DIR/data/outputs/audio_model.srt" "$ROOT_DIR/data/outputs/audio_model.pt.srt"
+    bash workflows/2-traduzir.sh "$E2E_TRANSCRIPT_SRT" "$E2E_TRANSLATED_SRT"
 
-    log_section "Passo 3: Preparar SRT para geração"
-    cp -f "$ROOT_DIR/data/outputs/audio_model.pt.srt" "$ROOT_DIR/data/outputs/output.srt"
-    log_step "SRT de geração pronto: data/outputs/output.srt"
-
-    log_section "Passo 4: Geração de Áudio"
-    printf 'B\n3\n' | bash workflows/gerar-audiobook.sh
+    log_section "Passo 3: Geração de Áudio"
+    printf 'B\n3\n' | bash workflows/3-gerar-audiobook.sh "$E2E_TRANSLATED_SRT" "$E2E_OUTPUT_WAV"
+    log_step "Áudio de teste gerado: $E2E_OUTPUT_WAV"
 
     log_summary "SUCCESS" ""
 } 2>&1 | tee -a "$LOG_FILE"
