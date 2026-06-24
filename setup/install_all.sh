@@ -6,6 +6,8 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$ROOT_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_DIR/bin/pip"
+WHISPER_MODELS_DIR="$ROOT_DIR/data/models/faster-whisper"
+WHISPER_MODEL_SIZE="${WHISPER_MODEL_SIZE:-medium}"
 
 # Setup logging
 mkdir -p "$ROOT_DIR/logs"
@@ -126,6 +128,31 @@ for name in ("whisper", "faster_whisper"):
 PY
 }
 
+ensure_whisper_model_cache() {
+  info "Preparando modelo Whisper local ($WHISPER_MODEL_SIZE)"
+  mkdir -p "$WHISPER_MODELS_DIR"
+
+  if [ -f "$WHISPER_MODELS_DIR/$WHISPER_MODEL_SIZE/model.bin" ]; then
+    info "Modelo Whisper local já existe em $WHISPER_MODELS_DIR/$WHISPER_MODEL_SIZE"
+    return
+  fi
+
+  "$VENV_PYTHON" - "$WHISPER_MODEL_SIZE" "$WHISPER_MODELS_DIR" <<'PY'
+import sys
+from pathlib import Path
+
+from faster_whisper.utils import download_model
+
+size = sys.argv[1]
+root = Path(sys.argv[2])
+target = root / size
+target.mkdir(parents=True, exist_ok=True)
+
+download_model(size, output_dir=str(target), local_files_only=False)
+print(f"Whisper pronto em: {target}")
+PY
+}
+
 ensure_translation_deps() {
   info "Verificando dependências de tradução"
   ensure_python_pkg "deep-translator" "deep_translator" ""
@@ -154,18 +181,21 @@ ensure_piper() {
 }
 
 ensure_model() {
-  info "Verificando modelo de voz do Piper"
+  info "Garantindo modelo de voz do Piper"
   mkdir -p "$ROOT_DIR/data/models"
 
   MODEL="pt_BR-faber-medium.onnx"
   MODEL_JSON="${MODEL}.json"
+  URL="https://huggingface.co/datasets/piper/resolve/main/pt/pt_BR/faber/medium"
 
   if [ ! -f "$ROOT_DIR/data/models/$MODEL" ]; then
-    warn "Modelo $MODEL ausente. Será baixado na próxima etapa se a rede estiver disponível."
+    info "Baixando $MODEL"
+    wget -c "$URL/$MODEL" -O "$ROOT_DIR/data/models/$MODEL"
   fi
 
   if [ ! -f "$ROOT_DIR/data/models/$MODEL_JSON" ]; then
-    warn "Arquivo de configuração $MODEL_JSON ausente. Será baixado na próxima etapa se a rede estiver disponível."
+    info "Baixando $MODEL_JSON"
+    wget -c "$URL/$MODEL_JSON" -O "$ROOT_DIR/data/models/$MODEL_JSON"
   fi
 }
 
@@ -178,6 +208,7 @@ main() {
   ensure_virtualenv
   ensure_python_tooling
   ensure_whisper
+  ensure_whisper_model_cache
   ensure_translation_deps
   ensure_sync_deps
   ensure_piper

@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def parse_args():
     )
     parser.add_argument("input_audio", type=Path, help="Arquivo de áudio de entrada.")
     parser.add_argument("output_dir", type=Path, help="Pasta de saída para os arquivos gerados.")
-    parser.add_argument("language", type=str, help="Código do idioma (ex: es).")
+    parser.add_argument("language", type=str, help="Código do idioma (ex: es) ou auto.")
     parser.add_argument("model_size", type=str, help="Tamanho do modelo Whisper (ex: tiny, base).")
     parser.add_argument("output_base", type=str, help="Nome base para os arquivos gerados.")
     return parser.parse_args()
@@ -47,22 +48,48 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     audio = args.input_audio
-    base = output_dir / args.output_base
+    output_base = Path(args.output_base).name
+    base = output_dir / output_base
+
+    project_root = Path(__file__).resolve().parents[1]
+    models_root = Path(
+        os.environ.get(
+            "WHISPER_MODELS_DIR",
+            str(project_root / "data" / "models" / "faster-whisper"),
+        )
+    )
+    model_dir = models_root / args.model_size
+    if not model_dir.is_dir():
+        print(
+            (
+                f"Erro: modelo Whisper local não encontrado em {model_dir}. "
+                "Execute setup/install_all.sh para preparar os artefatos."
+            ),
+            flush=True,
+        )
+        sys.exit(1)
 
     model = WhisperModel(
-        args.model_size,
+        str(model_dir),
         device="cpu",
-        compute_type="int8"
+        compute_type="int8",
+        local_files_only=True,
     )
 
     logging.info(f"[whisper] Modelo carregado: {args.model_size}")
 
-    segments, info = model.transcribe(
-        str(audio),
-        language=args.language,
-        beam_size=5,
-        vad_filter=True
-    )
+    language = (args.language or "").strip().lower()
+    if language not in {"es", "zh"}:
+        print("Erro: idioma inválido. Use apenas 'es' ou 'zh'.", flush=True)
+        sys.exit(1)
+
+    transcribe_kwargs = {
+        "beam_size": 5,
+        "vad_filter": True,
+    }
+    transcribe_kwargs["language"] = language
+
+    segments, info = model.transcribe(str(audio), **transcribe_kwargs)
 
     duration = getattr(info, "duration", None)
     if duration:

@@ -9,7 +9,7 @@ PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 MODE_ARG="${1:-}"
 INPUT_AUDIO=""
 OUTPUT_BASE=""
-LANGUAGE="es"
+LANGUAGE="auto"
 # Opções de MODEL_SIZE (da menor para a maior precisão):
 # tiny, base, small, medium, large
 MODEL_SIZE="medium"
@@ -17,6 +17,27 @@ OUTPUT_DIR="$ROOT_DIR/data/outputs"
 SOURCE_FILE_NAME=""
 JOB_ID=""
 JOB_CODE=""
+FINAL_OUTPUT_BASE=""
+OUTPUT_BASE_NAME=""
+LANGUAGE_LABEL=""
+WHISPER_LANGUAGE=""
+
+job_detect_language_from_name() {
+    local name_lower
+    name_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+
+    case "$name_lower" in
+        *spanish*)
+            printf 'spanish|es'
+            ;;
+        *chinese*)
+            printf 'chinese|zh'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
 
 source "$ROOT_DIR/workflows/job_utils.sh"
 
@@ -25,7 +46,7 @@ bash "$ROOT_DIR/workflows/0-indexar-inputs.sh" >/dev/null 2>&1 || true
 if [ "$MODE_ARG" = "--input-file" ]; then
     INPUT_AUDIO="${2:-}"
     OUTPUT_BASE="${3:-}"
-    LANGUAGE="${4:-es}"
+    LANGUAGE="${4:-auto}"
     MODEL_SIZE="${5:-medium}"
     OUTPUT_DIR="${6:-$ROOT_DIR/data/outputs}"
     SOURCE_FILE_NAME="$(basename "$INPUT_AUDIO")"
@@ -42,7 +63,7 @@ if [ "$MODE_ARG" = "--input-file" ]; then
     fi
 else
     JOB_ID_INPUT="$MODE_ARG"
-    LANGUAGE="${2:-es}"
+    LANGUAGE="${2:-auto}"
     MODEL_SIZE="${3:-medium}"
     OUTPUT_DIR="${4:-$ROOT_DIR/data/outputs}"
 
@@ -62,6 +83,18 @@ else
     SOURCE_FILE_NAME="$JOB_FILE_NAME"
     OUTPUT_BASE="$(job_output_base "$JOB_ID" "$SOURCE_FILE_NAME")"
 fi
+
+OUTPUT_BASE_NAME="$(basename "$OUTPUT_BASE")"
+
+if ! LANGUAGE_PAIR="$(job_detect_language_from_name "$SOURCE_FILE_NAME")"; then
+    echo "Erro: o nome do arquivo deve conter 'spanish' ou 'chinese'."
+    exit 1
+fi
+
+LANGUAGE_LABEL="${LANGUAGE_PAIR%%|*}"
+WHISPER_LANGUAGE="${LANGUAGE_PAIR##*|}"
+
+FINAL_OUTPUT_BASE="${OUTPUT_BASE_NAME}_${LANGUAGE_LABEL}"
 
 SOURCE_SLUG="$(job_slug "${SOURCE_FILE_NAME%.*}")"
 if [ -z "$SOURCE_SLUG" ]; then
@@ -101,7 +134,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     log_step "Job ID: $JOB_ID"
     log_step "Job Code: $JOB_CODE"
     log_section "Configurações de Transcrição"
-    log_step "Idioma: $LANGUAGE"
+    log_step "Idioma inferido pelo nome do arquivo: $LANGUAGE_LABEL"
     log_step "Modelo: $MODEL_SIZE (precisão: menor→tiny, base, small, medium, large←maior)"
     log_step "Diretório de saída: $OUTPUT_DIR"
     
@@ -116,12 +149,12 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     "$PYTHON_BIN" -u scripts/transcrever.py \
         "$INPUT_AUDIO" \
         "$OUTPUT_DIR" \
-        "$LANGUAGE" \
+        "$WHISPER_LANGUAGE" \
         "$MODEL_SIZE" \
-        "$OUTPUT_BASE"
+        "$FINAL_OUTPUT_BASE"
 
     log_step "[3/3] Salvando arquivos de saída..."
     log_step "Processamento concluído com sucesso"
-    job_record_step "$JOB_ID" "$JOB_CODE" "1-transcrever" "SUCCESS" "$OUTPUT_DIR/$OUTPUT_BASE.srt"
+    job_record_step "$JOB_ID" "$JOB_CODE" "1-transcrever" "SUCCESS" "$OUTPUT_DIR/$FINAL_OUTPUT_BASE.srt"
     log_summary "SUCCESS" ""
 } 2>&1 | tee -a "$LOG_FILE"

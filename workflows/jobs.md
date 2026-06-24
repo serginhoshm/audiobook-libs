@@ -49,3 +49,42 @@ This file is the central workflow database mapping job ids to input files.
 | 2026-06-23 14:51:29 | e2e | E2E | 3-gerar-audiobook | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/output_20260623_145119.wav |
 | 2026-06-23 15:08:40 | 0003 | J0003 | 1-transcrever | SUCCESS | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário.srt |
 | 2026-06-23 15:09:22 | 0003 | J0003 | 2-traduzir | STARTED | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário.srt |
+| 2026-06-23 15:55:51 | 0003 | J0003 | 2-traduzir | SUCCESS | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário.pt.srt |
+| 2026-06-23 16:20:01 | 0003 | J0003 | 3-gerar-audiobook | STARTED | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário.pt.srt |
+| 2026-06-23 18:08:39 | 0003 | J0003 | 3-gerar-audiobook | SUCCESS | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário_20260623_162001.wav |
+| 2026-06-23 18:10:29 | e2e | E2E | 1-transcrever | STARTED | los_tres_cerditos.wav |
+| 2026-06-23 18:18:18 | e2e | E2E | 1-transcrever | STARTED | los_tres_cerditos.wav |
+| 2026-06-23 18:18:42 | e2e | E2E | 1-transcrever | SUCCESS | data/e2e/data/e2e/smoke-es.srt |
+| 2026-06-23 18:20:23 | e2e | E2E | 1-transcrever | STARTED | los_tres_cerditos.wav |
+| 2026-06-23 18:20:47 | e2e | E2E | 1-transcrever | SUCCESS | data/e2e/smoke-es.srt |
+| 0004 | J0004 | e2e-test_chinese.mp3 | data/input/e2e-test_chinese.mp3 | 2026-06-23 18:42:10 |
+| 0005 | J0005 | e2e-test_spanish.wav | data/input/e2e-test_spanish.wav | 2026-06-23 18:42:10 |
+| 0006 | J0006 | 🔥【新番】末世大佬穿成穷媳妇,第一晚就把婆家粮缸吃空,破院改成药材仓库,把全村散户拧成一股绳,对抗盘踞多年走私团伙! audio 320 kbps original_chinese.mp3 | data/input/🔥【新番】末世大佬穿成穷媳妇,第一晚就把婆家粮缸吃空,破院改成药材仓库,把全村散户拧成一股绳,对抗盘踞多年走私团伙! audio 320 kbps original_chinese.mp3 | 2026-06-23 18:42:10 |
+| 2026-06-23 18:42:10 | e2e | E2E | 1-transcrever | STARTED | e2e-test_spanish.wav |
+| 2026-06-23 18:42:26 | e2e | E2E | 1-transcrever | SUCCESS | data/e2e/e2e-test_spanish_spanish.srt |
+| 2026-06-23 18:42:33 | e2e | E2E | 2-traduzir | STARTED | data/e2e/e2e-test_spanish_spanish.srt |
+| 2026-06-23 18:42:34 | e2e | E2E | 2-traduzir | SUCCESS | data/e2e/e2e-test_spanish_spanish.pt.srt |
+| 2026-06-23 18:42:42 | e2e | E2E | 3-gerar-audiobook | STARTED | data/e2e/e2e-test_spanish_spanish.pt.srt |
+| 2026-06-23 18:42:45 | e2e | E2E | 3-gerar-audiobook | SUCCESS | data/e2e/e2e-test_spanish_spanish.wav |
+| 2026-06-23 18:42:54 | e2e | E2E | 1-transcrever | STARTED | e2e-test_chinese.mp3 |
+| 2026-06-23 18:44:01 | e2e | E2E | 1-transcrever | SUCCESS | data/e2e/e2e-test_chinese_chinese.srt |
+| 2026-06-23 18:44:12 | e2e | E2E | 2-traduzir | STARTED | data/e2e/e2e-test_chinese_chinese.srt |
+| 2026-06-23 18:44:28 | e2e | E2E | 3-gerar-audiobook | STARTED | data/e2e/e2e-test_chinese_chinese.pt.srt |
+| 2026-06-23 18:50:05 | e2e | E2E | 1-transcrever | STARTED | e2e-test_spanish.wav |
+| 2026-06-23 18:50:23 | e2e | E2E | 1-transcrever | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-spanish_spanish.srt |
+| 2026-06-23 18:50:23 | e2e | E2E | 2-traduzir | STARTED | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-spanish_spanish.srt |
+| 2026-06-23 18:50:24 | e2e | E2E | 2-traduzir | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-spanish_spanish.pt.srt |
+| 2026-06-23 18:50:24 | e2e | E2E | 3-gerar-audiobook | STARTED | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-spanish_spanish.pt.srt |
+| 2026-06-23 18:50:27 | e2e | E2E | 3-gerar-audiobook | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-spanish_spanish.wav |
+| 2026-06-23 18:50:27 | e2e | E2E | 1-transcrever | STARTED | e2e-test_chinese.mp3 |
+| 2026-06-23 18:51:35 | e2e | E2E | 1-transcrever | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-chinese_chinese.srt |
+| 2026-06-23 18:51:35 | e2e | E2E | 2-traduzir | STARTED | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-chinese_chinese.srt |
+| 2026-06-23 18:52:16 | e2e | E2E | 2-traduzir | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-chinese_chinese.pt.srt |
+| 2026-06-23 18:52:16 | e2e | E2E | 3-gerar-audiobook | STARTED | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-chinese_chinese.pt.srt |
+| 2026-06-23 18:53:54 | e2e | E2E | 3-gerar-audiobook | SUCCESS | /home/sergio-vnt/audiobook-libs/data/e2e/e2e-test-chinese_chinese.wav |
+| 0007 | J0007 | Ela se passou por uma criança de 8 anos, mas era um Gênio Milionário!.mp3 | data/input/archive/Ela se passou por uma criança de 8 anos, mas era um Gênio Milionário!.mp3 | 2026-06-23 18:57:51 |
+| 2026-06-23 18:58:12 | 0006 | J0006 | 1-transcrever | STARTED | 🔥【新番】末世大佬穿成穷媳妇,第一晚就把婆家粮缸吃空,破院改成药材仓库,把全村散户拧成一股绳,对抗盘踞多年走私团伙! audio 320 kbps original_chinese.mp3 |
+| 2026-06-23 19:50:46 | 0006 | J0006 | 1-transcrever | SUCCESS | /home/sergio-vnt/audiobook-libs/data/outputs/job_0006_audio-320-kbps-original-chinese_chinese.srt |
+| 2026-06-23 19:58:00 | 0006 | J0006 | 2-traduzir | STARTED | /home/sergio-vnt/audiobook-libs/data/outputs/job_0006_audio-320-kbps-original-chinese_chinese.srt |
+| 2026-06-23 21:00:24 | 0006 | J0006 | 2-traduzir | SUCCESS | /home/sergio-vnt/audiobook-libs/data/outputs/job_0006_audio-320-kbps-original-chinese_chinese.pt.srt |
+| 2026-06-23 21:08:13 | 0007 | J0007 | 3-gerar-audiobook | STARTED | /home/sergio-vnt/audiobook-libs/data/outputs/job_0003_ela-se-passou-por-uma-criança-de-8-anos-mas-era-um-gênio-milionário.pt.srt |

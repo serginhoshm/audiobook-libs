@@ -18,3 +18,7 @@ data/e2e/*.txt
 data/e2e/*.vtt
 data/e2e/output_*.wav
 !data/e2e/mini_test.wav
+
+# Large generated artifacts (keep local, do not version)
+data/e2e/e2e-test*.wav
+data/models/faster-whisper/
