@@ -6,10 +6,10 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 DATA_DIR="$ROOT_DIR/data"
-ARCHIVE_ROOT="$ROOT_DIR/data/outputs/archive"
+ARCHIVE_ROOT="$ROOT_DIR/archive"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 PIPER_BIN="${PIPER_BIN:-$ROOT_DIR/bin/piper}"
-MODELS_DIR="$ROOT_DIR/data/models"
+MODELS_DIR="$ROOT_DIR/models"
 MODEL_SIZE="${MODEL_SIZE:-medium}"
 VOICE_MODEL="pt_BR-faber-medium.onnx"
 
@@ -23,9 +23,6 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
 
 list_video_files() {
     find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
-        ! -path "$ROOT_DIR/data/e2e/*" \
-        ! -path "$ROOT_DIR/data/outputs/*" \
-        ! -path "$ROOT_DIR/data/models/*" \
         ! -path "$ROOT_DIR/data/saved/*" | sort
 }
 

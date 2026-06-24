@@ -41,7 +41,7 @@
 - No fluxo unico, esta etapa e executada pelo `workflows/exec.sh`.
 
 ## Ferramenta auxiliar 5 - Limpeza por arquivamento
-- Não exclui arquivos: apenas move artefatos antigos para `data/outputs/archive/`.
+- Não exclui arquivos: apenas move artefatos antigos para `archive/` na raiz do projeto.
 - Move artefatos correspondentes (`.json`, `.pt.srt`, `.srt`, `.tsv`, `.txt`, `.vtt`, `.pt.wav`) quando já houver entrada `.wav`/`.mp3` relacionada em `data/`.
 - No fluxo unico, esta etapa e executada internamente pelo `workflows/exec.sh`.
 
@@ -51,10 +51,10 @@
 
 ## E2E
 - Script: `workflows/test-e2e.sh`.
-- Fixtures em `data/e2e/`.
-- Entradas E2E principais: `data/e2e/e2e-test_spanish.wav` e `data/e2e/e2e-test_chinese.mp3`.
-- O E2E não usa `data/input/` nem `data/outputs/` para os artefatos do teste.
+- Fixtures em `e2e/`.
+- Entradas E2E principais: `e2e/e2e-test_spanish.wav` e `e2e/e2e-test_chinese.mp3`.
+- O E2E escreve os artefatos de teste em `e2e/`.
 
 ## Observações de versionamento
-- `data/outputs/archive/` existe no repositório para manter estrutura.
-- O conteúdo arquivado é ignorado no git; apenas arquivos de controle (`.gitkeep` e `.gitignore`) são versionados.
+- Todo o conteúdo de `data/` é ignorado no git.
+- O diretório `models/` permanece fora de `data/` e concentra os modelos locais necessários.

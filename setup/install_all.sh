@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$ROOT_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_DIR/bin/pip"
-WHISPER_MODELS_DIR="$ROOT_DIR/data/models/faster-whisper"
+WHISPER_MODELS_DIR="$ROOT_DIR/models/faster-whisper"
 WHISPER_MODEL_SIZE="${WHISPER_MODEL_SIZE:-medium}"
 
 # Setup logging
@@ -182,20 +182,20 @@ ensure_piper() {
 
 ensure_model() {
   info "Garantindo modelo de voz do Piper"
-  mkdir -p "$ROOT_DIR/data/models"
+  mkdir -p "$ROOT_DIR/models"
 
   MODEL="pt_BR-faber-medium.onnx"
   MODEL_JSON="${MODEL}.json"
   URL="https://huggingface.co/datasets/piper/resolve/main/pt/pt_BR/faber/medium"
 
-  if [ ! -f "$ROOT_DIR/data/models/$MODEL" ]; then
+  if [ ! -f "$ROOT_DIR/models/$MODEL" ]; then
     info "Baixando $MODEL"
-    wget -c "$URL/$MODEL" -O "$ROOT_DIR/data/models/$MODEL"
+    wget -c "$URL/$MODEL" -O "$ROOT_DIR/models/$MODEL"
   fi
 
-  if [ ! -f "$ROOT_DIR/data/models/$MODEL_JSON" ]; then
+  if [ ! -f "$ROOT_DIR/models/$MODEL_JSON" ]; then
     info "Baixando $MODEL_JSON"
-    wget -c "$URL/$MODEL_JSON" -O "$ROOT_DIR/data/models/$MODEL_JSON"
+    wget -c "$URL/$MODEL_JSON" -O "$ROOT_DIR/models/$MODEL_JSON"
   fi
 }
 

@@ -55,7 +55,7 @@ def main():
     models_root = Path(
         os.environ.get(
             "WHISPER_MODELS_DIR",
-            str(project_root / "data" / "models" / "faster-whisper"),
+            str(project_root / "models" / "faster-whisper"),
         )
     )
     model_dir = models_root / args.model_size

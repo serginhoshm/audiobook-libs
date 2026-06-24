@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 PIPER_BIN="${PIPER_BIN:-$ROOT_DIR/bin/piper}"
-MODELS_DIR="$ROOT_DIR/data/models"
+MODELS_DIR="$ROOT_DIR/models"
 VOICE_MODEL="pt_BR-faber-medium.onnx"
 
 LOG_DIR="$ROOT_DIR/logs"
@@ -25,7 +25,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     log_step "Executando setup/install_all.sh para garantir artefatos locais"
     bash setup/install_all.sh
 
-    E2E_DIR="$ROOT_DIR/data/e2e"
+    E2E_DIR="$ROOT_DIR/e2e"
     mkdir -p "$E2E_DIR"
 
     run_language_e2e() {
@@ -105,8 +105,8 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         log_step "E2E ${language_label^^} concluído: $output_wav"
     }
 
-    run_language_e2e "spanish" "$ROOT_DIR/data/e2e/e2e-test_spanish.wav" "e2e-test-spanish"
-    run_language_e2e "chinese" "$ROOT_DIR/data/e2e/e2e-test_chinese.mp3" "e2e-test-chinese"
+    run_language_e2e "spanish" "$ROOT_DIR/e2e/e2e-test_spanish.wav" "e2e-test-spanish"
+    run_language_e2e "chinese" "$ROOT_DIR/e2e/e2e-test_chinese.mp3" "e2e-test-chinese"
 
     log_summary "SUCCESS" ""
 } 2>&1 | tee -a "$LOG_FILE"
