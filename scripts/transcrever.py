@@ -19,7 +19,7 @@ def parse_args():
     )
     parser.add_argument("input_audio", type=Path, help="Arquivo de áudio de entrada.")
     parser.add_argument("output_dir", type=Path, help="Pasta de saída para os arquivos gerados.")
-    parser.add_argument("language", type=str, help="Código do idioma (ex: es) ou auto.")
+    parser.add_argument("language", type=str, help="Código do idioma (ex: es, zh) ou auto.")
     parser.add_argument("model_size", type=str, help="Tamanho do modelo Whisper (ex: tiny, base).")
     parser.add_argument("output_base", type=str, help="Nome base para os arquivos gerados.")
     return parser.parse_args()
@@ -79,15 +79,16 @@ def main():
     logging.info(f"[whisper] Modelo carregado: {args.model_size}")
 
     language = (args.language or "").strip().lower()
-    if language not in {"es", "zh"}:
-        print("Erro: idioma inválido. Use apenas 'es' ou 'zh'.", flush=True)
+    if language not in {"es", "zh", "auto"}:
+        print("Erro: idioma inválido. Use apenas 'es', 'zh' ou 'auto'.", flush=True)
         sys.exit(1)
 
     transcribe_kwargs = {
         "beam_size": 5,
         "vad_filter": True,
     }
-    transcribe_kwargs["language"] = language
+    if language != "auto":
+        transcribe_kwargs["language"] = language
 
     segments, info = model.transcribe(str(audio), **transcribe_kwargs)
 

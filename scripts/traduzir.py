@@ -31,11 +31,16 @@ def main():
 
     source_lang = (args.source_lang or "").strip()
     source_lang_key = source_lang.lower()
-    if source_lang_key not in {"es", "zh-cn"}:
-        print("Erro: idioma de origem inválido. Use apenas 'es' ou 'zh-CN'.")
+    if source_lang_key not in {"es", "zh-cn", "auto"}:
+        print("Erro: idioma de origem inválido. Use 'es', 'zh-CN' ou 'auto'.")
         sys.exit(1)
 
-    source_lang_normalized = "es" if source_lang_key == "es" else "zh-CN"
+    if source_lang_key == "es":
+        source_lang_normalized = "es"
+    elif source_lang_key == "zh-cn":
+        source_lang_normalized = "zh-CN"
+    else:
+        source_lang_normalized = "auto"
 
     if not input_path.exists():
         print(f"Erro: arquivo de entrada não encontrado: {input_path}")

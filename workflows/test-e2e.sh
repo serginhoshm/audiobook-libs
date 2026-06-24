@@ -5,6 +5,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
+PIPER_BIN="${PIPER_BIN:-$ROOT_DIR/bin/piper}"
+MODELS_DIR="$ROOT_DIR/data/models"
+VOICE_MODEL="pt_BR-faber-medium.onnx"
+
 LOG_DIR="$ROOT_DIR/logs"
 mkdir -p "$LOG_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -47,8 +52,23 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
             "$E2E_DIR/${output_prefix}_${language_label}.pt.srt" \
             "$E2E_DIR/${output_prefix}_${language_label}.wav"
 
+        whisper_lang="auto"
+        source_lang="auto"
+        if [ "$language_label" = "spanish" ]; then
+            whisper_lang="es"
+            source_lang="es"
+        elif [ "$language_label" = "chinese" ]; then
+            whisper_lang="zh"
+            source_lang="zh-CN"
+        fi
+
         log_section "E2E ${language_label^^}: Transcrição"
-        bash workflows/1-transcrever.sh --input-file "$input_audio" "$output_prefix" "auto" "medium" "$E2E_DIR"
+        "$PYTHON_BIN" -u scripts/transcrever.py \
+            "$input_audio" \
+            "$E2E_DIR" \
+            "$whisper_lang" \
+            "medium" \
+            "${output_prefix}_${language_label}"
 
         if [ ! -f "$transcript_srt" ]; then
             log_error "SRT de transcrição não encontrado: $transcript_srt"
@@ -57,7 +77,10 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         fi
 
         log_section "E2E ${language_label^^}: Tradução"
-        bash workflows/2-traduzir.sh --input-srt "$transcript_srt" "$translated_srt"
+        "$PYTHON_BIN" scripts/traduzir.py \
+            "$transcript_srt" \
+            "$translated_srt" \
+            "$source_lang"
 
         if [ ! -f "$translated_srt" ]; then
             log_error "SRT traduzido não encontrado: $translated_srt"
@@ -66,7 +89,12 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         fi
 
         log_section "E2E ${language_label^^}: Geração de Áudio"
-        bash workflows/3-gerar-audiobook.sh --input-srt "$translated_srt" "$output_wav"
+        "$PYTHON_BIN" -u scripts/gerar-sincronizado.py \
+            --srt "$translated_srt" \
+            --output "$output_wav" \
+            --model "$MODELS_DIR/$VOICE_MODEL" \
+            --piper "$PIPER_BIN" \
+            --pause_duration 0.1
 
         if [ ! -f "$output_wav" ]; then
             log_error "Saída de áudio E2E não encontrada: $output_wav"
