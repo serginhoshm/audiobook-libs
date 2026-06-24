@@ -17,6 +17,34 @@ JOB_ID=""
 JOB_CODE=""
 ARTIFACTS_DIR="$ROOT_DIR/data/outputs"
 
+is_pt_srt_file() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        *.pt.srt)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+job_detect_language_suffix() {
+    local name_lower
+    name_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+
+    case "$name_lower" in
+        *_spanish.pt.srt|*spanish*.pt.srt)
+            printf 'spanish'
+            ;;
+        *_chinese.pt.srt|*chinese*.pt.srt)
+            printf 'chinese'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 source "$ROOT_DIR/workflows/job_utils.sh"
 
 bash "$ROOT_DIR/workflows/0-indexar-inputs.sh" >/dev/null 2>&1 || true
@@ -31,6 +59,15 @@ if [ "$MODE_ARG" = "--input-srt" ]; then
     if [ -z "$INPUT_SRT" ]; then
         echo "Uso: $0 --input-srt <arquivo_srt> [arquivo_wav_saida]"
         exit 1
+    fi
+
+    if ! is_pt_srt_file "$(basename "$INPUT_SRT")"; then
+        echo "Erro: o arquivo informado deve ser um SRT traduzido em portugues (*.pt.srt)."
+        exit 1
+    fi
+
+    if ! LANG_SUFFIX="$(job_detect_language_suffix "$(basename "$INPUT_SRT")")"; then
+        LANG_SUFFIX="legacy"
     fi
 else
     JOB_ID_INPUT="$MODE_ARG"
@@ -50,13 +87,49 @@ else
     fi
 
     OUTPUT_BASE="$(job_output_base "$JOB_ID" "$JOB_FILE_NAME")"
-    INPUT_SRT="$ARTIFACTS_DIR/${OUTPUT_BASE}.pt.srt"
-    SOURCE_FILE_NAME="$JOB_FILE_NAME"
-fi
+    INPUT_SRT_SPANISH="$ARTIFACTS_DIR/${OUTPUT_BASE}_spanish.pt.srt"
+    INPUT_SRT_CHINESE="$ARTIFACTS_DIR/${OUTPUT_BASE}_chinese.pt.srt"
+    INPUT_SRT_DEFAULT="$ARTIFACTS_DIR/${OUTPUT_BASE}.pt.srt"
+    SOURCE_SLUG_LOOKUP="$(job_slug "${JOB_FILE_NAME%.*}")"
 
-if [ ! -f "$INPUT_SRT" ]; then
-    echo "Arquivo SRT não encontrado em $INPUT_SRT"
-    exit 1
+    if [ -f "$INPUT_SRT_SPANISH" ] && [ -f "$INPUT_SRT_CHINESE" ]; then
+        echo "Ambiguidade: encontrados SRTs traduzidos de espanhol e chinês para o mesmo job."
+        echo "Use modo manual: $0 --input-srt <arquivo_srt>"
+        exit 1
+    elif [ -f "$INPUT_SRT_SPANISH" ]; then
+        INPUT_SRT="$INPUT_SRT_SPANISH"
+    elif [ -f "$INPUT_SRT_CHINESE" ]; then
+        INPUT_SRT="$INPUT_SRT_CHINESE"
+    elif [ -f "$INPUT_SRT_DEFAULT" ]; then
+        INPUT_SRT="$INPUT_SRT_DEFAULT"
+    else
+        shopt -s nullglob
+        mapfile -t SAME_NAME_PT_SRTS < <(printf '%s\n' "$ARTIFACTS_DIR"/job_*_"$SOURCE_SLUG_LOOKUP".pt.srt)
+        shopt -u nullglob
+
+        if [ "${#SAME_NAME_PT_SRTS[@]}" -eq 1 ]; then
+            INPUT_SRT="${SAME_NAME_PT_SRTS[0]}"
+            echo "Aviso: reutilizando traducao existente de outro job com o mesmo nome base: $INPUT_SRT"
+        elif [ "${#SAME_NAME_PT_SRTS[@]}" -gt 1 ]; then
+            echo "Erro: nao foi encontrado SRT traduzido para o job $JOB_ID e ha multiplas traducoes candidatas com o mesmo nome base."
+            printf '  - %s\n' "${SAME_NAME_PT_SRTS[@]}"
+            echo "Use modo manual: $0 --input-srt <arquivo_srt>"
+            exit 1
+        else
+            echo "Erro: nao foi encontrado SRT traduzido para o job $JOB_ID."
+            echo "Procurei por:"
+            echo "  - ${OUTPUT_BASE}_spanish.pt.srt"
+            echo "  - ${OUTPUT_BASE}_chinese.pt.srt"
+            echo "  - ${OUTPUT_BASE}.pt.srt"
+            echo "Execute workflows/2-traduzir.sh $JOB_ID ou use modo manual: $0 --input-srt <arquivo_srt>"
+            exit 1
+        fi
+    fi
+
+    if ! LANG_SUFFIX="$(job_detect_language_suffix "$(basename "$INPUT_SRT")")"; then
+        LANG_SUFFIX="legacy"
+    fi
+    SOURCE_FILE_NAME="$JOB_FILE_NAME"
 fi
 
 SOURCE_SLUG="$(job_slug "${SOURCE_FILE_NAME%.*}")"
@@ -97,26 +170,23 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
     fi
 
     MODELO="pt_BR-faber-medium.onnx"
-    URL="https://huggingface.co/datasets/piper/resolve/main/pt/pt_BR/faber/medium"
     log_step "Voz selecionada: Faber"
 
     mkdir -p "$MODELS_DIR" "$OUTPUT_DIR"
     if [ ! -f "$MODELS_DIR/$MODELO" ]; then
-        if ! wget -c "$URL/$MODELO" -O "$MODELS_DIR/$MODELO"; then
-            job_record_step "$JOB_ID" "$JOB_CODE" "3-gerar-audiobook" "FAILED" "Download do modelo falhou"
-            log_error "Falha ao baixar modelo: $MODELO"
-            log_summary "FALHA" "Download do modelo falhou"
-            exit 1
-        fi
+        job_record_step "$JOB_ID" "$JOB_CODE" "3-gerar-audiobook" "FAILED" "Modelo de voz ausente"
+        log_error "Modelo de voz ausente: $MODELS_DIR/$MODELO"
+        log_error "Execute setup/install_all.sh para preparar os artefatos locais."
+        log_summary "FALHA" "Modelo de voz ausente"
+        exit 1
     fi
 
     if [ ! -f "$MODELS_DIR/$MODELO.json" ]; then
-        if ! wget -c "$URL/$MODELO.json" -O "$MODELS_DIR/$MODELO.json"; then
-            job_record_step "$JOB_ID" "$JOB_CODE" "3-gerar-audiobook" "FAILED" "Download da configuracao falhou"
-            log_error "Falha ao baixar configuracao do modelo: $MODELO.json"
-            log_summary "FALHA" "Download da configuracao falhou"
-            exit 1
-        fi
+        job_record_step "$JOB_ID" "$JOB_CODE" "3-gerar-audiobook" "FAILED" "Configuração da voz ausente"
+        log_error "Configuração da voz ausente: $MODELS_DIR/$MODELO.json"
+        log_error "Execute setup/install_all.sh para preparar os artefatos locais."
+        log_summary "FALHA" "Configuração da voz ausente"
+        exit 1
     fi
 
     if [ -n "$OUTPUT_WAV" ]; then
