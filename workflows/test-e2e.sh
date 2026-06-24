@@ -77,8 +77,8 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         log_step "E2E ${language_label^^} concluído: $output_wav"
     }
 
-    run_language_e2e "spanish" "$ROOT_DIR/data/input/e2e-test_spanish.wav" "e2e-test-spanish"
-    run_language_e2e "chinese" "$ROOT_DIR/data/input/e2e-test_chinese.mp3" "e2e-test-chinese"
+    run_language_e2e "spanish" "$ROOT_DIR/data/e2e/e2e-test_spanish.wav" "e2e-test-spanish"
+    run_language_e2e "chinese" "$ROOT_DIR/data/e2e/e2e-test_chinese.mp3" "e2e-test-chinese"
 
     log_summary "SUCCESS" ""
 } 2>&1 | tee -a "$LOG_FILE"

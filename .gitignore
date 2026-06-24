@@ -6,7 +6,12 @@ __pycache__/
 .venv/
 venv/
 .transcrever.py
-data/outputs/
+data/outputs/**
+!data/outputs/.gitkeep
+!data/outputs/archive/
+data/outputs/archive/**
+!data/outputs/archive/.gitkeep
+!data/outputs/archive/.gitignore
 logs/
 data/input/**
 !data/input/.gitignore
@@ -21,5 +26,7 @@ data/e2e/output_*.wav
 
 # Large generated artifacts (keep local, do not version)
 data/e2e/e2e-test*.wav
+!data/e2e/e2e-test_spanish.wav
+!data/e2e/e2e-test_chinese.mp3
 data/models/*
 !data/models/.gitkeep

@@ -7,9 +7,14 @@ cd "$ROOT_DIR"
 
 INPUT_DIR="$ROOT_DIR/data/input"
 
+if [ "${WORKFLOW_CLEANUP_DONE:-0}" != "1" ]; then
+    export WORKFLOW_CLEANUP_DONE=1
+    bash "$ROOT_DIR/workflows/5-limpar-outputs.sh" >/dev/null 2>&1 || true
+fi
+
 source "$ROOT_DIR/workflows/job_utils.sh"
 
-ensure_job_db
+job_reset_db_preserve_history
 mkdir -p "$INPUT_DIR"
 
 mapfile -t INPUT_FILES < <(find "$INPUT_DIR" -type f ! -name '.gitignore' ! -name '.gitkeep' | sort)
@@ -20,18 +25,13 @@ if [ "${#INPUT_FILES[@]}" -eq 0 ]; then
     exit 0
 fi
 
-echo "Indexando arquivos de data/input/ no registro central..."
+echo "Reindexando arquivos de data/input/ no registro central (lista antiga limpa)..."
 for full_path in "${INPUT_FILES[@]}"; do
     relative_path="${full_path#$ROOT_DIR/}"
     result="$(job_add_record "$relative_path")"
     job_id="${result%%|*}"
-    state="${result##*|}"
 
-    if [ "$state" = "new" ]; then
-        echo "[NOVO] job $job_id -> $relative_path"
-    else
-        echo "[EXISTENTE] job $job_id -> $relative_path"
-    fi
+    echo "[NOVO] job $job_id -> $relative_path"
 done
 
 echo ""

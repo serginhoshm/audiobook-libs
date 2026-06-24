@@ -5,6 +5,11 @@ set -e
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [ "${WORKFLOW_CLEANUP_DONE:-0}" != "1" ]; then
+    export WORKFLOW_CLEANUP_DONE=1
+    bash "$ROOT_DIR/workflows/5-limpar-outputs.sh" >/dev/null 2>&1 || true
+fi
+
 PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 MODE_ARG="${1:-}"
 INPUT_SRT=""

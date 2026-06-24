@@ -2,6 +2,36 @@
 
 JOB_DB_FILE="${JOB_DB_FILE:-$ROOT_DIR/workflows/jobs.md}"
 
+job_write_db_template() {
+    mkdir -p "$(dirname "$JOB_DB_FILE")"
+    cat > "$JOB_DB_FILE" <<'EOF'
+# Job Registry
+
+This file is the central workflow database mapping job ids to input files.
+
+| Job ID | Job Code | File Name | Relative Path | Created At |
+| --- | --- | --- | --- | --- |
+
+## Step History
+
+| Timestamp | Job ID | Job Code | Workflow Step | Status | Details |
+| --- | --- | --- | --- | --- | --- |
+EOF
+}
+
+job_write_db_jobs_header_only() {
+    mkdir -p "$(dirname "$JOB_DB_FILE")"
+    cat > "$JOB_DB_FILE" <<'EOF'
+# Job Registry
+
+This file is the central workflow database mapping job ids to input files.
+
+| Job ID | Job Code | File Name | Relative Path | Created At |
+| --- | --- | --- | --- | --- |
+
+EOF
+}
+
 job_trim() {
     local value="$1"
     value="${value#${value%%[![:space:]]*}}"
@@ -45,20 +75,7 @@ job_output_base() {
 
 ensure_job_db() {
     if [ ! -f "$JOB_DB_FILE" ]; then
-        mkdir -p "$(dirname "$JOB_DB_FILE")"
-        cat > "$JOB_DB_FILE" <<'EOF'
-# Job Registry
-
-This file is the central workflow database mapping job ids to input files.
-
-| Job ID | Job Code | File Name | Relative Path | Created At |
-| --- | --- | --- | --- | --- |
-
-## Step History
-
-| Timestamp | Job ID | Job Code | Workflow Step | Status | Details |
-| --- | --- | --- | --- | --- | --- |
-EOF
+    job_write_db_template
         return 0
     fi
 
@@ -71,6 +88,36 @@ EOF
 | --- | --- | --- | --- | --- | --- |
 EOF
     fi
+}
+
+job_reset_db() {
+    job_write_db_template
+}
+
+job_reset_db_preserve_history() {
+    ensure_job_db
+
+    local tmp_history
+    tmp_history="$(mktemp)"
+
+    awk '
+        BEGIN { in_step_history = 0 }
+        $0 == "## Step History" { in_step_history = 1 }
+        in_step_history { print }
+    ' "$JOB_DB_FILE" > "$tmp_history"
+
+    if [ ! -s "$tmp_history" ]; then
+        cat > "$tmp_history" <<'EOF'
+## Step History
+
+| Timestamp | Job ID | Job Code | Workflow Step | Status | Details |
+| --- | --- | --- | --- | --- | --- |
+EOF
+    fi
+
+    job_write_db_jobs_header_only
+    cat "$tmp_history" >> "$JOB_DB_FILE"
+    rm -f "$tmp_history"
 }
 
 job_list_records() {

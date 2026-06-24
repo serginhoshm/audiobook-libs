@@ -19,10 +19,25 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
    - `setup/setup-traducao.sh`
    - `setup/setup-piper.sh`
 2. Coloque os arquivos de entrada em `data/input/`.
-3. Execute `workflows/0-indexar-inputs.sh` para registrar os arquivos em `workflows/jobs.md`.
+3. Execute `workflows/0-indexar-inputs.sh` para reindexar os arquivos em `workflows/jobs.md` (a lista de jobs e recriada a cada execucao, preservando o historico de etapas).
 4. Execute `workflows/1-transcrever.sh <job_id>` para gerar a transcrição em `data/outputs/`.
 5. Execute `workflows/2-traduzir.sh <job_id>` para gerar a tradução em `data/outputs/`.
 6. Execute `workflows/3-gerar-audiobook.sh <job_id>` para gerar o áudio final.
+
+## Ferramenta auxiliar: limpeza de outputs
+
+- Execute `bash workflows/5-limpar-outputs.sh` para varrer `data/input/` e identificar entradas `.wav`/`.mp3` ja processadas.
+- Quando existirem artefatos correspondentes (`.json`, `.pt.srt`, `.srt`, `.tsv`, `.txt`, `.vtt`), os arquivos sao movidos para `data/outputs/archive/`.
+- O processo nao exclui artefatos: apenas move para a pasta de archive.
+- Os workflows `0` a `4` executam esse passo automaticamente no inicio.
+
+## Ferramenta auxiliar: extrair audio de videos
+
+- Execute `bash workflows/4-extrair-audio-videos.sh` para varrer `data/input/` e processar apenas arquivos `.mkv` e `.mp4`.
+- O workflow gera os arquivos `.wav` em `data/input/` (no mesmo diretório do video), com o mesmo nome-base.
+- Se o `.wav` de destino ja existir, ele sera removido antes da extracao.
+- O workflow usa o mesmo padrao de logs estruturados em `logs/`.
+- Este workflow e auxiliar e nao faz parte do fluxo de testes E2E.
 
 ## Saídas esperadas
 
@@ -36,10 +51,12 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 - Os scripts Python usam caminhos relativos à raiz do projeto, então podem ser executados de qualquer diretório.
 - O arquivo principal de configuração do ambiente está em `setup/`.
 - É recomendável manter os arquivos grandes em `data/` e não misturá-los com os scripts.
+- A pasta `data/outputs/archive/` e mantida no git apenas com arquivos de controle (`.gitkeep` e `.gitignore`); o conteudo arquivado e ignorado no versionamento.
 
 ## E2E de referência
 
 - Os ativos de teste ponta a ponta ficam em `data/e2e/`.
+- Os arquivos de entrada dedicados do E2E (`e2e-test_spanish.wav` e `e2e-test_chinese.mp3`) tambem ficam em `data/e2e/`.
 - O teste escreve todos os artefatos para `data/e2e/`, sem usar `data/input/` ou `data/outputs/`.
 - Execute `bash workflows/test-e2e.sh` para rodar a validação com `data/e2e/mini_test.wav`.
 

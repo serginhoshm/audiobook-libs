@@ -20,6 +20,13 @@
 - This step generates the final audiobook audio from the translated SRT for that job.
 - Example: `bash workflows/3-gerar-audiobook.sh 0001`
 
+## Tool - Extrair Audio de Videos
+- Execute `bash workflows/4-extrair-audio-videos.sh`.
+- This helper scans `data/input/` and lists only `.mkv` and `.mp4` video files.
+- For each video, it creates `<mesmo_diretorio_do_video>/<nome_original>.wav` inside `data/input/`.
+- If the target WAV already exists, it is removed before extraction.
+- This helper is intentionally outside the E2E test flow.
+
 ## E2E test assets
 - E2E fixtures are stored under `data/e2e/`.
 - The dedicated E2E path is used by `workflows/test-e2e.sh`.
