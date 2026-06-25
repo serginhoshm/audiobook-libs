@@ -5,25 +5,243 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-DATA_DIR="$ROOT_DIR/data"
-ARCHIVE_ROOT="$ROOT_DIR/archive"
+CONFIG_FILE="${PIPELINE_CONFIG:-$ROOT_DIR/config/pipeline.ini}"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 PIPER_BIN="${PIPER_BIN:-$ROOT_DIR/bin/piper}"
 MODELS_DIR="$ROOT_DIR/models"
 MODEL_SIZE="${MODEL_SIZE:-medium}"
 VOICE_MODEL="pt_BR-faber-medium.onnx"
+RESUME_MODE="${RESUME_MODE:-1}"
+ARCHIVE_ON_START="${ARCHIVE_ON_START:-0}"
+TRANSCRIPTION_TOLERANCE="${TRANSCRIPTION_TOLERANCE:-5.0}"
+TRANSLATION_TOLERANCE="${TRANSLATION_TOLERANCE:-0.5}"
+AUDIO_TOLERANCE="${AUDIO_TOLERANCE:-1.5}"
 
-mkdir -p "$ROOT_DIR/logs"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-LOG_FILE="$ROOT_DIR/logs/exec-${TIMESTAMP}.log"
+source "$ROOT_DIR/scripts/log_helpers.sh"
+
+DATA_DIR="$ROOT_DIR/data"
+DATA_SCOPE_REL="data"
+ARCHIVE_ROOT="$ROOT_DIR/archive"
+STATE_ROOT="$ROOT_DIR/.pipeline-state"
+LOG_DIR="$ROOT_DIR/logs"
+LOG_FILE="$LOG_DIR/exec-${TIMESTAMP}.log"
 SCRIPT_NAME="Exec"
 SCRIPT_START_TIME="$(date +%s)"
 
-source "$ROOT_DIR/scripts/log_helpers.sh"
+read_ini_value() {
+    local file="$1"
+    local section="$2"
+    local key="$3"
+    local default_value="$4"
+
+    if [ ! -f "$file" ]; then
+        printf '%s' "$default_value"
+        return 0
+    fi
+
+    local value
+    value="$(awk -F '=' -v section="$section" -v key="$key" '
+        BEGIN { in_section=0 }
+        /^[[:space:]]*\[/ {
+            in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
+            next
+        }
+        in_section == 1 {
+            line=$0
+            sub(/^[[:space:]]+/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            if (line ~ /^[#;]/ || line == "") next
+            split(line, a, "=")
+            k=a[1]
+            sub(/^[[:space:]]+/, "", k)
+            sub(/[[:space:]]+$/, "", k)
+            if (k == key) {
+                v=substr(line, index(line, "=")+1)
+                sub(/^[[:space:]]+/, "", v)
+                sub(/[[:space:]]+$/, "", v)
+                print v
+                exit
+            }
+        }
+    ' "$file")"
+
+    if [ -z "$value" ]; then
+        printf '%s' "$default_value"
+    else
+        printf '%s' "$value"
+    fi
+}
+
+configure_data_scope() {
+    local configured_path
+    local scope_abs
+
+    configured_path="$(read_ini_value "$CONFIG_FILE" "paths" "data_root_relative" "data")"
+
+    if [ -z "$configured_path" ]; then
+        log_error "Config invalida: data_root_relative vazio"
+        return 1
+    fi
+
+    if [[ "$configured_path" = /* ]]; then
+        scope_abs="$(realpath -m "$configured_path")"
+    else
+        scope_abs="$(realpath -m "$ROOT_DIR/$configured_path")"
+    fi
+
+    if [ ! -d "$scope_abs" ]; then
+        log_error "Diretorio de escopo nao encontrado: $scope_abs"
+        return 1
+    fi
+
+    if [ ! -r "$scope_abs" ] || [ ! -w "$scope_abs" ]; then
+        log_error "Sem permissao de leitura/escrita no escopo: $scope_abs"
+        return 1
+    fi
+
+    DATA_SCOPE_REL="$configured_path"
+    DATA_DIR="$scope_abs"
+    return 0
+}
+
+prepare_runtime_paths() {
+    LOG_DIR="$DATA_DIR/logs"
+    ARCHIVE_ROOT="$DATA_DIR/archive"
+    STATE_ROOT="$DATA_DIR/.pipeline-state"
+
+    mkdir -p "$LOG_DIR" "$ARCHIVE_ROOT" "$STATE_ROOT"
+    LOG_FILE="$LOG_DIR/exec-${TIMESTAMP}.log"
+}
+
+bootstrap_runtime() {
+    if [ ! -x "$PYTHON_BIN" ]; then
+        echo "ERRO: Python do ambiente virtual nao encontrado: $PYTHON_BIN" >&2
+        exit 1
+    fi
+
+    if [ ! -f "$ROOT_DIR/scripts/pipeline_validators.py" ]; then
+        echo "ERRO: Validador nao encontrado: $ROOT_DIR/scripts/pipeline_validators.py" >&2
+        exit 1
+    fi
+
+    if ! configure_data_scope; then
+        echo "ERRO: Escopo de dados invalido" >&2
+        exit 1
+    fi
+
+    if ! load_pipeline_options_from_config; then
+        echo "ERRO: Configuracao de pipeline invalida" >&2
+        exit 1
+    fi
+
+    prepare_runtime_paths
+}
+
+load_pipeline_options_from_config() {
+    local config_resume
+    local config_archive
+
+    config_resume="$(read_ini_value "$CONFIG_FILE" "pipeline" "resume_mode" "$RESUME_MODE")"
+    config_archive="$(read_ini_value "$CONFIG_FILE" "pipeline" "archive_on_start" "$ARCHIVE_ON_START")"
+
+    case "$config_resume" in
+        0|1)
+            RESUME_MODE="$config_resume"
+            ;;
+        *)
+            log_error "Config invalida: pipeline.resume_mode deve ser 0 ou 1"
+            return 1
+            ;;
+    esac
+
+    case "$config_archive" in
+        0|1)
+            ARCHIVE_ON_START="$config_archive"
+            ;;
+        *)
+            log_error "Config invalida: pipeline.archive_on_start deve ser 0 ou 1"
+            return 1
+            ;;
+    esac
+
+    return 0
+}
 
 list_video_files() {
-    find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
-        ! -path "$ROOT_DIR/data/saved/*" | sort
+    if [[ "$DATA_DIR" = "$ROOT_DIR/data" || "$DATA_DIR" = "$ROOT_DIR/data/"* ]]; then
+        find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
+            ! -path "$ROOT_DIR/data/saved/*" | sort
+    else
+        find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) | sort
+    fi
+}
+
+state_file_for_video() {
+    local video_file="$1"
+    local state_id
+    state_id="$(printf '%s|%s' "$DATA_SCOPE_REL" "$video_file" | sha1sum | awk '{print $1}')"
+    printf '%s/%s.state' "$STATE_ROOT" "$state_id"
+}
+
+state_set() {
+    local state_file="$1"
+    local state_key="$2"
+    local state_value="$3"
+    local tmp_file
+
+    mkdir -p "$STATE_ROOT"
+    touch "$state_file"
+    tmp_file="$(mktemp)"
+    awk -F '\t' -v k="$state_key" '$1 != k { print }' "$state_file" > "$tmp_file"
+    printf '%s\t%s\n' "$state_key" "$state_value" >> "$tmp_file"
+    mv "$tmp_file" "$state_file"
+}
+
+update_step_state() {
+    local state_file="$1"
+    local step_name="$2"
+    local step_status="$3"
+    local detail="$4"
+    state_set "$state_file" "${step_name}_status" "$step_status"
+    state_set "$state_file" "${step_name}_updated_at" "$(date -Iseconds)"
+    state_set "$state_file" "${step_name}_detail" "$detail"
+}
+
+validator_command() {
+    "$PYTHON_BIN" "$ROOT_DIR/scripts/pipeline_validators.py" "$@"
+}
+
+validate_existing_media() {
+    local media_file="$1"
+    validator_command media-duration --input "$media_file" >/dev/null 2>&1
+}
+
+validate_transcription_ready() {
+    local audio_file="$1"
+    local srt_file="$2"
+    validator_command validate-transcription \
+        --audio "$audio_file" \
+        --srt "$srt_file" \
+        --tolerance "$TRANSCRIPTION_TOLERANCE" >/dev/null 2>&1
+}
+
+validate_translation_ready() {
+    local source_srt="$1"
+    local translated_srt="$2"
+    validator_command validate-translation \
+        --source-srt "$source_srt" \
+        --target-srt "$translated_srt" \
+        --tolerance "$TRANSLATION_TOLERANCE" >/dev/null 2>&1
+}
+
+validate_audio_ready() {
+    local source_srt="$1"
+    local output_audio="$2"
+    validator_command validate-generated-audio \
+        --srt "$source_srt" \
+        --audio "$output_audio" \
+        --tolerance "$AUDIO_TOLERANCE" >/dev/null 2>&1
 }
 
 infer_whisper_lang() {
@@ -68,9 +286,12 @@ archive_previous_outputs() {
     source_dir="$(dirname "$source_file")"
     source_base="$(basename "${source_file%.*}")"
 
-    rel_dir="${source_dir#$ROOT_DIR/data/}"
-    if [ "$rel_dir" = "$source_dir" ]; then
+    if [[ "$source_dir" = "$ROOT_DIR/data" ]]; then
         rel_dir="root"
+    elif [[ "$source_dir" = "$ROOT_DIR/data/"* ]]; then
+        rel_dir="${source_dir#$ROOT_DIR/data/}"
+    else
+        rel_dir="external/$(printf '%s' "$source_dir" | sed -e 's#^/##' -e 's#[^A-Za-z0-9._/-]#_#g')"
     fi
 
     target_dir="$ARCHIVE_ROOT/$rel_dir"
@@ -107,6 +328,7 @@ process_video() {
     local output_pt_wav
     local whisper_lang
     local source_lang
+    local state_file
 
     selected_dir="$(dirname "$video_file")"
     base_name="$(basename "${video_file%.*}")"
@@ -114,86 +336,121 @@ process_video() {
     output_srt="$selected_dir/$base_name.srt"
     output_pt_srt="$selected_dir/$base_name.pt.srt"
     output_pt_wav="$selected_dir/$base_name.pt.wav"
+    state_file="$(state_file_for_video "$video_file")"
 
     whisper_lang="$(infer_whisper_lang "$base_name")"
     source_lang="$(infer_translation_lang "$whisper_lang")"
 
+    state_set "$state_file" "input_video" "$video_file"
+    state_set "$state_file" "scope" "$DATA_SCOPE_REL"
+    state_set "$state_file" "audio_wav" "$audio_wav"
+    state_set "$state_file" "output_srt" "$output_srt"
+    state_set "$state_file" "output_pt_srt" "$output_pt_srt"
+    state_set "$state_file" "output_pt_wav" "$output_pt_wav"
+    state_set "$state_file" "last_run" "$(date -Iseconds)"
+
     log_section "Processando video: ${video_file#$ROOT_DIR/}"
     log_step "Idioma transcricao: $whisper_lang"
     log_step "Idioma traducao: $source_lang"
+    log_step "State file: ${state_file#$ROOT_DIR/}"
 
-    log_section "Limpeza por Arquivamento"
-    archive_previous_outputs "$video_file"
+    if [ "$ARCHIVE_ON_START" = "1" ]; then
+        log_section "Limpeza por Arquivamento"
+        archive_previous_outputs "$video_file"
+    else
+        log_step "Arquivamento automatico desabilitado (ARCHIVE_ON_START=0)"
+    fi
 
     log_section "Etapa 0 - Extracao de Audio"
-    if [ -f "$audio_wav" ]; then
-        rm -f "$audio_wav"
-        log_step "WAV anterior removido: ${audio_wav#$ROOT_DIR/}"
+    if [ "$RESUME_MODE" = "1" ] && [ -f "$audio_wav" ] && validate_existing_media "$audio_wav"; then
+        update_step_state "$state_file" "extract" "success" "reutilizado"
+        log_step "WAV reutilizado: ${audio_wav#$ROOT_DIR/}"
+    else
+        update_step_state "$state_file" "extract" "running" "extraindo WAV"
+        if ! ffmpeg -hide_banner -loglevel error -i "$video_file" -vn "$audio_wav"; then
+            update_step_state "$state_file" "extract" "failed" "ffmpeg falhou"
+            log_error "Falha ao gerar WAV: $audio_wav"
+            return 1
+        fi
+        if [ ! -f "$audio_wav" ] || ! validate_existing_media "$audio_wav"; then
+            update_step_state "$state_file" "extract" "failed" "WAV ausente ou invalido"
+            log_error "Falha ao gerar WAV valido: $audio_wav"
+            return 1
+        fi
+        update_step_state "$state_file" "extract" "success" "WAV gerado"
+        log_step "WAV gerado: ${audio_wav#$ROOT_DIR/}"
     fi
-
-    if ! ffmpeg -hide_banner -loglevel error -i "$video_file" -vn "$audio_wav"; then
-        log_error "Falha ao gerar WAV: $audio_wav"
-        return 1
-    fi
-    if [ ! -f "$audio_wav" ]; then
-        log_error "Falha ao gerar WAV: $audio_wav"
-        return 1
-    fi
-    log_step "WAV gerado: ${audio_wav#$ROOT_DIR/}"
 
     log_section "Etapa 1 - Transcricao"
-    "$PYTHON_BIN" -u "$ROOT_DIR/scripts/transcrever.py" \
-        "$audio_wav" \
-        "$selected_dir" \
-        "$whisper_lang" \
-        "$MODEL_SIZE" \
-        "$base_name"
+    if [ "$RESUME_MODE" = "1" ] && validate_transcription_ready "$audio_wav" "$output_srt"; then
+        update_step_state "$state_file" "transcribe" "success" "reutilizado"
+        log_step "Transcricao valida ja existente: ${output_srt#$ROOT_DIR/}"
+    else
+        update_step_state "$state_file" "transcribe" "running" "transcrevendo"
+        "$PYTHON_BIN" -u "$ROOT_DIR/scripts/transcrever.py" \
+            "$audio_wav" \
+            "$selected_dir" \
+            "$whisper_lang" \
+            "$MODEL_SIZE" \
+            "$base_name"
 
-    if [ ! -f "$output_srt" ]; then
-        log_error "SRT nao gerado: $output_srt"
-        return 1
+        if ! validate_transcription_ready "$audio_wav" "$output_srt"; then
+            update_step_state "$state_file" "transcribe" "failed" "SRT nao validado"
+            log_error "SRT nao gerado/validado: $output_srt"
+            return 1
+        fi
+        update_step_state "$state_file" "transcribe" "success" "SRT validado"
+        log_step "Transcricao gerada: ${output_srt#$ROOT_DIR/}"
     fi
-    log_step "Transcricao gerada: ${output_srt#$ROOT_DIR/}"
 
     log_section "Etapa 2 - Traducao"
-    "$PYTHON_BIN" "$ROOT_DIR/scripts/traduzir.py" \
-        "$output_srt" \
-        "$output_pt_srt" \
-        "$source_lang"
+    if [ "$RESUME_MODE" = "1" ] && validate_translation_ready "$output_srt" "$output_pt_srt"; then
+        update_step_state "$state_file" "translate" "success" "reutilizado"
+        log_step "Traducao valida ja existente: ${output_pt_srt#$ROOT_DIR/}"
+    else
+        update_step_state "$state_file" "translate" "running" "traduzindo"
+        "$PYTHON_BIN" "$ROOT_DIR/scripts/traduzir.py" \
+            "$output_srt" \
+            "$output_pt_srt" \
+            "$source_lang"
 
-    if [ ! -f "$output_pt_srt" ]; then
-        log_error "SRT traduzido nao gerado: $output_pt_srt"
-        return 1
+        if ! validate_translation_ready "$output_srt" "$output_pt_srt"; then
+            update_step_state "$state_file" "translate" "failed" "SRT traduzido nao validado"
+            log_error "SRT traduzido nao gerado/validado: $output_pt_srt"
+            return 1
+        fi
+        update_step_state "$state_file" "translate" "success" "SRT traduzido validado"
+        log_step "Traducao gerada: ${output_pt_srt#$ROOT_DIR/}"
     fi
-    log_step "Traducao gerada: ${output_pt_srt#$ROOT_DIR/}"
 
     log_section "Etapa 3 - Geracao de Audiobook"
-    "$PYTHON_BIN" -u "$ROOT_DIR/scripts/gerar-sincronizado.py" \
-        --srt "$output_pt_srt" \
-        --output "$output_pt_wav" \
-        --model "$MODELS_DIR/$VOICE_MODEL" \
-        --piper "$PIPER_BIN" \
-        --pause_duration 0.1
+    if [ "$RESUME_MODE" = "1" ] && validate_audio_ready "$output_pt_srt" "$output_pt_wav"; then
+        update_step_state "$state_file" "audiobook" "success" "reutilizado"
+        log_step "Audiobook valido ja existente: ${output_pt_wav#$ROOT_DIR/}"
+    else
+        update_step_state "$state_file" "audiobook" "running" "gerando audio"
+        "$PYTHON_BIN" -u "$ROOT_DIR/scripts/gerar-sincronizado.py" \
+            --srt "$output_pt_srt" \
+            --output "$output_pt_wav" \
+            --model "$MODELS_DIR/$VOICE_MODEL" \
+            --piper "$PIPER_BIN" \
+            --pause_duration 0.1
 
-    if [ ! -f "$output_pt_wav" ]; then
-        log_error "Audio final nao gerado: $output_pt_wav"
-        return 1
+        if ! validate_audio_ready "$output_pt_srt" "$output_pt_wav"; then
+            update_step_state "$state_file" "audiobook" "failed" "audio final nao validado"
+            log_error "Audio final nao gerado/validado: $output_pt_wav"
+            return 1
+        fi
+        update_step_state "$state_file" "audiobook" "success" "audio validado"
+        log_step "Audiobook gerado: ${output_pt_wav#$ROOT_DIR/}"
     fi
-    log_step "Audiobook gerado: ${output_pt_wav#$ROOT_DIR/}"
 
     return 0
 }
 
+bootstrap_runtime
+
 {
-    log_header
-    log_section "Pre-requisitos"
-
-    if [ ! -x "$PYTHON_BIN" ]; then
-        log_error "Python do ambiente virtual nao encontrado: $PYTHON_BIN"
-        log_summary "FALHA" "Python indisponivel"
-        exit 1
-    fi
-
     if ! command -v ffmpeg >/dev/null 2>&1; then
         log_error "ffmpeg nao encontrado no PATH"
         log_summary "FALHA" "ffmpeg ausente"
@@ -212,13 +469,19 @@ process_video() {
         exit 1
     fi
 
-    mkdir -p "$ARCHIVE_ROOT"
+    log_header
+    log_section "Pre-requisitos"
+
+    log_step "Config: ${CONFIG_FILE#$ROOT_DIR/}"
+    log_step "Escopo de dados: ${DATA_DIR#$ROOT_DIR/}"
+    log_step "Resume mode: $RESUME_MODE"
+    log_step "Archive on start: $ARCHIVE_ON_START"
 
     log_section "Selecao de Video"
     mapfile -t VIDEO_FILES < <(list_video_files)
 
     if [ "${#VIDEO_FILES[@]}" -eq 0 ]; then
-        log_error "Nenhum arquivo .mkv/.mp4 encontrado em data/"
+        log_error "Nenhum arquivo .mkv/.mp4 encontrado em ${DATA_DIR#$ROOT_DIR/}"
         log_summary "FALHA" "Sem videos"
         exit 1
     fi

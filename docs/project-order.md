@@ -8,6 +8,11 @@
 
 ## Regras gerais
 - Todo o trabalho com arquivos será executado dentro da pasta /data.
+- O escopo de trabalho e configurado em `config/pipeline.ini` pela chave `data_root_relative`.
+- `data_root_relative` aceita caminho absoluto (ex.: `/mnt/DOCS/ab-work`) ou relativo à raiz do projeto (ex.: `data`, `data/projeto-x`).
+- O diretório configurado deve existir e permitir leitura/escrita para o usuário da execução.
+- Logs, archive e `.pipeline-state/` são criados dentro do escopo configurado.
+- O script `workflows/test-e2e.sh` também grava logs no mesmo escopo configurado.
 - O nome do arquivo do vídeo utilizado inicialmente vai ditar o nome de todos os arquivos que serão gerados, e todos residem na mesma pasta.
 - Exemplo com vídeo de entrada "Los três cerditos.mp4":
 - Los três cerditos.wav (criado pela ferramenta de extração de áudio a partir do vídeo)
@@ -30,6 +35,7 @@
 - Gera artefatos de transcrição no mesmo diretório do arquivo de entrada (`.json`, `.srt`, `.tsv`, `.txt`, `.vtt`).
 - O idioma pode ser inferido pelo nome do arquivo (spanish/chinese) ou automático.
 - No fluxo unico, esta etapa e executada pelo `workflows/exec.sh` apos a extracao.
+- O fluxo valida se a transcricao existente cobre a duracao do audio antes de decidir reprocessar.
 
 ## Etapa 3 - Tradução
 - Usa o SRT da etapa de transcrição para gerar `.pt.srt` no mesmo diretório.
@@ -39,11 +45,17 @@
 - Usa o `.pt.srt` traduzido para gerar o `.pt.wav` final no mesmo diretório.
 - A voz usada no fluxo principal é Faber (`pt_BR-faber-medium.onnx`).
 - No fluxo unico, esta etapa e executada pelo `workflows/exec.sh`.
+- O fluxo valida se o `.pt.wav` atual cobre a timeline do SRT antes de decidir reprocessar.
 
 ## Ferramenta auxiliar 5 - Limpeza por arquivamento
 - Não exclui arquivos: apenas move artefatos antigos para `archive/` na raiz do projeto.
 - Move artefatos correspondentes (`.json`, `.pt.srt`, `.srt`, `.tsv`, `.txt`, `.vtt`, `.pt.wav`) quando já houver entrada `.wav`/`.mp3` relacionada em `data/`.
-- No fluxo unico, esta etapa e executada internamente pelo `workflows/exec.sh`.
+- No fluxo unico, esta etapa e opcional e controlada por `archive_on_start`.
+
+## Controle de execução
+- O fluxo grava estado por vídeo em `.pipeline-state/`.
+- Cada etapa (`extract`, `transcribe`, `translate`, `audiobook`) registra status e detalhe.
+- Em falha, a retomada começa na primeira etapa inválida no próximo run com `resume_mode=1`.
 
 ## Observações
 - Os scripts por etapa `0` a `5` foram removidos.

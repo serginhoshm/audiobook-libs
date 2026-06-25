@@ -7,7 +7,7 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 - `scripts/` — scripts Python do pipeline
 - `workflows/` — scripts shell de orquestração (principal: `exec.sh`)
 - `setup/` — instaladores e configuração do ambiente
-- `data/` — pasta base de entrada e saída do fluxo
+- `config/` — configuração do pipeline (ex.: `pipeline.ini`)
 - `models/` — modelos de voz e arquivos de configuração
 - `e2e/` — ativos e saídas de teste ponta a ponta
 - `bin/` — executáveis locais, como o Piper
@@ -18,29 +18,58 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
    - `setup/setup-whisper.sh`
    - `setup/setup-traducao.sh`
    - `setup/setup-piper.sh`
-2. Coloque os arquivos de vídeo em `data/` (subpastas também são aceitas, exceto áreas reservadas como `data/saved`).
-3. Execute `bash workflows/exec.sh`.
-4. Na tela, selecione qual vídeo será processado pelo número, ou digite `T` para processar todos os vídeos listados.
-5. O `exec.sh` executa automaticamente: limpeza por arquivamento, extração `.wav`, transcrição, tradução e geração do audiobook `.pt.wav`.
+2. Defina no `config/pipeline.ini` o diretório de trabalho em `data_root_relative`.
+3. Coloque os vídeos dentro desse diretório configurado.
+4. Execute `bash workflows/exec.sh`.
+5. Na tela, selecione qual vídeo será processado pelo número, ou digite `T` para processar todos os vídeos listados.
+6. O `exec.sh` executa automaticamente: extração `.wav`, transcrição, tradução e geração do audiobook `.pt.wav`.
+
+## Configuração de escopo e retomada
+
+- Arquivo: `config/pipeline.ini`.
+- `data_root_relative` define o diretório de trabalho para vídeos e artefatos.
+- O valor pode ser absoluto (ex.: `/mnt/DOCS/ab-work`) ou relativo à raiz do projeto.
+- O diretório configurado precisa existir e ter permissão de leitura e escrita.
+- Logs, `archive` e `.pipeline-state` são gravados dentro do mesmo diretório configurado.
+- O `workflows/test-e2e.sh` também grava seus logs nesse mesmo diretório configurado.
+- `resume_mode=1` reutiliza artefatos válidos e retoma apenas da primeira etapa inválida.
+- `archive_on_start=0` evita mover artefatos no início e preserva a capacidade de retomada.
+
+Exemplo:
+
+```ini
+[paths]
+data_root_relative = /mnt/DOCS/ab-work
+
+[pipeline]
+resume_mode = 1
+archive_on_start = 0
+```
+
+Também é possível sobrescrever por variável de ambiente:
+- `PIPELINE_CONFIG` para apontar para outro arquivo INI.
 
 ## Saídas esperadas
 
-- `<mesma_pasta_do_video>/<nome_base>.wav` — áudio extraído do vídeo
-- `<mesma_pasta_do_video>/<nome_base>.json` — metadados de transcrição
-- `<mesma_pasta_do_video>/<nome_base>.srt` — legenda original
-- `<mesma_pasta_do_video>/<nome_base>.tsv` — tabela de segmentos
-- `<mesma_pasta_do_video>/<nome_base>.txt` — transcrição em texto
-- `<mesma_pasta_do_video>/<nome_base>.vtt` — legenda VTT
-- `<mesma_pasta_do_video>/<nome_base>.pt.srt` — legenda traduzida para português
-- `<mesma_pasta_do_video>/<nome_base>.pt.wav` — audiobook final gerado pelo Piper
+- `<work_root>/<nome_base>.wav` — áudio extraído do vídeo
+- `<work_root>/<nome_base>.json` — metadados de transcrição
+- `<work_root>/<nome_base>.srt` — legenda original
+- `<work_root>/<nome_base>.tsv` — tabela de segmentos
+- `<work_root>/<nome_base>.txt` — transcrição em texto
+- `<work_root>/<nome_base>.vtt` — legenda VTT
+- `<work_root>/<nome_base>.pt.srt` — legenda traduzida para português
+- `<work_root>/<nome_base>.pt.wav` — audiobook final gerado pelo Piper
+- `<work_root>/logs/` — logs de execução (`exec.sh` e `test-e2e.sh`)
+- `<work_root>/archive/` — artefatos antigos (quando `archive_on_start=1`)
+- `<work_root>/.pipeline-state/` — estado por vídeo para retomada
 
 ## Observações
 
 - Os scripts Python usam caminhos relativos à raiz do projeto, então podem ser executados de qualquer diretório.
 - O arquivo principal de configuração do ambiente está em `setup/`.
-- É recomendável manter os arquivos grandes em `data/` e não misturá-los com os scripts.
-- Os artefatos antigos movidos pelo fluxo são arquivados em `archive/` na raiz do projeto.
-- Todo o conteúdo de `data/` é ignorado no git.
+- Os arquivos de mídia podem ficar em um disco externo, desde que o `data_root_relative` aponte para esse local.
+- O fluxo é idempotente: quando os artefatos já estão válidos, as etapas são reaproveitadas sem reprocessar.
+- A pasta `data/` não é mais necessária para operação do pipeline principal.
 
 ## E2E de referência
 

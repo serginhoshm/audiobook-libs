@@ -2,8 +2,13 @@
 
 ## Main Entry
 - Use `bash workflows/exec.sh`.
-- The script lists available videos in `data/` and lets you choose one by number or all by typing `T`.
-- After selection, it runs the full pipeline automatically: archive old artifacts, extract WAV, transcribe, translate, and generate `.pt.wav`.
+- The script lists available videos in the configured scope from `config/pipeline.ini` (`data_root_relative`) and lets you choose one by number or all by typing `T`.
+- `data_root_relative` accepts absolute paths (for external disks) or project-relative paths.
+- Logs, archive, and `.pipeline-state/` are created under the configured scope.
+- `workflows/test-e2e.sh` logs also follow the configured scope.
+- After selection, it runs the full pipeline automatically: extract WAV, transcribe, translate, and generate `.pt.wav`.
+- With `resume_mode=1`, valid artifacts are reused and failed runs can resume from the first invalid step.
+- Execution state is written to `.pipeline-state/`.
 
 ## E2E test assets
 - E2E fixtures are stored under `e2e/`.

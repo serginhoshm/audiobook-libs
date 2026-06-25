@@ -5,12 +5,91 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+CONFIG_FILE="${PIPELINE_CONFIG:-$ROOT_DIR/config/pipeline.ini}"
+
 PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 PIPER_BIN="${PIPER_BIN:-$ROOT_DIR/bin/piper}"
 MODELS_DIR="$ROOT_DIR/models"
 VOICE_MODEL="pt_BR-faber-medium.onnx"
 
-LOG_DIR="$ROOT_DIR/logs"
+read_ini_value() {
+    local file="$1"
+    local section="$2"
+    local key="$3"
+    local default_value="$4"
+
+    if [ ! -f "$file" ]; then
+        printf '%s' "$default_value"
+        return 0
+    fi
+
+    local value
+    value="$(awk -F '=' -v section="$section" -v key="$key" '
+        BEGIN { in_section=0 }
+        /^[[:space:]]*\[/ {
+            in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
+            next
+        }
+        in_section == 1 {
+            line=$0
+            sub(/^[[:space:]]+/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            if (line ~ /^[#;]/ || line == "") next
+            split(line, a, "=")
+            k=a[1]
+            sub(/^[[:space:]]+/, "", k)
+            sub(/[[:space:]]+$/, "", k)
+            if (k == key) {
+                v=substr(line, index(line, "=")+1)
+                sub(/^[[:space:]]+/, "", v)
+                sub(/[[:space:]]+$/, "", v)
+                print v
+                exit
+            }
+        }
+    ' "$file")"
+
+    if [ -z "$value" ]; then
+        printf '%s' "$default_value"
+    else
+        printf '%s' "$value"
+    fi
+}
+
+configure_data_scope() {
+    local configured_path
+
+    configured_path="$(read_ini_value "$CONFIG_FILE" "paths" "data_root_relative" "data")"
+
+    if [ -z "$configured_path" ]; then
+        echo "Config invalida: data_root_relative vazio" >&2
+        return 1
+    fi
+
+    if [[ "$configured_path" = /* ]]; then
+        DATA_ROOT_ABS="$(realpath -m "$configured_path")"
+    else
+        DATA_ROOT_ABS="$(realpath -m "$ROOT_DIR/$configured_path")"
+    fi
+
+    if [ ! -d "$DATA_ROOT_ABS" ]; then
+        echo "Diretorio de escopo nao encontrado: $DATA_ROOT_ABS" >&2
+        return 1
+    fi
+
+    if [ ! -r "$DATA_ROOT_ABS" ] || [ ! -w "$DATA_ROOT_ABS" ]; then
+        echo "Sem permissao de leitura/escrita no escopo: $DATA_ROOT_ABS" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+if ! configure_data_scope; then
+    exit 1
+fi
+
+LOG_DIR="$DATA_ROOT_ABS/logs"
 mkdir -p "$LOG_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="$LOG_DIR/test-e2e-${TIMESTAMP}.log"
