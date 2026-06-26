@@ -23,3 +23,6 @@ e2e/e2e-test*.wav
 !e2e/e2e-test_chinese.mp3
 models/*
 !models/.gitkeep
+
+# Machine-local pipeline config (do not version)
+config/pipeline.ini

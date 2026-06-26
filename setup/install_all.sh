@@ -188,14 +188,22 @@ ensure_model() {
   MODEL_JSON="${MODEL}.json"
   URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium"
 
-  if [ ! -f "$ROOT_DIR/models/$MODEL" ]; then
+  if [ ! -s "$ROOT_DIR/models/$MODEL" ]; then
+    [ -f "$ROOT_DIR/models/$MODEL" ] && warn "$MODEL existe mas está vazio/corrompido; baixando novamente"
     info "Baixando $MODEL"
+    rm -f "$ROOT_DIR/models/$MODEL"
     wget -c "$URL/$MODEL?download=true" -O "$ROOT_DIR/models/$MODEL"
+  else
+    info "Modelo de voz válido já existe: $ROOT_DIR/models/$MODEL"
   fi
 
-  if [ ! -f "$ROOT_DIR/models/$MODEL_JSON" ]; then
+  if [ ! -s "$ROOT_DIR/models/$MODEL_JSON" ]; then
+    [ -f "$ROOT_DIR/models/$MODEL_JSON" ] && warn "$MODEL_JSON existe mas está vazio/corrompido; baixando novamente"
     info "Baixando $MODEL_JSON"
+    rm -f "$ROOT_DIR/models/$MODEL_JSON"
     wget -c "$URL/$MODEL_JSON?download=true" -O "$ROOT_DIR/models/$MODEL_JSON"
+  else
+    info "Config do modelo válida já existe: $ROOT_DIR/models/$MODEL_JSON"
   fi
 }
 
