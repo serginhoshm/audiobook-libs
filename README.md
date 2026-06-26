@@ -22,7 +22,8 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 3. Coloque os vídeos dentro desse diretório configurado.
 4. Execute `bash workflows/exec.sh`.
 5. Na tela, selecione qual vídeo será processado pelo número, ou digite `T` para processar todos os vídeos listados.
-6. O `exec.sh` executa automaticamente: extração `.wav`, transcrição, tradução e geração do audiobook `.pt.wav`.
+6. Antes de iniciar a extração, o `exec.sh` normaliza o nome do vídeo para português, removendo emojis e caracteres especiais, e reaplica a renomeação aos artefatos já existentes daquele vídeo.
+7. Depois disso, o `exec.sh` executa automaticamente: extração `.wav`, transcrição, tradução e geração do audiobook `.pt.wav`.
 
 ## Configuração de escopo e retomada
 
@@ -59,6 +60,7 @@ Também é possível sobrescrever por variável de ambiente:
 - `<work_root>/<nome_base>.vtt` — legenda VTT
 - `<work_root>/<nome_base>.pt.srt` — legenda traduzida para português
 - `<work_root>/<nome_base>.pt.wav` — audiobook final gerado pelo Piper
+- `<work_root>/<nome_base normalizado>` — nome-base traduzido e sanitizado para português, preservando espaços e parênteses
 - `<work_root>/logs/` — logs de execução (`exec.sh` e `test-e2e.sh`)
 - `<work_root>/archive/` — artefatos antigos (quando `archive_on_start=1`)
 - `<work_root>/.pipeline-state/` — estado por vídeo para retomada
@@ -69,6 +71,7 @@ Também é possível sobrescrever por variável de ambiente:
 - O arquivo principal de configuração do ambiente está em `setup/`.
 - Os arquivos de mídia podem ficar em um disco externo, desde que o `data_root_relative` aponte para esse local.
 - O fluxo é idempotente: quando os artefatos já estão válidos, as etapas são reaproveitadas sem reprocessar.
+- O fluxo também pode migrar arquivos já processados, renomeando o vídeo original, os artefatos gerados e o state de retomada para o novo nome normalizado.
 - A pasta `data/` não é mais necessária para operação do pipeline principal.
 
 ## E2E de referência

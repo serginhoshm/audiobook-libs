@@ -5,6 +5,7 @@
 - O script lista os videos disponiveis em `data/` para selecao na tela.
 - Voce pode selecionar um unico video pelo numero ou digitar `T` para processar todos os videos listados.
 - Depois da selecao, o `exec.sh` executa automaticamente todas as etapas do fluxo.
+- Antes de qualquer etapa, o `exec.sh` normaliza o nome do vídeo para português e propaga essa renomeação para todos os artefatos já existentes do mesmo vídeo.
 
 ## Regras gerais
 - Todo o trabalho com arquivos será executado dentro da pasta /data.
@@ -56,6 +57,7 @@
 - O fluxo grava estado por vídeo em `.pipeline-state/`.
 - Cada etapa (`extract`, `transcribe`, `translate`, `audiobook`) registra status e detalhe.
 - Em falha, a retomada começa na primeira etapa inválida no próximo run com `resume_mode=1`.
+- Se o nome do vídeo for normalizado, o state e os arquivos já gerados são migrados para o novo stem.
 
 ## Observações
 - Os scripts por etapa `0` a `5` foram removidos.

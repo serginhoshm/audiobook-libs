@@ -28,6 +28,7 @@ LOG_DIR="$ROOT_DIR/logs"
 LOG_FILE="$LOG_DIR/exec-${TIMESTAMP}.log"
 SCRIPT_NAME="Exec"
 SCRIPT_START_TIME="$(date +%s)"
+RUN_LOG_FILE="$LOG_DIR/exec-${TIMESTAMP}.log"
 
 read_ini_value() {
     local file="$1"
@@ -111,7 +112,7 @@ prepare_runtime_paths() {
     STATE_ROOT="$DATA_DIR/.pipeline-state"
 
     mkdir -p "$LOG_DIR" "$ARCHIVE_ROOT" "$STATE_ROOT"
-    LOG_FILE="$LOG_DIR/exec-${TIMESTAMP}.log"
+    RUN_LOG_FILE="$LOG_DIR/exec-${TIMESTAMP}.log"
 }
 
 bootstrap_runtime() {
@@ -196,6 +197,24 @@ state_set() {
     awk -F '\t' -v k="$state_key" '$1 != k { print }' "$state_file" > "$tmp_file"
     printf '%s\t%s\n' "$state_key" "$state_value" >> "$tmp_file"
     mv "$tmp_file" "$state_file"
+}
+
+video_log_file_for() {
+    local video_file="$1"
+    local preview_file
+    local preview_base_name
+
+    preview_file="$($PYTHON_BIN -u "$ROOT_DIR/scripts/renomear-arquivos.py" \
+        --root-dir "$ROOT_DIR" \
+        --data-root "$DATA_DIR" \
+        --archive-root "$ARCHIVE_ROOT" \
+        --state-root "$STATE_ROOT" \
+        --logs-dir "$LOG_DIR" \
+        --scope-rel "$DATA_SCOPE_REL" \
+        --preview \
+        --video "$video_file")"
+    preview_base_name="$(basename "${preview_file%.*}")"
+    printf '%s/exec-%s-%s.log' "$LOG_DIR" "$TIMESTAMP" "$preview_base_name"
 }
 
 update_step_state() {
@@ -320,6 +339,8 @@ archive_previous_outputs() {
 
 process_video() {
     local video_file="$1"
+    local original_video_file
+    local original_base_name
     local selected_dir
     local base_name
     local audio_wav
@@ -329,16 +350,39 @@ process_video() {
     local whisper_lang
     local source_lang
     local state_file
+    local video_log_file
+    local selected_video_log
+
+    original_video_file="$video_file"
+    original_base_name="$(basename "${original_video_file%.*}")"
+
+    if [ "$ARCHIVE_ON_START" = "1" ]; then
+        log_section "Limpeza por Arquivamento"
+        archive_previous_outputs "$original_video_file"
+    else
+        log_step "Arquivamento automatico desabilitado (ARCHIVE_ON_START=0)"
+    fi
+
+    video_file="$($PYTHON_BIN -u "$ROOT_DIR/scripts/renomear-arquivos.py" \
+        --root-dir "$ROOT_DIR" \
+        --data-root "$DATA_DIR" \
+        --archive-root "$ARCHIVE_ROOT" \
+        --state-root "$STATE_ROOT" \
+        --logs-dir "$LOG_DIR" \
+        --scope-rel "$DATA_SCOPE_REL" \
+        --video "$original_video_file")"
 
     selected_dir="$(dirname "$video_file")"
     base_name="$(basename "${video_file%.*}")"
+    video_log_file="$LOG_DIR/exec-${base_name}-${TIMESTAMP}.log"
+    LOG_FILE="$video_log_file"
     audio_wav="$selected_dir/$base_name.wav"
     output_srt="$selected_dir/$base_name.srt"
     output_pt_srt="$selected_dir/$base_name.pt.srt"
     output_pt_wav="$selected_dir/$base_name.pt.wav"
     state_file="$(state_file_for_video "$video_file")"
 
-    whisper_lang="$(infer_whisper_lang "$base_name")"
+    whisper_lang="$(infer_whisper_lang "$original_base_name")"
     source_lang="$(infer_translation_lang "$whisper_lang")"
 
     state_set "$state_file" "input_video" "$video_file"
@@ -350,15 +394,15 @@ process_video() {
     state_set "$state_file" "last_run" "$(date -Iseconds)"
 
     log_section "Processando video: ${video_file#$ROOT_DIR/}"
+    if [ "$original_video_file" != "$video_file" ]; then
+        log_step "Nome normalizado: ${original_video_file#$ROOT_DIR/} -> ${video_file#$ROOT_DIR/}"
+    fi
     log_step "Idioma transcricao: $whisper_lang"
     log_step "Idioma traducao: $source_lang"
     log_step "State file: ${state_file#$ROOT_DIR/}"
 
-    if [ "$ARCHIVE_ON_START" = "1" ]; then
-        log_section "Limpeza por Arquivamento"
-        archive_previous_outputs "$video_file"
-    else
-        log_step "Arquivamento automatico desabilitado (ARCHIVE_ON_START=0)"
+    if [ "$RUN_LOG_FILE" != "$video_log_file" ]; then
+        log_step "Log do video: ${video_log_file#$ROOT_DIR/}"
     fi
 
     log_section "Etapa 0 - Extracao de Audio"
@@ -516,7 +560,9 @@ bootstrap_runtime
     success_count=0
     fail_count=0
     for selected_video in "${SELECTED_VIDEOS[@]}"; do
-        if process_video "$selected_video"; then
+        selected_video_log="$(video_log_file_for "$selected_video")"
+        LOG_FILE="$selected_video_log"
+        if process_video "$selected_video" 2>&1 | tee -a "$selected_video_log"; then
             success_count=$((success_count + 1))
         else
             fail_count=$((fail_count + 1))
@@ -533,4 +579,4 @@ bootstrap_runtime
     fi
 
     log_summary "SUCCESS" ""
-} 2>&1 | tee -a "$LOG_FILE"
+} 2>&1 | tee -a "$RUN_LOG_FILE"
