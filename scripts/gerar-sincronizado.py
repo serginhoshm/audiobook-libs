@@ -17,6 +17,9 @@ def parse_args():
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--piper", type=Path, required=True)
     parser.add_argument("--pause_duration", type=float, default=0.0)
+    parser.add_argument("--source_lang", type=str, default="auto")
+    parser.add_argument("--zh_gap_scale", type=float, default=0.85)
+    parser.add_argument("--zh_pause_scale", type=float, default=0.5)
     return parser.parse_args()
 
 def ms_to_bytes(ms, params):
@@ -27,6 +30,11 @@ def ms_to_bytes(ms, params):
 def main():
     args = parse_args()
     temp_wav = Path("temp_frase.wav")
+
+    source_lang_key = (args.source_lang or "auto").strip().lower()
+    is_chinese = source_lang_key in {"zh", "zh-cn", "zh_cn"}
+    gap_scale = args.zh_gap_scale if is_chinese else 1.0
+    pause_scale = args.zh_pause_scale if is_chinese else 1.0
 
     if not args.srt.exists():
         logging.error("SRT de entrada nao encontrado: %s", args.srt)
@@ -84,9 +92,9 @@ def main():
                     final_params = params
 
                 if target_start_ms > current_clock_ms:
-                    gap_ms = target_start_ms - current_clock_ms
+                    gap_ms = int((target_start_ms - current_clock_ms) * gap_scale)
                     audio_frames.append(b"\x00" * ms_to_bytes(gap_ms, final_params))
-                    current_clock_ms = target_start_ms
+                    current_clock_ms += gap_ms
 
                 audio_frames.append(frames)
 
@@ -94,7 +102,7 @@ def main():
                 current_clock_ms += duracao_fala_ms
 
                 if args.pause_duration > 0:
-                    p_ms = int(args.pause_duration * 1000)
+                    p_ms = int(args.pause_duration * 1000 * pause_scale)
                     audio_frames.append(b"\x00" * ms_to_bytes(p_ms, final_params))
                     current_clock_ms += p_ms
 
@@ -111,9 +119,9 @@ def main():
                          legendas[-1].end.seconds * 1000 + legendas[-1].end.milliseconds)
 
         if target_end_ms > current_clock_ms:
-            gap_ms = target_end_ms - current_clock_ms
+            gap_ms = int((target_end_ms - current_clock_ms) * gap_scale)
             audio_frames.append(b"\x00" * ms_to_bytes(gap_ms, final_params))
-            current_clock_ms = target_end_ms
+            current_clock_ms += gap_ms
 
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with wave.open(str(args.output), "wb") as out:

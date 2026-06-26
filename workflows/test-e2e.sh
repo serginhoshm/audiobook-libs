@@ -173,6 +173,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
             --output "$output_wav" \
             --model "$MODELS_DIR/$VOICE_MODEL" \
             --piper "$PIPER_BIN" \
+            --source_lang "$source_lang" \
             --pause_duration 0.1
 
         if [ ! -f "$output_wav" ]; then

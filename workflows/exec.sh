@@ -491,6 +491,7 @@ process_video() {
             --output "$output_pt_wav" \
             --model "$MODELS_DIR/$VOICE_MODEL" \
             --piper "$PIPER_BIN" \
+            --source_lang "$source_lang" \
             --pause_duration 0.1
 
         if ! validate_audio_ready "$output_pt_srt" "$output_pt_wav"; then
