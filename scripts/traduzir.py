@@ -21,6 +21,10 @@ DEFAULT_BACKEND = "google"
 DEFAULT_NLLB_MODEL_DIR = "models/nllb/facebook-nllb-200-distilled-600M"
 DEFAULT_ZH_CALIBRATION_DIR = "config/translation/zh"
 DEFAULT_ZH_GLOSSARY_LIMIT = 500
+DEFAULT_NLLB_MAX_INPUT_LENGTH = 768
+DEFAULT_NLLB_MAX_NEW_TOKENS = 192
+DEFAULT_NLLB_USE_GPU = os.getenv("NLLB_USE_GPU", "1") == "1"
+DEFAULT_NLLB_LEGACY_GENERATION = os.getenv("NLLB_LEGACY_GENERATION", "0") == "1"
 CALIBRATION_PROFILE_FILE = "calibration_profile.json"
 CALIBRATION_STATE_FILE = "calibration_state.json"
 GLOSSARY_FILE = "glossary.json"
@@ -62,6 +66,30 @@ def parse_args():
         type=Path,
         default=Path(os.getenv("NLLB_MODEL_DIR", DEFAULT_NLLB_MODEL_DIR)),
         help="Diretório local do modelo NLLB offline.",
+    )
+    parser.add_argument(
+        "--nllb-max-input-length",
+        type=int,
+        default=int(os.getenv("NLLB_MAX_INPUT_LENGTH", str(DEFAULT_NLLB_MAX_INPUT_LENGTH))),
+        help="Tamanho máximo de entrada para NLLB local.",
+    )
+    parser.add_argument(
+        "--nllb-max-new-tokens",
+        type=int,
+        default=int(os.getenv("NLLB_MAX_NEW_TOKENS", str(DEFAULT_NLLB_MAX_NEW_TOKENS))),
+        help="Máximo de novos tokens por geração no NLLB local.",
+    )
+    parser.add_argument(
+        "--nllb-use-gpu",
+        action="store_true",
+        default=DEFAULT_NLLB_USE_GPU,
+        help="Tenta usar GPU para acelerar o NLLB local (quando disponível).",
+    )
+    parser.add_argument(
+        "--nllb-legacy-generation",
+        action="store_true",
+        default=DEFAULT_NLLB_LEGACY_GENERATION,
+        help="Usa a geração antiga do NLLB (fallback).",
     )
     parser.add_argument(
         "--zh-calibration-dir",
@@ -107,7 +135,15 @@ class NLLBLocalTranslator(BaseTranslator):
         "es": "spa_Latn",
     }
 
-    def __init__(self, model_dir, source_lang_key):
+    def __init__(
+        self,
+        model_dir,
+        source_lang_key,
+        max_input_length=DEFAULT_NLLB_MAX_INPUT_LENGTH,
+        max_new_tokens=DEFAULT_NLLB_MAX_NEW_TOKENS,
+        use_gpu=DEFAULT_NLLB_USE_GPU,
+        legacy_generation=DEFAULT_NLLB_LEGACY_GENERATION,
+    ):
         if source_lang_key not in self.SOURCE_LANG_MAP:
             raise ValueError(
                 "Backend nllb_local suporta apenas source_lang es ou zh-CN."
@@ -126,8 +162,19 @@ class NLLBLocalTranslator(BaseTranslator):
             ) from exc
 
         self._torch = torch
+        self.max_input_length = max(256, int(max_input_length))
+        self.max_new_tokens = max(64, int(max_new_tokens))
+        self.legacy_generation = bool(legacy_generation)
+        self.device = "cuda" if (use_gpu and torch.cuda.is_available()) else "cpu"
+
+        torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
         self.tokenizer = AutoTokenizer.from_pretrained(str(model_dir), use_fast=False)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(str(model_dir))
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(
+            str(model_dir),
+            torch_dtype=torch_dtype,
+            low_cpu_mem_usage=True,
+        )
+        self.model.to(self.device)
         self.model.eval()
 
         self.source_lang = self.SOURCE_LANG_MAP[source_lang_key]
@@ -137,27 +184,56 @@ class NLLBLocalTranslator(BaseTranslator):
         if self.forced_bos_token_id is None or self.forced_bos_token_id < 0:
             raise RuntimeError("Nao foi possivel resolver token de destino por_Latn")
 
+        mode = "legacy" if self.legacy_generation else "fast"
+        print(
+            "[nllb_local] modo=%s device=%s max_input=%s max_new=%s"
+            % (mode, self.device, self.max_input_length, self.max_new_tokens),
+            flush=True,
+        )
+
+    def _prepare_inputs(self, normalized):
+        inputs = self.tokenizer(
+            normalized,
+            return_tensors="pt",
+            truncation=True,
+            max_length=self.max_input_length,
+        )
+        if self.device != "cpu":
+            inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        return inputs
+
+    def _translate_legacy(self, inputs):
+        input_len = int(inputs["input_ids"].shape[1])
+        generation_max_length = min(2048, input_len + 512)
+        output_tokens = self.model.generate(
+            **inputs,
+            forced_bos_token_id=self.forced_bos_token_id,
+            max_length=generation_max_length,
+        )
+        return self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0]
+
+    def _translate_fast(self, inputs):
+        output_tokens = self.model.generate(
+            **inputs,
+            forced_bos_token_id=self.forced_bos_token_id,
+            max_new_tokens=self.max_new_tokens,
+            num_beams=1,
+            do_sample=False,
+        )
+        return self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0]
+
     def translate(self, text):
         normalized = normalize_text(text)
         if not normalized:
             return normalized
 
-        inputs = self.tokenizer(
-            normalized,
-            return_tensors="pt",
-            truncation=True,
-            max_length=1024,
-        )
-        input_len = int(inputs["input_ids"].shape[1])
-        generation_max_length = min(2048, input_len + 512)
+        inputs = self._prepare_inputs(normalized)
 
         with self._torch.no_grad():
-            output_tokens = self.model.generate(
-                **inputs,
-                forced_bos_token_id=self.forced_bos_token_id,
-                max_length=generation_max_length,
-            )
-        translated = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0]
+            if self.legacy_generation:
+                translated = self._translate_legacy(inputs)
+            else:
+                translated = self._translate_fast(inputs)
         return translated
 
 
@@ -168,7 +244,14 @@ def build_translator(args, source_lang_key, source_lang_normalized):
         if source_lang_key == "auto":
             print("Aviso: source_lang=auto nao e suportado em nllb_local. Usando backend google.")
             return GoogleBackendTranslator(source_lang_normalized), "google"
-        translator = NLLBLocalTranslator(args.nllb_model_dir, source_lang_key)
+        translator = NLLBLocalTranslator(
+            args.nllb_model_dir,
+            source_lang_key,
+            max_input_length=args.nllb_max_input_length,
+            max_new_tokens=args.nllb_max_new_tokens,
+            use_gpu=args.nllb_use_gpu,
+            legacy_generation=args.nllb_legacy_generation,
+        )
         return translator, "nllb_local"
 
     return GoogleBackendTranslator(source_lang_normalized), "google"

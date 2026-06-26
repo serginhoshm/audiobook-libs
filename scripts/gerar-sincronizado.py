@@ -2,6 +2,8 @@
 import argparse
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 import wave
@@ -20,12 +22,110 @@ def parse_args():
     parser.add_argument("--source_lang", type=str, default="auto")
     parser.add_argument("--zh_gap_scale", type=float, default=0.85)
     parser.add_argument("--zh_pause_scale", type=float, default=0.5)
+    parser.add_argument("--zh_length_scale", type=float, default=0.88)
+    parser.add_argument("--normalize_drift_threshold", type=float, default=0.02)
     return parser.parse_args()
 
 def ms_to_bytes(ms, params):
     # Garante que o número de bytes seja par (importante para 16-bit)
     num_bytes = int((params.nchannels * params.sampwidth * params.framerate * ms) / 1000)
     return num_bytes - (num_bytes % (params.nchannels * params.sampwidth))
+
+
+def to_ms(ts):
+    return ts.hours * 3600000 + ts.minutes * 60000 + ts.seconds * 1000 + ts.milliseconds
+
+
+def sanitize_tts_text(text):
+    cleaned = re.sub(r"[\x00-\x1f\x7f]", " ", text or "")
+    cleaned = cleaned.replace("\u201c", '"').replace("\u201d", '"').replace("\u2019", "'")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def run_piper(piper_bin, model_path, output_wav, text):
+    return subprocess.run(
+        [str(piper_bin), "--model", str(model_path), "--output_file", str(output_wav)],
+        input=text,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def build_atempo_chain(factor):
+    # ffmpeg atempo accepts values in [0.5, 2.0]; split if needed.
+    parts = []
+    remaining = float(factor)
+
+    while remaining > 2.0:
+        parts.append("atempo=2.0")
+        remaining /= 2.0
+
+    while remaining < 0.5:
+        parts.append("atempo=0.5")
+        remaining /= 0.5
+
+    parts.append(f"atempo={remaining:.6f}")
+    return ",".join(parts)
+
+
+def normalize_output_duration_with_ffmpeg(output_wav, target_ms, current_ms, threshold):
+    if target_ms <= 0 or current_ms <= 0:
+        return current_ms
+
+    ratio = current_ms / target_ms
+    drift = abs(ratio - 1.0)
+    if drift <= threshold:
+        return current_ms
+
+    if not shutil.which("ffmpeg"):
+        logging.warning(
+            "ffmpeg indisponivel; nao foi possivel normalizar duracao (ratio=%.4f)",
+            ratio,
+        )
+        return current_ms
+
+    speed_factor = ratio
+    atempo_filter = build_atempo_chain(speed_factor)
+    tmp_out = output_wav.with_suffix(".normalized.wav")
+
+    logging.info(
+        "Normalizando duracao final (ratio=%.4f, speed=%.4f, filter=%s)",
+        ratio,
+        speed_factor,
+        atempo_filter,
+    )
+
+    proc = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(output_wav),
+            "-filter:a",
+            atempo_filter,
+            str(tmp_out),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if proc.returncode != 0 or (not tmp_out.exists()):
+        logging.warning(
+            "Falha ao normalizar duracao com ffmpeg: %s",
+            (proc.stderr or "").strip()[:300],
+        )
+        if tmp_out.exists():
+            tmp_out.unlink(missing_ok=True)
+        return current_ms
+
+    os.replace(tmp_out, output_wav)
+    return int(target_ms)
 
 def main():
     args = parse_args()
@@ -35,6 +135,7 @@ def main():
     is_chinese = source_lang_key in {"zh", "zh-cn", "zh_cn"}
     gap_scale = args.zh_gap_scale if is_chinese else 1.0
     pause_scale = args.zh_pause_scale if is_chinese else 1.0
+    length_scale = args.zh_length_scale if is_chinese else 1.0
 
     if not args.srt.exists():
         logging.error("SRT de entrada nao encontrado: %s", args.srt)
@@ -77,13 +178,69 @@ def main():
                          leg.start.milliseconds)
 
             # Tempo de inicio desejado para esta fala.
-            target_start_ms = (leg.start.hours * 3600000 + leg.start.minutes * 60000 +
-                               leg.start.seconds * 1000 + leg.start.milliseconds)
+            target_start_ms = to_ms(leg.start)
+            target_end_ms = to_ms(leg.end)
+            subtitle_duration_ms = max(0, target_end_ms - target_start_ms)
 
-            subprocess.run(
-                [str(args.piper), "--model", str(args.model), "--output_file", str(temp_wav)],
-                input=texto, text=True, check=True
+            synth_text = texto
+            piper_cmd = [str(args.piper), "--model", str(args.model), "--output_file", str(temp_wav)]
+            if is_chinese:
+                piper_cmd.extend(["--length_scale", str(length_scale)])
+
+            piper_result = subprocess.run(
+                piper_cmd,
+                input=synth_text,
+                text=True,
+                capture_output=True,
+                check=False,
             )
+
+            if piper_result.returncode != 0 or (not temp_wav.exists()) or temp_wav.stat().st_size == 0:
+                sanitized = sanitize_tts_text(texto)
+                if sanitized and sanitized != texto:
+                    logging.warning(
+                        "[%s/%s] Piper falhou, tentando texto sanitizado.",
+                        i + 1,
+                        total_legendas,
+                    )
+                    piper_result = subprocess.run(
+                        piper_cmd,
+                        input=sanitized,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+
+            if piper_result.returncode != 0 or (not temp_wav.exists()) or temp_wav.stat().st_size == 0:
+                logging.error(
+                    "[%s/%s] Piper falhou; inserindo silencio para manter sincronismo. stderr=%s",
+                    i + 1,
+                    total_legendas,
+                    (piper_result.stderr or "").strip()[:300],
+                )
+                if final_params is not None:
+                    if target_start_ms > current_clock_ms:
+                        gap_ms = int((target_start_ms - current_clock_ms) * gap_scale)
+                        audio_frames.append(b"\x00" * ms_to_bytes(gap_ms, final_params))
+                        current_clock_ms += gap_ms
+
+                    audio_frames.append(b"\x00" * ms_to_bytes(subtitle_duration_ms, final_params))
+                    current_clock_ms += subtitle_duration_ms
+
+                    if args.pause_duration > 0:
+                        p_ms = int(args.pause_duration * 1000 * pause_scale)
+                        audio_frames.append(b"\x00" * ms_to_bytes(p_ms, final_params))
+                        current_clock_ms += p_ms
+                else:
+                    logging.warning(
+                        "[%s/%s] Primeira sintese falhou e parametros de audio ainda indisponiveis; legenda ignorada.",
+                        i + 1,
+                        total_legendas,
+                    )
+
+                if temp_wav.exists():
+                    os.remove(temp_wav)
+                continue
 
             with wave.open(str(temp_wav), "rb") as wav:
                 params = wav.getparams()
@@ -115,8 +272,7 @@ def main():
             logging.error("Nenhum audio util foi gerado a partir do SRT: %s", args.srt)
             return 1
 
-        target_end_ms = (legendas[-1].end.hours * 3600000 + legendas[-1].end.minutes * 60000 +
-                         legendas[-1].end.seconds * 1000 + legendas[-1].end.milliseconds)
+        target_end_ms = to_ms(legendas[-1].end)
 
         if target_end_ms > current_clock_ms:
             gap_ms = int((target_end_ms - current_clock_ms) * gap_scale)
@@ -128,6 +284,13 @@ def main():
             out.setparams(final_params)
             for frame in audio_frames:
                 out.writeframes(frame)
+
+        current_clock_ms = normalize_output_duration_with_ffmpeg(
+            args.output,
+            target_end_ms,
+            current_clock_ms,
+            max(0.0, float(args.normalize_drift_threshold)),
+        )
     finally:
         if temp_wav.exists():
             os.remove(temp_wav)

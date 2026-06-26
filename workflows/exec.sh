@@ -18,7 +18,20 @@ TRANSLATION_TOLERANCE="${TRANSLATION_TOLERANCE:-0.5}"
 AUDIO_TOLERANCE="${AUDIO_TOLERANCE:-1.5}"
 TRANSLATION_BACKEND="${TRANSLATION_BACKEND:-google}"
 NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-$ROOT_DIR/models/nllb/facebook-nllb-200-distilled-600M}"
+DEEPL_CONFIG_FILE="${DEEPL_CONFIG_FILE:-$ROOT_DIR/config/translation/deepl.env}"
+DEEPL_ENDPOINT="${DEEPL_ENDPOINT:-free}"
+DEEPL_BASE="${DEEPL_BASE:-}"
+NLLB_MAX_INPUT_LENGTH="${NLLB_MAX_INPUT_LENGTH:-768}"
+NLLB_MAX_NEW_TOKENS="${NLLB_MAX_NEW_TOKENS:-192}"
+NLLB_USE_GPU="${NLLB_USE_GPU:-1}"
+NLLB_LEGACY_GENERATION="${NLLB_LEGACY_GENERATION:-0}"
 CLI_TRANSLATION_BACKEND=""
+CLI_NLLB_PROFILE=""
+CLI_NLLB_MAX_INPUT_LENGTH=""
+CLI_NLLB_MAX_NEW_TOKENS=""
+CLI_NLLB_USE_GPU=""
+CLI_NLLB_LEGACY_GENERATION=""
+CLI_DEEPL_ENDPOINT=""
 NORMALIZE_DRY_RUN=0
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -485,7 +498,17 @@ print_usage() {
 Uso: workflows/exec.sh [opcoes]
 
 Opcoes:
-  --backend <google|nllb_local>   Define backend de traducao sem prompt interativo.
+    --backend <google|nllb_local|deepl_doc>
+                                                                    Define backend de traducao sem prompt interativo.
+    --nllb-profile <fast|legacy|custom>
+                                                                    Perfil NLLB sem prompt interativo.
+    --nllb-max-input-length <N>     Override de max_input_length do NLLB.
+    --nllb-max-new-tokens <N>       Override de max_new_tokens do NLLB.
+    --nllb-gpu <on|off>             Liga/desliga uso de GPU no NLLB.
+    --nllb-legacy / --no-nllb-legacy
+                                                                    Forca modo legacy do NLLB on/off.
+    --deepl-endpoint <free|pro|URL>
+                                                                    Define endpoint DeepL (free/pro/custom URL).
     --normalize-dry-run             Simula apenas a normalizacao inicial e encerra.
   --help                          Exibe esta ajuda.
 EOF
@@ -506,6 +529,72 @@ parse_cli_args() {
             --backend=*)
                 CLI_TRANSLATION_BACKEND="${1#*=}"
                 ;;
+            --nllb-profile)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --nllb-profile exige um valor."
+                    print_usage
+                    return 1
+                fi
+                CLI_NLLB_PROFILE="$1"
+                ;;
+            --nllb-profile=*)
+                CLI_NLLB_PROFILE="${1#*=}"
+                ;;
+            --nllb-max-input-length)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --nllb-max-input-length exige um valor."
+                    print_usage
+                    return 1
+                fi
+                CLI_NLLB_MAX_INPUT_LENGTH="$1"
+                ;;
+            --nllb-max-input-length=*)
+                CLI_NLLB_MAX_INPUT_LENGTH="${1#*=}"
+                ;;
+            --nllb-max-new-tokens)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --nllb-max-new-tokens exige um valor."
+                    print_usage
+                    return 1
+                fi
+                CLI_NLLB_MAX_NEW_TOKENS="$1"
+                ;;
+            --nllb-max-new-tokens=*)
+                CLI_NLLB_MAX_NEW_TOKENS="${1#*=}"
+                ;;
+            --nllb-gpu)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --nllb-gpu exige um valor (on/off)."
+                    print_usage
+                    return 1
+                fi
+                CLI_NLLB_USE_GPU="$1"
+                ;;
+            --nllb-gpu=*)
+                CLI_NLLB_USE_GPU="${1#*=}"
+                ;;
+            --nllb-legacy)
+                CLI_NLLB_LEGACY_GENERATION="1"
+                ;;
+            --no-nllb-legacy)
+                CLI_NLLB_LEGACY_GENERATION="0"
+                ;;
+            --deepl-endpoint)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --deepl-endpoint exige um valor."
+                    print_usage
+                    return 1
+                fi
+                CLI_DEEPL_ENDPOINT="$1"
+                ;;
+            --deepl-endpoint=*)
+                CLI_DEEPL_ENDPOINT="${1#*=}"
+                ;;
             --help|-h)
                 print_usage
                 exit 0
@@ -525,9 +614,32 @@ parse_cli_args() {
     return 0
 }
 
+resolve_deepl_base() {
+    local endpoint="$1"
+    case "$endpoint" in
+        free|FREE|Free)
+            printf 'https://api-free.deepl.com/v2'
+            ;;
+        pro|PRO|Pro)
+            printf 'https://api.deepl.com/v2'
+            ;;
+        http://*|https://*)
+            printf '%s' "$endpoint"
+            ;;
+        *)
+            printf ''
+            ;;
+    esac
+}
+
 select_translation_backend() {
     local choice
     local default_choice
+    local nllb_profile_choice
+    local gpu_choice
+    local custom_input
+    local custom_new
+    local nllb_cli_configured=0
 
     if [ -n "$CLI_TRANSLATION_BACKEND" ]; then
         case "$CLI_TRANSLATION_BACKEND" in
@@ -536,6 +648,9 @@ select_translation_backend() {
                 ;;
             nllb_local)
                 TRANSLATION_BACKEND="nllb_local"
+                ;;
+            deepl_doc)
+                TRANSLATION_BACKEND="deepl_doc"
                 ;;
             *)
                 log_error "Backend invalido via --backend: $CLI_TRANSLATION_BACKEND"
@@ -548,6 +663,9 @@ select_translation_backend() {
     case "$TRANSLATION_BACKEND" in
         nllb_local)
             default_choice="2"
+            ;;
+        deepl_doc)
+            default_choice="3"
             ;;
         google)
             default_choice="1"
@@ -563,9 +681,10 @@ select_translation_backend() {
         echo "Backend de traducao disponivel:"
         echo "  1) google (online, padrao)"
         echo "  2) nllb_local (offline)"
+        echo "  3) deepl_doc (DeepL document API)"
         echo ""
 
-        read -r -p "Selecione backend de traducao [1/2] (padrao: ${default_choice}): " choice
+        read -r -p "Selecione backend de traducao [1/2/3] (padrao: ${default_choice}): " choice
         choice="${choice:-$default_choice}"
 
         case "$choice" in
@@ -574,6 +693,9 @@ select_translation_backend() {
                 ;;
             2|nllb_local|NLLB_LOCAL|nllb|NLLB)
                 TRANSLATION_BACKEND="nllb_local"
+                ;;
+            3|deepl_doc|DEEPL_DOC|deepl|DEEPL)
+                TRANSLATION_BACKEND="deepl_doc"
                 ;;
             *)
                 log_error "Selecao de backend invalida: $choice"
@@ -588,9 +710,204 @@ select_translation_backend() {
         return 1
     fi
 
+    if [ "$TRANSLATION_BACKEND" = "deepl_doc" ]; then
+        local deepl_choice
+        local deepl_base_resolved
+
+        if [ ! -f "$ROOT_DIR/workflows/translate_srt.sh" ]; then
+            log_error "Workflow DeepL nao encontrado: $ROOT_DIR/workflows/translate_srt.sh"
+            return 1
+        fi
+        if [ -f "$DEEPL_CONFIG_FILE" ]; then
+            # shellcheck disable=SC1090
+            source "$DEEPL_CONFIG_FILE"
+        fi
+        if [ -z "${DEEPL_API_KEY:-}" ]; then
+            log_error "DEEPL_API_KEY nao definida. Configure em $DEEPL_CONFIG_FILE"
+            return 1
+        fi
+
+        if [ -n "$CLI_DEEPL_ENDPOINT" ]; then
+            DEEPL_ENDPOINT="$CLI_DEEPL_ENDPOINT"
+        elif [ -z "$CLI_TRANSLATION_BACKEND" ]; then
+            echo ""
+            echo "Endpoint DeepL:"
+            echo "  1) free (api-free.deepl.com)"
+            echo "  2) pro  (api.deepl.com)"
+            read -r -p "Selecione endpoint DeepL [1/2] (padrao: 1): " deepl_choice
+            deepl_choice="${deepl_choice:-1}"
+            case "$deepl_choice" in
+                1)
+                    DEEPL_ENDPOINT="free"
+                    ;;
+                2)
+                    DEEPL_ENDPOINT="pro"
+                    ;;
+                *)
+                    log_error "Selecao de endpoint DeepL invalida: $deepl_choice"
+                    return 1
+                    ;;
+            esac
+        fi
+
+        if [ -z "$DEEPL_BASE" ]; then
+            deepl_base_resolved="$(resolve_deepl_base "$DEEPL_ENDPOINT")"
+            if [ -z "$deepl_base_resolved" ]; then
+                log_error "DEEPL endpoint invalido: $DEEPL_ENDPOINT"
+                return 1
+            fi
+            DEEPL_BASE="$deepl_base_resolved"
+        fi
+    fi
+
+    if [ -n "$CLI_NLLB_PROFILE" ] || [ -n "$CLI_NLLB_MAX_INPUT_LENGTH" ] || [ -n "$CLI_NLLB_MAX_NEW_TOKENS" ] || [ -n "$CLI_NLLB_USE_GPU" ] || [ -n "$CLI_NLLB_LEGACY_GENERATION" ]; then
+        nllb_cli_configured=1
+    fi
+
+    if [ "$TRANSLATION_BACKEND" = "nllb_local" ] && [ "$nllb_cli_configured" = "1" ]; then
+        if [ -n "$CLI_NLLB_PROFILE" ]; then
+            case "$CLI_NLLB_PROFILE" in
+                fast)
+                    NLLB_LEGACY_GENERATION="0"
+                    NLLB_USE_GPU="1"
+                    NLLB_MAX_INPUT_LENGTH="768"
+                    NLLB_MAX_NEW_TOKENS="192"
+                    ;;
+                legacy)
+                    NLLB_LEGACY_GENERATION="1"
+                    ;;
+                custom)
+                    ;;
+                *)
+                    log_error "Perfil NLLB invalido via CLI: $CLI_NLLB_PROFILE"
+                    return 1
+                    ;;
+            esac
+        fi
+
+        if [ -n "$CLI_NLLB_MAX_INPUT_LENGTH" ]; then
+            if ! [[ "$CLI_NLLB_MAX_INPUT_LENGTH" =~ ^[0-9]+$ ]] || [ "$CLI_NLLB_MAX_INPUT_LENGTH" -lt 256 ]; then
+                log_error "--nllb-max-input-length invalido: $CLI_NLLB_MAX_INPUT_LENGTH"
+                return 1
+            fi
+            NLLB_MAX_INPUT_LENGTH="$CLI_NLLB_MAX_INPUT_LENGTH"
+        fi
+
+        if [ -n "$CLI_NLLB_MAX_NEW_TOKENS" ]; then
+            if ! [[ "$CLI_NLLB_MAX_NEW_TOKENS" =~ ^[0-9]+$ ]] || [ "$CLI_NLLB_MAX_NEW_TOKENS" -lt 64 ]; then
+                log_error "--nllb-max-new-tokens invalido: $CLI_NLLB_MAX_NEW_TOKENS"
+                return 1
+            fi
+            NLLB_MAX_NEW_TOKENS="$CLI_NLLB_MAX_NEW_TOKENS"
+        fi
+
+        if [ -n "$CLI_NLLB_USE_GPU" ]; then
+            case "$CLI_NLLB_USE_GPU" in
+                on|ON|On|1|true|TRUE)
+                    NLLB_USE_GPU="1"
+                    ;;
+                off|OFF|Off|0|false|FALSE)
+                    NLLB_USE_GPU="0"
+                    ;;
+                *)
+                    log_error "--nllb-gpu invalido: $CLI_NLLB_USE_GPU (use on/off)"
+                    return 1
+                    ;;
+            esac
+        fi
+
+        if [ -n "$CLI_NLLB_LEGACY_GENERATION" ]; then
+            NLLB_LEGACY_GENERATION="$CLI_NLLB_LEGACY_GENERATION"
+        fi
+    fi
+
+    if [ "$TRANSLATION_BACKEND" = "nllb_local" ] && [ "$nllb_cli_configured" = "0" ] && [ -z "$CLI_TRANSLATION_BACKEND" ]; then
+        echo ""
+        echo "Perfil de execucao NLLB:"
+        echo "  1) Rapido (recomendado)"
+        echo "     - legacy=0, gpu=1, max_input=768, max_new=192"
+        echo "  2) Compatibilidade (codigo antigo)"
+        echo "     - legacy=1"
+        echo "  3) Personalizado"
+        echo ""
+        read -r -p "Selecione perfil NLLB [1/2/3] (padrao: 1): " nllb_profile_choice
+        nllb_profile_choice="${nllb_profile_choice:-1}"
+
+        case "$nllb_profile_choice" in
+            1)
+                NLLB_LEGACY_GENERATION="0"
+                NLLB_USE_GPU="1"
+                NLLB_MAX_INPUT_LENGTH="768"
+                NLLB_MAX_NEW_TOKENS="192"
+                ;;
+            2)
+                NLLB_LEGACY_GENERATION="1"
+                ;;
+            3)
+                read -r -p "Usar GPU? [S/n] (padrao: S): " gpu_choice
+                gpu_choice="${gpu_choice:-S}"
+                case "$gpu_choice" in
+                    s|S|y|Y)
+                        NLLB_USE_GPU="1"
+                        ;;
+                    n|N)
+                        NLLB_USE_GPU="0"
+                        ;;
+                    *)
+                        log_error "Selecao de GPU invalida: $gpu_choice"
+                        return 1
+                        ;;
+                esac
+
+                read -r -p "max_input_length (padrao atual: ${NLLB_MAX_INPUT_LENGTH}): " custom_input
+                custom_input="${custom_input:-$NLLB_MAX_INPUT_LENGTH}"
+                if ! [[ "$custom_input" =~ ^[0-9]+$ ]] || [ "$custom_input" -lt 256 ]; then
+                    log_error "max_input_length invalido: $custom_input"
+                    return 1
+                fi
+                NLLB_MAX_INPUT_LENGTH="$custom_input"
+
+                read -r -p "max_new_tokens (padrao atual: ${NLLB_MAX_NEW_TOKENS}): " custom_new
+                custom_new="${custom_new:-$NLLB_MAX_NEW_TOKENS}"
+                if ! [[ "$custom_new" =~ ^[0-9]+$ ]] || [ "$custom_new" -lt 64 ]; then
+                    log_error "max_new_tokens invalido: $custom_new"
+                    return 1
+                fi
+                NLLB_MAX_NEW_TOKENS="$custom_new"
+
+                read -r -p "Usar modo legacy? [s/N] (padrao: N): " choice
+                choice="${choice:-N}"
+                case "$choice" in
+                    s|S|y|Y)
+                        NLLB_LEGACY_GENERATION="1"
+                        ;;
+                    n|N)
+                        NLLB_LEGACY_GENERATION="0"
+                        ;;
+                    *)
+                        log_error "Selecao legacy invalida: $choice"
+                        return 1
+                        ;;
+                esac
+                ;;
+            *)
+                log_error "Perfil NLLB invalido: $nllb_profile_choice"
+                return 1
+                ;;
+        esac
+    fi
+
     log_step "Backend de traducao selecionado: $TRANSLATION_BACKEND"
     if [ "$TRANSLATION_BACKEND" = "nllb_local" ]; then
         log_step "Diretorio do modelo NLLB: ${NLLB_MODEL_DIR#$ROOT_DIR/}"
+        log_step "NLLB max_input_length: $NLLB_MAX_INPUT_LENGTH"
+        log_step "NLLB max_new_tokens: $NLLB_MAX_NEW_TOKENS"
+        log_step "NLLB use_gpu: $NLLB_USE_GPU"
+        log_step "NLLB legacy_generation: $NLLB_LEGACY_GENERATION"
+    elif [ "$TRANSLATION_BACKEND" = "deepl_doc" ]; then
+        log_step "DEEPL config: ${DEEPL_CONFIG_FILE#$ROOT_DIR/}"
+        log_step "DEEPL endpoint: $DEEPL_ENDPOINT"
+        log_step "DEEPL base: $DEEPL_BASE"
     fi
 
     return 0
@@ -745,12 +1062,48 @@ process_video() {
         log_step "Traducao valida ja existente: ${output_pt_srt#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "translate" "running" "traduzindo"
-        "$PYTHON_BIN" "$ROOT_DIR/scripts/traduzir.py" \
-            "$output_srt" \
-            "$output_pt_srt" \
-            "$source_lang" \
-            --backend "$TRANSLATION_BACKEND" \
-            --nllb-model-dir "$NLLB_MODEL_DIR"
+        if [ "$TRANSLATION_BACKEND" = "deepl_doc" ]; then
+            case "$source_lang" in
+                zh-CN)
+                    deepl_source_lang="ZH"
+                    ;;
+                es)
+                    deepl_source_lang="ES"
+                    ;;
+                *)
+                    deepl_source_lang="AUTO"
+                    ;;
+            esac
+            DEEPL_API_KEY="${DEEPL_API_KEY:-}" DEEPL_BASE="$DEEPL_BASE" "$ROOT_DIR/workflows/translate_srt.sh" \
+                --source-lang "$deepl_source_lang" \
+                --target-lang "PT-BR" \
+                "$output_srt" \
+                "$output_pt_srt"
+        else
+            translation_cmd=(
+                "$PYTHON_BIN" "$ROOT_DIR/scripts/traduzir.py"
+                "$output_srt" \
+                "$output_pt_srt" \
+                "$source_lang" \
+                --backend "$TRANSLATION_BACKEND" \
+                --nllb-model-dir "$NLLB_MODEL_DIR"
+            )
+
+            if [ "$TRANSLATION_BACKEND" = "nllb_local" ]; then
+                translation_cmd+=(
+                    --nllb-max-input-length "$NLLB_MAX_INPUT_LENGTH"
+                    --nllb-max-new-tokens "$NLLB_MAX_NEW_TOKENS"
+                )
+                if [ "$NLLB_USE_GPU" = "1" ]; then
+                    translation_cmd+=(--nllb-use-gpu)
+                fi
+                if [ "$NLLB_LEGACY_GENERATION" = "1" ]; then
+                    translation_cmd+=(--nllb-legacy-generation)
+                fi
+            fi
+
+            "${translation_cmd[@]}"
+        fi
 
         if ! validate_translation_ready "$output_srt" "$output_pt_srt"; then
             update_step_state "$state_file" "translate" "failed" "SRT traduzido nao validado"
