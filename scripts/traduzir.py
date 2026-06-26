@@ -129,12 +129,14 @@ class NLLBLocalTranslator(BaseTranslator):
             truncation=True,
             max_length=1024,
         )
+        input_len = int(inputs["input_ids"].shape[1])
+        generation_max_length = min(2048, input_len + 512)
 
         with self._torch.no_grad():
             output_tokens = self.model.generate(
                 **inputs,
                 forced_bos_token_id=self.forced_bos_token_id,
-                max_new_tokens=512,
+                max_length=generation_max_length,
             )
         translated = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0]
         return translated

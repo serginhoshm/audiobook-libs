@@ -12,6 +12,7 @@ VENV_PYTHON="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 
 NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-$ROOT_DIR/models/nllb/facebook-nllb-200-distilled-600M}"
 SOURCE_LANG="${SOURCE_LANG:-zh-CN}"
+SMOKE_STRICT_QUALITY="${SMOKE_STRICT_QUALITY:-0}"
 
 mkdir -p "$ROOT_DIR/logs"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -50,6 +51,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
   log_step "Python: $VENV_PYTHON"
   log_step "Modelo NLLB: $NLLB_MODEL_DIR"
   log_step "Idioma de origem para teste: $SOURCE_LANG"
+  log_step "Modo estrito de qualidade: $SMOKE_STRICT_QUALITY"
 
   log_section "Smoke Test"
   TMP_DIR="$(mktemp -d)"
@@ -142,6 +144,36 @@ EOF
   log_step "Caso 6 (longo) traduzido: ${TRANSLATED_LINES[5]}"
   log_step "Caso 7 (longo) original: $TEST_TEXT_7"
   log_step "Caso 7 (longo) traduzido: ${TRANSLATED_LINES[6]}"
+
+  log_section "Qualidade Minima"
+  SUSPECT_PATTERNS=(
+    "caixao"
+    "caixão"
+    "choveu a chuva"
+    "cheio de ar"
+  )
+
+  suspect_hits=0
+  for translated_line in "${TRANSLATED_LINES[@]}"; do
+    lowered_line="$(printf '%s' "$translated_line" | tr '[:upper:]' '[:lower:]')"
+    for pattern in "${SUSPECT_PATTERNS[@]}"; do
+      if [[ "$lowered_line" == *"$pattern"* ]]; then
+        suspect_hits=$((suspect_hits + 1))
+        log_error "Termo suspeito detectado: '$pattern' em '$translated_line'"
+      fi
+    done
+  done
+
+  if [ "$suspect_hits" -gt 0 ]; then
+    if [ "$SMOKE_STRICT_QUALITY" = "1" ]; then
+      log_summary "FALHA" "Qualidade abaixo do minimo (hits=$suspect_hits)"
+      rm -rf "$TMP_DIR"
+      exit 1
+    fi
+    log_step "Qualidade minima: ALERTA (hits=$suspect_hits, sem falhar em modo nao estrito)"
+  else
+    log_step "Qualidade minima: OK"
+  fi
 
   rm -rf "$TMP_DIR"
 
