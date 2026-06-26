@@ -11,6 +11,8 @@ from pathlib import Path
 from deep_translator import GoogleTranslator
 
 
+MAX_STEM_LENGTH = 120
+
 ARTIFACT_SUFFIXES = [
     ".wav",
     ".json",
@@ -38,6 +40,22 @@ def sanitize_name(text: str) -> str:
     text = re.sub(r"[^0-9A-Za-zÀ-ÖØ-öø-ÿ() ]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def shorten_stem(stem: str, source_id: str) -> str:
+    stem = sanitize_name(stem)
+    if not stem:
+        stem = "video"
+
+    if len(stem) <= MAX_STEM_LENGTH:
+        return stem
+
+    digest = hashlib.sha1(source_id.encode("utf-8")).hexdigest()[:8]
+    head_length = max(1, MAX_STEM_LENGTH - 9)
+    head = stem[:head_length].rstrip()
+    if not head:
+        head = "video"
+    return f"{head}-{digest}"
 
 
 def translate_stem(stem: str) -> str:
@@ -155,10 +173,10 @@ def resolve_unique_stem(video_path: Path, data_root: Path, archive_root: Path, c
                 return True
         return False
 
-    unique_stem = candidate_stem
+    unique_stem = shorten_stem(candidate_stem, str(video_path))
     counter = 2
     while target_exists(source_dir, unique_stem) or target_exists(archive_dir, unique_stem):
-        unique_stem = f"{candidate_stem} ({counter})"
+        unique_stem = shorten_stem(f"{candidate_stem} ({counter})", f"{video_path}|{counter}")
         counter += 1
     return unique_stem
 

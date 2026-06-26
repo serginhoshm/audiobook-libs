@@ -213,7 +213,15 @@ video_log_file_for() {
         --scope-rel "$DATA_SCOPE_REL" \
         --preview \
         --video "$video_file")"
+
+    if [ -z "$preview_file" ]; then
+        return 1
+    fi
+
     preview_base_name="$(basename "${preview_file%.*}")"
+    if [ -z "$preview_base_name" ]; then
+        return 1
+    fi
     printf '%s/exec-%s-%s.log' "$LOG_DIR" "$TIMESTAMP" "$preview_base_name"
 }
 
@@ -371,6 +379,11 @@ process_video() {
         --logs-dir "$LOG_DIR" \
         --scope-rel "$DATA_SCOPE_REL" \
         --video "$original_video_file")"
+
+    if [ -z "$video_file" ]; then
+        log_error "Falha ao normalizar o nome do video: $original_video_file"
+        return 1
+    fi
 
     selected_dir="$(dirname "$video_file")"
     base_name="$(basename "${video_file%.*}")"
@@ -560,7 +573,11 @@ bootstrap_runtime
     success_count=0
     fail_count=0
     for selected_video in "${SELECTED_VIDEOS[@]}"; do
-        selected_video_log="$(video_log_file_for "$selected_video")"
+        if ! selected_video_log="$(video_log_file_for "$selected_video")"; then
+            log_error "Nao foi possivel criar log para: $selected_video"
+            fail_count=$((fail_count + 1))
+            continue
+        fi
         LOG_FILE="$selected_video_log"
         if process_video "$selected_video" 2>&1 | tee -a "$selected_video_log"; then
             success_count=$((success_count + 1))
