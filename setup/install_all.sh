@@ -186,16 +186,16 @@ ensure_model() {
 
   MODEL="pt_BR-faber-medium.onnx"
   MODEL_JSON="${MODEL}.json"
-  URL="https://huggingface.co/datasets/piper/resolve/main/pt/pt_BR/faber/medium"
+  URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium"
 
   if [ ! -f "$ROOT_DIR/models/$MODEL" ]; then
     info "Baixando $MODEL"
-    wget -c "$URL/$MODEL" -O "$ROOT_DIR/models/$MODEL"
+    wget -c "$URL/$MODEL?download=true" -O "$ROOT_DIR/models/$MODEL"
   fi
 
   if [ ! -f "$ROOT_DIR/models/$MODEL_JSON" ]; then
     info "Baixando $MODEL_JSON"
-    wget -c "$URL/$MODEL_JSON" -O "$ROOT_DIR/models/$MODEL_JSON"
+    wget -c "$URL/$MODEL_JSON?download=true" -O "$ROOT_DIR/models/$MODEL_JSON"
   fi
 }
 
