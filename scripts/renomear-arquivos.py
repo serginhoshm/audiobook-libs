@@ -190,6 +190,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logs-dir", type=Path, required=True)
     parser.add_argument("--scope-rel", required=True)
     parser.add_argument("--video", type=Path, required=True)
+    parser.add_argument(
+        "--lang-suffix",
+        choices=["spanish", "chinese"],
+        default="",
+        help="Sufixo opcional de idioma original para anexar ao nome final.",
+    )
     parser.add_argument("--preview", action="store_true", help="Apenas calcula o nome final, sem renomear arquivos")
     return parser.parse_args()
 
@@ -204,6 +210,8 @@ def main() -> int:
 
     old_stem = video_path.stem
     normalized_stem = sanitize_name(translate_stem(old_stem))
+    if args.lang_suffix and not normalized_stem.lower().endswith(f"_{args.lang_suffix}"):
+        normalized_stem = f"{normalized_stem}_{args.lang_suffix}"
     unique_stem = resolve_unique_stem(video_path, args.data_root, args.archive_root, normalized_stem)
 
     if args.preview:
