@@ -11,6 +11,8 @@ PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
 PIPER_BIN="${PIPER_BIN:-$ROOT_DIR/bin/piper}"
 MODELS_DIR="$ROOT_DIR/models"
 VOICE_MODEL="pt_BR-faber-medium.onnx"
+TRANSLATION_BACKEND="${TRANSLATION_BACKEND:-google}"
+NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-$ROOT_DIR/models/nllb/facebook-nllb-200-distilled-600M}"
 
 read_ini_value() {
     local file="$1"
@@ -159,7 +161,9 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         "$PYTHON_BIN" scripts/traduzir.py \
             "$transcript_srt" \
             "$translated_srt" \
-            "$source_lang"
+            "$source_lang" \
+            --backend "$TRANSLATION_BACKEND" \
+            --nllb-model-dir "$NLLB_MODEL_DIR"
 
         if [ ! -f "$translated_srt" ]; then
             log_error "SRT traduzido não encontrado: $translated_srt"

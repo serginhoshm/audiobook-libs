@@ -16,6 +16,8 @@ ARCHIVE_ON_START="${ARCHIVE_ON_START:-0}"
 TRANSCRIPTION_TOLERANCE="${TRANSCRIPTION_TOLERANCE:-5.0}"
 TRANSLATION_TOLERANCE="${TRANSLATION_TOLERANCE:-0.5}"
 AUDIO_TOLERANCE="${AUDIO_TOLERANCE:-1.5}"
+TRANSLATION_BACKEND="${TRANSLATION_BACKEND:-google}"
+NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-$ROOT_DIR/models/nllb/facebook-nllb-200-distilled-600M}"
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 source "$ROOT_DIR/scripts/log_helpers.sh"
@@ -469,7 +471,9 @@ process_video() {
         "$PYTHON_BIN" "$ROOT_DIR/scripts/traduzir.py" \
             "$output_srt" \
             "$output_pt_srt" \
-            "$source_lang"
+            "$source_lang" \
+            --backend "$TRANSLATION_BACKEND" \
+            --nllb-model-dir "$NLLB_MODEL_DIR"
 
         if ! validate_translation_ready "$output_srt" "$output_pt_srt"; then
             update_step_state "$state_file" "translate" "failed" "SRT traduzido nao validado"
