@@ -1,0 +1,51 @@
+{
+  "cases": [
+    {
+      "id": "drawer_term",
+      "source": "请把蓝色文件夹放在第二个抽屉里。",
+      "must_include": [
+        "gaveta"
+      ],
+      "forbid": [
+        "caixão",
+        "caixao"
+      ],
+      "preferred_replacements": {
+        "caixão": "gaveta",
+        "caixao": "gaveta",
+        "folheto": "pasta"
+      }
+    },
+    {
+      "id": "coffee_aroma",
+      "source": "这家店的咖啡很香，但有点贵。",
+      "must_include": [
+        "café"
+      ],
+      "forbid": [
+        "cheio de ar"
+      ],
+      "preferred_replacements": {
+        "cheio de ar": "aromático"
+      }
+    },
+    {
+      "id": "rain_phrase",
+      "source": "昨晚下雨了，所以路上很滑。",
+      "must_include": [
+        "choveu"
+      ],
+      "forbid": [
+        "a chuva choveu"
+      ],
+      "preferred_replacements": {
+        "a chuva choveu": "choveu"
+      }
+    }
+  ],
+  "global_replacements": {
+    "próximo quarta-feira": "próxima quarta-feira",
+    "proximo quarta-feira": "próxima quarta-feira",
+    "ciências básicas": "ciência básica"
+  }
+}

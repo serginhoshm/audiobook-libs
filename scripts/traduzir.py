@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -18,6 +19,11 @@ TRANSLATION_MEMORY_SUFFIX = ".translation-memory.json"
 MARKER_TEMPLATE = "[[SRT-{index:04d}]]"
 DEFAULT_BACKEND = "google"
 DEFAULT_NLLB_MODEL_DIR = "models/nllb/facebook-nllb-200-distilled-600M"
+DEFAULT_ZH_CALIBRATION_DIR = "config/translation/zh"
+DEFAULT_ZH_GLOSSARY_LIMIT = 500
+CALIBRATION_PROFILE_FILE = "calibration_profile.json"
+CALIBRATION_STATE_FILE = "calibration_state.json"
+GLOSSARY_FILE = "glossary.json"
 
 
 def parse_args():
@@ -55,6 +61,18 @@ def parse_args():
         type=Path,
         default=Path(os.getenv("NLLB_MODEL_DIR", DEFAULT_NLLB_MODEL_DIR)),
         help="Diretório local do modelo NLLB offline.",
+    )
+    parser.add_argument(
+        "--zh-calibration-dir",
+        type=Path,
+        default=Path(os.getenv("ZH_CALIBRATION_DIR", DEFAULT_ZH_CALIBRATION_DIR)),
+        help="Diretório com perfil/glossário de calibração para chinês.",
+    )
+    parser.add_argument(
+        "--zh-glossary-limit",
+        type=int,
+        default=int(os.getenv("ZH_GLOSSARY_LIMIT", str(DEFAULT_ZH_GLOSSARY_LIMIT))),
+        help="Limite de entradas de glossário/contexto autoajustável para chinês.",
     )
     return parser.parse_args()
 
@@ -153,6 +171,152 @@ def build_translator(args, source_lang_key, source_lang_normalized):
         return translator, "nllb_local"
 
     return GoogleBackendTranslator(source_lang_normalized), "google"
+
+
+def contains_cjk(text):
+    return bool(re.search(r"[\u3400-\u9fff\uf900-\ufaff]", text or ""))
+
+
+def load_json_file(path, default_value):
+    if not path.exists():
+        return default_value
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    except Exception:
+        return default_value
+
+
+def save_json_file(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def enforce_dict_limit(mapping, limit):
+    if limit <= 0:
+        mapping.clear()
+        return
+    while len(mapping) > limit:
+        first_key = next(iter(mapping))
+        mapping.pop(first_key, None)
+
+
+def load_zh_calibration_bundle(calibration_dir):
+    profile_path = calibration_dir / CALIBRATION_PROFILE_FILE
+    glossary_path = calibration_dir / GLOSSARY_FILE
+    state_path = calibration_dir / CALIBRATION_STATE_FILE
+
+    profile_default = {"cases": [], "global_replacements": {}}
+    glossary_default = {"entries": []}
+    state_default = {
+        "last_run": None,
+        "backend": None,
+        "active_replacements": {},
+        "case_results": [],
+        "auto_glossary": {},
+    }
+
+    return {
+        "profile_path": profile_path,
+        "glossary_path": glossary_path,
+        "state_path": state_path,
+        "profile": load_json_file(profile_path, profile_default),
+        "glossary": load_json_file(glossary_path, glossary_default),
+        "state": load_json_file(state_path, state_default),
+    }
+
+
+def run_zh_precalibration(tradutor, profile):
+    active_replacements = dict(profile.get("global_replacements", {}))
+    case_results = []
+
+    for case in profile.get("cases", []):
+        source = normalize_text(case.get("source", ""))
+        if not source:
+            continue
+
+        translated = normalize_text(translate_single_line(tradutor, source))
+        translated_lower = translated.lower()
+
+        forbid_hits = [term for term in case.get("forbid", []) if term.lower() in translated_lower]
+        must_include = [term for term in case.get("must_include", []) if term.strip()]
+        missing_terms = [term for term in must_include if term.lower() not in translated_lower]
+
+        triggered = bool(forbid_hits or missing_terms)
+        if triggered:
+            for wrong, correct in case.get("preferred_replacements", {}).items():
+                if wrong and correct:
+                    active_replacements[wrong] = correct
+
+        case_results.append(
+            {
+                "id": case.get("id", "case"),
+                "source": source,
+                "translated": translated,
+                "triggered": triggered,
+                "forbid_hits": forbid_hits,
+                "missing_terms": missing_terms,
+            }
+        )
+
+    return active_replacements, case_results
+
+
+def apply_case_replacements(text, replacements):
+    updated = text
+    for wrong, correct in replacements.items():
+        if wrong and correct:
+            updated = updated.replace(wrong, correct)
+    return updated
+
+
+def apply_glossary_for_source(source_text, translated_text, glossary_entries):
+    updated = translated_text
+    for entry in glossary_entries:
+        source_regex = entry.get("source_regex")
+        target = normalize_text(entry.get("target", ""))
+        forbidden_targets = [normalize_text(term) for term in entry.get("forbidden_targets", [])]
+        if not source_regex or not re.search(source_regex, source_text):
+            continue
+
+        for forbidden in forbidden_targets:
+            if forbidden:
+                updated = re.sub(re.escape(forbidden), target, updated, flags=re.IGNORECASE)
+    return updated
+
+
+def update_auto_glossary(state, source_text, translated_text, limit):
+    auto_glossary = state.setdefault("auto_glossary", {})
+    src = normalize_text(source_text)
+    tgt = normalize_text(translated_text)
+    if not src or not tgt or not contains_cjk(src):
+        return
+
+    current = auto_glossary.get(src)
+    if isinstance(current, dict):
+        count = int(current.get("count", 0)) + 1
+    else:
+        count = 1
+
+    auto_glossary[src] = {"target": tgt, "count": count}
+
+    if len(auto_glossary) > limit:
+        ranked = sorted(auto_glossary.items(), key=lambda item: int(item[1].get("count", 0)), reverse=True)
+        trimmed = dict(ranked[:limit])
+        auto_glossary.clear()
+        auto_glossary.update(trimmed)
+
+
+def get_auto_glossary_target(state, source_text):
+    auto_glossary = state.get("auto_glossary", {})
+    entry = auto_glossary.get(source_text)
+    if isinstance(entry, dict):
+        return normalize_text(entry.get("target", ""))
+    if isinstance(entry, str):
+        return normalize_text(entry)
+    return ""
 
 
 def load_translation_memory(memory_path):
@@ -261,22 +425,45 @@ def translate_chinese_srt(
     block_max_lines,
     block_max_chars,
     source_memory,
+    calibration_bundle,
+    glossary_limit,
 ):
+    profile = calibration_bundle["profile"]
+    glossary_entries = calibration_bundle["glossary"].get("entries", [])
+    state = calibration_bundle["state"]
+
+    active_replacements, case_results = run_zh_precalibration(tradutor, profile)
+    state["last_run"] = datetime.now(timezone.utc).isoformat()
+    state["active_replacements"] = active_replacements
+    state["case_results"] = case_results
+
     blocks = split_into_blocks(subtitles, block_max_lines, block_max_chars)
     total_blocks = len(blocks)
 
     for block_index, block in enumerate(tqdm(blocks), start=1):
         block_texts = [normalize_text(subtitle.text) for subtitle in block]
-        if all(text in source_memory for text in block_texts if text):
-            translated_lines = [source_memory.get(text, text) for text in block_texts]
+        if all((text in source_memory) or get_auto_glossary_target(state, text) for text in block_texts if text):
+            translated_lines = []
+            for text in block_texts:
+                cached = source_memory.get(text)
+                if not cached:
+                    cached = get_auto_glossary_target(state, text) or text
+                translated_lines.append(cached)
         else:
             translated_lines = translate_block_text(tradutor, block, source_memory, block_max_chars)
             if translated_lines is None or len(translated_lines) != len(block):
                 translated_lines = [translate_single_line(tradutor, text) for text in block_texts]
 
-        for subtitle, translated_text in zip(block, translated_lines):
+        for subtitle, source_text, translated_text in zip(block, block_texts, translated_lines):
             if translated_text:
-                subtitle.text = translated_text
+                calibrated = apply_case_replacements(translated_text, active_replacements)
+                calibrated = apply_glossary_for_source(source_text, calibrated, glossary_entries)
+                subtitle.text = calibrated
+                source_memory[source_text] = calibrated
+                update_auto_glossary(state, source_text, calibrated, glossary_limit)
+
+        enforce_dict_limit(source_memory, glossary_limit)
+        save_json_file(calibration_bundle["state_path"], state)
 
         save_translation_memory(memory_path, source_memory)
         print(f"Bloco {block_index}/{total_blocks} traduzido")
@@ -332,6 +519,9 @@ def main():
     if source_lang_key == "zh-cn":
         memory_path = memory_path_for(output_path, selected_backend, source_lang_key)
         translation_memory = load_translation_memory(memory_path)
+        calibration_bundle = load_zh_calibration_bundle(args.zh_calibration_dir)
+        calibration_bundle["state"]["backend"] = selected_backend
+
         translate_chinese_srt(
             subtitles,
             tradutor,
@@ -339,8 +529,11 @@ def main():
             max(1, args.block_max_lines),
             max(1, args.block_max_chars),
             translation_memory,
+            calibration_bundle,
+            max(1, args.zh_glossary_limit),
         )
         save_translation_memory(memory_path, translation_memory)
+        save_json_file(calibration_bundle["state_path"], calibration_bundle["state"])
     else:
         translate_simple_srt(subtitles, tradutor)
 

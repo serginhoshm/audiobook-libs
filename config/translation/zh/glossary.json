@@ -1,0 +1,33 @@
+{
+  "entries": [
+    {
+      "source_regex": "抽屉",
+      "target": "gaveta",
+      "forbidden_targets": [
+        "caixão",
+        "caixao"
+      ]
+    },
+    {
+      "source_regex": "文件夹",
+      "target": "pasta",
+      "forbidden_targets": [
+        "folheto"
+      ]
+    },
+    {
+      "source_regex": "咖啡",
+      "target": "café",
+      "forbidden_targets": [
+        "cheio de ar"
+      ]
+    },
+    {
+      "source_regex": "下雨",
+      "target": "choveu",
+      "forbidden_targets": [
+        "a chuva choveu"
+      ]
+    }
+  ]
+}
