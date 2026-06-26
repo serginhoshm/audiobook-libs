@@ -1,0 +1,36 @@
+{
+  "active_replacements": {},
+  "auto_glossary": {
+    "会议推迟到下周三上午九点。": {
+      "count": 1,
+      "target": "A reunião foi adiada para as nove da manhã do próximo quarta-feira."
+    },
+    "我今天终于回家了。": {
+      "count": 1,
+      "target": "Eu finalmente cheguei a casa hoje."
+    },
+    "昨晚下雨了，所以路上很滑。": {
+      "count": 1,
+      "target": "A chuva choveu ontem à noite, por isso o caminho foi muito liso."
+    },
+    "第二段内容讨论的是城市里的小型菜园计划。居民把闲置屋顶改造成种植区，轮流负责浇水和堆肥管理。学校也参与其中，学生每周记录植物生长数据，并学习如何减少食物浪费。这个计划不仅改善了社区关系，还让很多家庭的蔬菜开销明显下降。": {
+      "count": 1,
+      "target": "O segundo tema é o programa de pequenos jardins urbanos. Os moradores transformam os telhados em áreas de cultivo, a rotina é a gestão de água e compostos. As escolas também participam, com os alunos registrando dados de crescimento de plantas semanalmente e aprendendo como reduzir o desperdício de alimentos."
+    },
+    "请把蓝色文件夹放在第二个抽屉里。": {
+      "count": 1,
+      "target": "Coloque o folheto azul no segundo caixão."
+    },
+    "这家店的咖啡很香，但有点贵。": {
+      "count": 1,
+      "target": "O café da loja é cheio de ar, mas um pouco caro."
+    },
+    "这段故事讲的是一位年轻工程师在山区修复一座老桥。起初，村民不信任他，因为过去很多项目都半途而废。后来，他每天和大家一起搬材料、测量地形，还主动教孩子们基础科学知识。几个月后，桥梁正式通车，村里第一次有了稳定的货运线路。": {
+      "count": 1,
+      "target": "O conto conta a história de um jovem engenheiro que repara uma ponte antiga na região montanhosa. Inicialmente, os aldeões não confiavam nele, porque muitos projetos passaram a meio caminho. Depois, ele se juntou a todos para transportar materiais, medir o terreno todos os dias, e também ensinar as crianças a ciências básicas."
+    }
+  },
+  "backend": "nllb_local",
+  "case_results": [],
+  "last_run": "2026-06-26T18:25:12.506939+00:00"
+}

@@ -1,0 +1,109 @@
+{
+  "global_replacements": {
+    "a casa construída pelo patrão com palha": "o mais velho construiu uma casa de palha",
+    "da casa de madeira da casa": "na casa de madeira",
+    "bata na porta com força": "bateu com força na porta",
+    "o lobo mau está se aproximando": "o lobo mau se aproximou",
+    "a chuva choveu": "choveu"
+  },
+  "glossary_entries": [],
+  "watch_patterns": [
+    {
+      "id": "term_patron",
+      "regex": "\\bpatr[aã]o\\b",
+      "note": "Possível tradução literal errada em contexto narrativo familiar."
+    },
+    {
+      "id": "term_professor_nacional",
+      "regex": "\\bprofessor nacional\\b",
+      "note": "Título potencialmente mal mapeado; revisar contexto histórico."
+    },
+    {
+      "id": "term_burbot",
+      "regex": "\\bburbot\\b",
+      "note": "Empréstimo estranho para PT-BR; pode indicar erro lexical."
+    },
+    {
+      "id": "term_chefe_lua",
+      "regex": "\\bchefe da lua\\b",
+      "note": "Colocação possivelmente literal e sem sentido no contexto."
+    },
+    {
+      "id": "term_acucar_mascavo",
+      "regex": "\\baçúcar mascavo\\b",
+      "note": "Monitorar combinações culinárias incomuns por tradução literal."
+    },
+    {
+      "id": "term_lobo_branco",
+      "regex": "\\blobo branco\\b",
+      "note": "Termo de domínio recorrente; útil para acompanhar consistência."
+    },
+    {
+      "id": "phrase_nao_cuidam_recem_nascido",
+      "regex": "\\bnão cuidam do recém[- ]nascido\\b",
+      "note": "Frase sintaticamente suspeita para PT-BR."
+    },
+    {
+      "id": "term_lobo_selvagem",
+      "regex": "\\blobo selvagem\\b",
+      "note": "No conto atual, padronizar para 'lobo mau'."
+    },
+    {
+      "id": "phrase_casa_ervas_velhas",
+      "regex": "\\bcasa de ervas velhas\\b",
+      "note": "Tradução literal inadequada de casa de palha."
+    },
+    {
+      "id": "phrase_queimando_um_cavalo",
+      "regex": "\\bqueimando um cavalo\\b",
+      "note": "Saída semântica incorreta para ação de acender fogo."
+    },
+    {
+      "id": "phrase_caiu_na_torcida",
+      "regex": "\\bcaiu na torcida\\b",
+      "note": "Erro lexical para queda no fogão/fornalha."
+    },
+    {
+      "id": "phrase_velho_3",
+      "regex": "\\bvelho\\s*3\\b",
+      "note": "Numeração literal inadequada de personagem."
+    },
+    {
+      "id": "phrase_poderoso_bateu_porta",
+      "regex": "\\bpoderoso bateu contra a porta\\b",
+      "note": "Construção sintática estranha em cena de impacto na porta."
+    },
+    {
+      "id": "phrase_o_que_e_que_eu_faco",
+      "regex": "\\bo que é que eu faço\\b",
+      "note": "Frase injetada sem relação com sopro na porta."
+    }
+  ],
+  "domain_terms_pt": [
+    "irmão",
+    "lobo",
+    "branco",
+    "casa",
+    "família",
+    "vovô",
+    "vovó",
+    "ouro",
+    "água",
+    "cidade",
+    "bebê",
+    "medo",
+    "comida",
+    "peixe",
+    "pessoas",
+    "gato",
+    "porta",
+    "doutor",
+    "criança",
+    "sonho",
+    "dinheiro",
+    "filha",
+    "quarto",
+    "neve",
+    "barras"
+  ]
+}

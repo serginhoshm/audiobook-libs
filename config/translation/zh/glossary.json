@@ -1,6 +1,204 @@
 {
   "entries": [
     {
+      "source_regex": "三只小豬",
+      "target": "três porquinhos",
+      "forbidden_targets": [
+        "três pequenos porcos",
+        "três porcos",
+        "os três porcos"
+      ]
+    },
+    {
+      "source_regex": "大野狼",
+      "target": "lobo mau",
+      "forbidden_targets": [
+        "grande lobo selvagem",
+        "lobo selvagem"
+      ]
+    },
+    {
+      "source_regex": "大野狼追上來",
+      "target": "o lobo mau se aproximou",
+      "forbidden_targets": [
+        "o lobo mau está se aproximando"
+      ]
+    },
+    {
+      "source_regex": "房子",
+      "target": "casa",
+      "forbidden_targets": [
+        "habitação"
+      ]
+    },
+    {
+      "source_regex": "自己蓋房子",
+      "target": "construir casa para si",
+      "forbidden_targets": [
+        "construíram casas para si",
+        "construíram casas"
+      ]
+    },
+    {
+      "source_regex": "木房子",
+      "target": "casa de madeira",
+      "forbidden_targets": [
+        "cabana de madeira",
+        "casa de madeira de dois velhos"
+      ]
+    },
+    {
+      "source_regex": "的木房子里",
+      "target": "na casa de madeira",
+      "forbidden_targets": [
+        "da casa de madeira da casa"
+      ]
+    },
+    {
+      "source_regex": "稻草",
+      "target": "palha",
+      "forbidden_targets": [
+        "feno"
+      ]
+    },
+    {
+      "source_regex": "老大用稻草蓋的房",
+      "target": "o mais velho construiu uma casa de palha",
+      "forbidden_targets": [
+        "a casa construída pelo patrão com palha",
+        "casa de ervas velhas"
+      ]
+    },
+    {
+      "source_regex": "老大躲進了老二家的木房子里",
+      "target": "o mais velho se escondeu na casa de madeira do segundo irmão",
+      "forbidden_targets": [
+        "o velho se escondeu em casa de madeira de dois velhos"
+      ]
+    },
+    {
+      "source_regex": "煙囪",
+      "target": "chaminé",
+      "forbidden_targets": [
+        "cano de fumaça"
+      ]
+    },
+    {
+      "source_regex": "火爐",
+      "target": "fogão",
+      "forbidden_targets": [
+        "fornalha"
+      ]
+    },
+    {
+      "source_regex": "尾巴",
+      "target": "rabo",
+      "forbidden_targets": [
+        "cauda inteira"
+      ]
+    },
+    {
+      "source_regex": "大門|房門",
+      "target": "porta",
+      "forbidden_targets": [
+        "portal"
+      ]
+    },
+    {
+      "source_regex": "使勁的向大門撞去",
+      "target": "bateu com força na porta",
+      "forbidden_targets": [
+        "bata na porta com força",
+        "que o poderoso bateu contra a porta"
+      ]
+    },
+    {
+      "source_regex": "又使勁的撞房門",
+      "target": "bateu na porta com força novamente",
+      "forbidden_targets": [
+        "e a porta de um forte golpe"
+      ]
+    },
+    {
+      "source_regex": "對著房門呼呼吹氣",
+      "target": "soprou forte na porta",
+      "forbidden_targets": [
+        "o que é que eu faço"
+      ]
+    },
+    {
+      "source_regex": "嘩啦一聲",
+      "target": "com um estrondo",
+      "forbidden_targets": [
+        "vamos lá"
+      ]
+    },
+    {
+      "source_regex": "馬上點起了火",
+      "target": "acendeu o fogo imediatamente",
+      "forbidden_targets": [
+        "queimando um cavalo"
+      ]
+    },
+    {
+      "source_regex": "大野狼掉進火爐里",
+      "target": "o lobo mau caiu no fogão",
+      "forbidden_targets": [
+        "o lobo selvagem caiu na torcida"
+      ]
+    },
+    {
+      "source_regex": "老三從窗口發現後",
+      "target": "o terceiro irmão percebeu pela janela",
+      "forbidden_targets": [
+        "o velho 3 viu-o pela janela"
+      ]
+    },
+    {
+      "source_regex": "記得關注我哦",
+      "target": "lembre-se de me seguir",
+      "forbidden_targets": [
+        "lembre-se de cuidar de mim, minha mãe"
+      ]
+    },
+    {
+      "source_regex": "重施救濟",
+      "target": "repetiu o truque",
+      "forbidden_targets": [
+        "alívio",
+        "ajuda"
+      ]
+    },
+    {
+      "source_regex": "無濟於事",
+      "target": "não adiantou",
+      "forbidden_targets": [
+        "tudo em vão"
+      ]
+    },
+    {
+      "source_regex": "麻煩",
+      "target": "incomodar",
+      "forbidden_targets": [
+        "problema"
+      ]
+    },
+    {
+      "source_regex": "大野狼掉進火爐里",
+      "target": "o lobo mau caiu no fogão",
+      "forbidden_targets": [
+        "o lobo selvagem caiu na torcida",
+        "o lobo mau caiu na torcida"
+      ]
+    },
+    {
+      "source_regex": "兄弟倆又拼命逃到老三家",
+      "target": "os dois irmãos fugiram para a casa do terceiro irmão",
+      "forbidden_targets": [
+        "os irmãos tentaram fugir para os três velhos"
+      ]
+    },
+    {
       "source_regex": "抽屉",
       "target": "gaveta",
       "forbidden_targets": [

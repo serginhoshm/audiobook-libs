@@ -1,7 +1,168 @@
 {
-  "last_run": null,
-  "backend": null,
-  "active_replacements": {},
-  "case_results": [],
-  "auto_glossary": {}
+  "active_replacements": {
+    "a casa construída pelo patrão com palha": "o mais velho construiu uma casa de palha",
+    "a chuva choveu": "choveu",
+    "bata na porta com força": "bateu com força na porta",
+    "caixao": "gaveta",
+    "caixão": "gaveta",
+    "cheio de ar": "aromático",
+    "ciências básicas": "ciência básica",
+    "da casa de madeira da casa": "na casa de madeira",
+    "folheto": "pasta",
+    "o lobo mau está se aproximando": "o lobo mau se aproximou",
+    "proximo quarta-feira": "próxima quarta-feira",
+    "próximo quarta-feira": "próxima quarta-feira"
+  },
+  "auto_glossary": {
+    "三只小豬": {
+      "count": 1,
+      "target": "três porquinhos"
+    },
+    "三只小豬長大了": {
+      "count": 1,
+      "target": "Os três porquinhos cresceram."
+    },
+    "他吼叫著夾著尾巴逃走了": {
+      "count": 1,
+      "target": "Ele fugiu gritando com o rabo."
+    },
+    "他想從煙囪溜進去": {
+      "count": 1,
+      "target": "Ele quer entrar no fogão."
+    },
+    "他繞著房子轉了一圈": {
+      "count": 1,
+      "target": "Ele fez um círculo em torno da casa."
+    },
+    "使勁的向大門撞去": {
+      "count": 1,
+      "target": "bateu com força na porta."
+    },
+    "兄弟倆又拼命逃到老三家": {
+      "count": 1,
+      "target": "os dois irmãos fugiram para a casa do terceiro irmão."
+    },
+    "再也不敢來找三只小豬的麻煩了": {
+      "count": 1,
+      "target": "Não me atrevo a encontrar os três porquinhos."
+    },
+    "又使勁的撞房門": {
+      "count": 1,
+      "target": "bateu na porta com força novamente."
+    },
+    "嘩啦一聲": {
+      "count": 1,
+      "target": "- com um estrondo."
+    },
+    "大野狼掉進火爐里": {
+      "count": 1,
+      "target": "o lobo mau caiu no fogão."
+    },
+    "大野狼氣急敗壞的返回來": {
+      "count": 1,
+      "target": "O lobo mau voltou destruído."
+    },
+    "大野狼追上來": {
+      "count": 1,
+      "target": "O lobo mau vem atrás de mim."
+    },
+    "大野狼重施救濟": {
+      "count": 1,
+      "target": "O lobo mau repetiu o truque"
+    },
+    "媽媽讓他們獨立生活": {
+      "count": 1,
+      "target": "As mães deixaram-nos viver sozinhos."
+    },
+    "對著房門呼呼吹氣": {
+      "count": 1,
+      "target": "\"soprou forte na porta?"
+    },
+    "整條尾巴都燒焦了": {
+      "count": 1,
+      "target": "O rabo está queimado."
+    },
+    "於是他們都出去為自己蓋房子": {
+      "count": 1,
+      "target": "Então, saíram e construir casa para si,"
+    },
+    "最後爬上房頂": {
+      "count": 1,
+      "target": "E finalmente, a subir para o telhado."
+    },
+    "木房子被撞倒了": {
+      "count": 1,
+      "target": "A casa de madeira foi destruída."
+    },
+    "熏得夠嗆": {
+      "count": 1,
+      "target": "- É o suficiente."
+    },
+    "結果都無濟於事": {
+      "count": 1,
+      "target": "E tudo isso não serviu."
+    },
+    "老三從窗口發現後": {
+      "count": 1,
+      "target": "o terceiro irmão percebeu pela janela."
+    },
+    "老大用稻草蓋的房子": {
+      "count": 1,
+      "target": "o mais velho construiu uma casa de palha"
+    },
+    "老大躲進了老二家的木房子里": {
+      "count": 1,
+      "target": "O velho se escondeu em casa de madeira."
+    },
+    "被大野狼一下子吹倒了": {
+      "count": 1,
+      "target": "Foi destruído por um lobo mau."
+    },
+    "記得關注我哦": {
+      "count": 1,
+      "target": "lembre-se de me seguir."
+    },
+    "馬上點起了火": {
+      "count": 1,
+      "target": "acendeu o fogo imediatamente"
+    }
+  },
+  "backend": "nllb_local",
+  "case_results": [
+    {
+      "forbid_hits": [
+        "caixão"
+      ],
+      "id": "drawer_term",
+      "missing_terms": [
+        "gaveta"
+      ],
+      "source": "请把蓝色文件夹放在第二个抽屉里。",
+      "translated": "Coloque o folheto azul no segundo caixão.",
+      "triggered": true
+    },
+    {
+      "forbid_hits": [
+        "cheio de ar"
+      ],
+      "id": "coffee_aroma",
+      "missing_terms": [],
+      "source": "这家店的咖啡很香，但有点贵。",
+      "translated": "O café da loja é cheio de ar, mas um pouco caro.",
+      "triggered": true
+    },
+    {
+      "forbid_hits": [
+        "a chuva choveu"
+      ],
+      "id": "rain_phrase",
+      "missing_terms": [],
+      "source": "昨晚下雨了，所以路上很滑。",
+      "translated": "A chuva choveu ontem à noite, por isso o caminho foi muito liso.",
+      "triggered": true
+    }
+  ],
+  "last_run": "2026-06-26T18:43:56.180879+00:00",
+  "watch_hits": {},
+  "watch_samples": []
 }

@@ -24,6 +24,7 @@ DEFAULT_ZH_GLOSSARY_LIMIT = 500
 CALIBRATION_PROFILE_FILE = "calibration_profile.json"
 CALIBRATION_STATE_FILE = "calibration_state.json"
 GLOSSARY_FILE = "glossary.json"
+LOCAL_KNOWLEDGE_FILE = "local_knowledge.json"
 
 
 def parse_args():
@@ -203,28 +204,103 @@ def enforce_dict_limit(mapping, limit):
         mapping.pop(first_key, None)
 
 
+def merge_unique_glossary_entries(base_entries, extra_entries):
+    merged = list(base_entries)
+    seen = {
+        (
+            normalize_text(entry.get("source_regex", "")),
+            normalize_text(entry.get("target", "")),
+        )
+        for entry in merged
+        if isinstance(entry, dict)
+    }
+
+    for entry in extra_entries:
+        if not isinstance(entry, dict):
+            continue
+        key = (
+            normalize_text(entry.get("source_regex", "")),
+            normalize_text(entry.get("target", "")),
+        )
+        if not all(key) or key in seen:
+            continue
+        merged.append(entry)
+        seen.add(key)
+
+    return merged
+
+
+def merge_local_knowledge(profile, glossary, local_knowledge):
+    local_global_replacements = local_knowledge.get("global_replacements", {})
+    if isinstance(local_global_replacements, dict):
+        profile_global = profile.setdefault("global_replacements", {})
+        for wrong, correct in local_global_replacements.items():
+            if wrong and correct:
+                profile_global[wrong] = correct
+
+    local_glossary_entries = local_knowledge.get("glossary_entries", [])
+    if isinstance(local_glossary_entries, list):
+        glossary_entries = glossary.setdefault("entries", [])
+        glossary["entries"] = merge_unique_glossary_entries(glossary_entries, local_glossary_entries)
+
+
+def scan_watch_patterns(text, watch_patterns):
+    hits = []
+    for pattern in watch_patterns:
+        if not isinstance(pattern, dict):
+            continue
+        pattern_id = normalize_text(pattern.get("id", ""))
+        regex = pattern.get("regex")
+        if not pattern_id or not regex:
+            continue
+        try:
+            if re.search(regex, text, flags=re.IGNORECASE):
+                hits.append(pattern_id)
+        except re.error:
+            continue
+    return hits
+
+
 def load_zh_calibration_bundle(calibration_dir):
     profile_path = calibration_dir / CALIBRATION_PROFILE_FILE
     glossary_path = calibration_dir / GLOSSARY_FILE
     state_path = calibration_dir / CALIBRATION_STATE_FILE
+    local_knowledge_path = calibration_dir / LOCAL_KNOWLEDGE_FILE
 
     profile_default = {"cases": [], "global_replacements": {}}
     glossary_default = {"entries": []}
+    local_knowledge_default = {
+        "global_replacements": {},
+        "glossary_entries": [],
+        "watch_patterns": [],
+        "domain_terms_pt": [],
+    }
     state_default = {
         "last_run": None,
         "backend": None,
         "active_replacements": {},
         "case_results": [],
         "auto_glossary": {},
+        "watch_hits": {},
+        "watch_samples": [],
     }
+
+    profile = load_json_file(profile_path, profile_default)
+    glossary = load_json_file(glossary_path, glossary_default)
+    local_knowledge = load_json_file(local_knowledge_path, local_knowledge_default)
+    state = load_json_file(state_path, state_default)
+
+    merge_local_knowledge(profile, glossary, local_knowledge)
 
     return {
         "profile_path": profile_path,
         "glossary_path": glossary_path,
         "state_path": state_path,
-        "profile": load_json_file(profile_path, profile_default),
-        "glossary": load_json_file(glossary_path, glossary_default),
-        "state": load_json_file(state_path, state_default),
+        "local_knowledge_path": local_knowledge_path,
+        "profile": profile,
+        "glossary": glossary,
+        "local_knowledge": local_knowledge,
+        "state": state,
     }
 
 
@@ -430,7 +506,12 @@ def translate_chinese_srt(
 ):
     profile = calibration_bundle["profile"]
     glossary_entries = calibration_bundle["glossary"].get("entries", [])
+    local_knowledge = calibration_bundle.get("local_knowledge", {})
+    watch_patterns = local_knowledge.get("watch_patterns", [])
     state = calibration_bundle["state"]
+
+    watch_hits = state.setdefault("watch_hits", {})
+    watch_samples = state.setdefault("watch_samples", [])
 
     active_replacements, case_results = run_zh_precalibration(tradutor, profile)
     state["last_run"] = datetime.now(timezone.utc).isoformat()
@@ -458,6 +539,16 @@ def translate_chinese_srt(
             if translated_text:
                 calibrated = apply_case_replacements(translated_text, active_replacements)
                 calibrated = apply_glossary_for_source(source_text, calibrated, glossary_entries)
+                for pattern_id in scan_watch_patterns(calibrated, watch_patterns):
+                    watch_hits[pattern_id] = int(watch_hits.get(pattern_id, 0)) + 1
+                    if len(watch_samples) < 200:
+                        watch_samples.append(
+                            {
+                                "pattern": pattern_id,
+                                "source": source_text,
+                                "translated": calibrated,
+                            }
+                        )
                 subtitle.text = calibrated
                 source_memory[source_text] = calibrated
                 update_auto_glossary(state, source_text, calibrated, glossary_limit)
