@@ -168,16 +168,23 @@ ensure_piper() {
   info "Verificando instalação do Piper TTS"
   ensure_python_pkg "piper-tts" "piper" ""
 
-  if [ ! -x "$ROOT_DIR/bin/piper" ] || [ ! -L "$ROOT_DIR/bin/piper" ]; then
-    if [ -x "$VENV_DIR/bin/piper" ]; then
-      ln -sf "$VENV_DIR/bin/piper" "$ROOT_DIR/bin/piper"
-      info "Atalho para o Piper criado em $ROOT_DIR/bin/piper"
-    else
-      warn "Executável do Piper ainda não encontrado após instalação; você pode precisar executar novamente este script."
-    fi
-  else
-    info "Atalho para o Piper já existe em $ROOT_DIR/bin/piper"
-  fi
+  cat > "$ROOT_DIR/bin/piper" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_PIPER="$ROOT_DIR/.venv/bin/piper"
+
+if [ ! -x "$VENV_PIPER" ]; then
+  echo "ERROR: Piper not found at $VENV_PIPER" >&2
+  echo "Run ./setup/install_all.sh to install dependencies." >&2
+  exit 1
+fi
+
+exec "$VENV_PIPER" "$@"
+EOF
+  chmod +x "$ROOT_DIR/bin/piper"
+  info "Wrapper portável do Piper garantido em $ROOT_DIR/bin/piper"
 }
 
 ensure_model() {
