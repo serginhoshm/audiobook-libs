@@ -187,12 +187,7 @@ load_pipeline_options_from_config() {
 }
 
 list_video_files() {
-    if [[ "$DATA_DIR" = "$ROOT_DIR/data" || "$DATA_DIR" = "$ROOT_DIR/data/"* ]]; then
-        find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
-            ! -path "$ROOT_DIR/data/saved/*" | sort
-    else
-        find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) | sort
-    fi
+    find "$DATA_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) | sort
 }
 
 state_file_for_video() {

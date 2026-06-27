@@ -172,14 +172,8 @@ PY
 }
 
 list_video_files() {
-    if [[ "$DATA_DIR" = "$ROOT_DIR/data" || "$DATA_DIR" = "$ROOT_DIR/data/"* ]]; then
-        find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
-            ! -path "$ROOT_DIR/data/saved/*" \
-            ! -name '* (remux).*' | sort
-    else
-        find "$DATA_DIR" -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
-            ! -name '* (remux).*' | sort
-    fi
+    find "$DATA_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
+        ! -name '* (remux).*' | sort
 }
 
 build_remux_path() {
