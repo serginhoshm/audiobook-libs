@@ -15,6 +15,7 @@ DEEPL_BASE="${DEEPL_BASE:-https://api-free.deepl.com/v2}"
 SOURCE_LANG="${SOURCE_LANG:-ZH}"
 TARGET_LANG="${TARGET_LANG:-PT-BR}"
 POLL_INTERVAL=5
+MAX_UPLOAD_BYTES="${DEEPL_DOC_MAX_BYTES:-81920}"
 
 # --- helpers ---
 die() { echo "Erro: $*" >&2; exit 1; }
@@ -26,6 +27,177 @@ import json, sys
 d = json.load(sys.stdin)
 print(d.get('$2', ''))
 " 2>/dev/null || echo ""
+}
+
+file_size_bytes() {
+    local file="$1"
+    wc -c < "$file" | tr -d ' '
+}
+
+translate_single_document() {
+    local input_file="$1"
+    local output_file="$2"
+    local label="$3"
+
+    echo "==> Enviando '${label}' para o DeepL..."
+
+    local upload_args=(
+        -X POST "$DEEPL_BASE/document"
+        -H "Authorization: DeepL-Auth-Key $DEEPL_API_KEY"
+        -F "file=@$input_file"
+        -F "target_lang=$TARGET_LANG_UPPER"
+    )
+
+    if [[ "$SOURCE_LANG_UPPER" != "AUTO" ]]; then
+        upload_args+=( -F "source_lang=$SOURCE_LANG_UPPER" )
+    fi
+
+    local upload_response
+    upload_response=$(curl -sS "${upload_args[@]}")
+
+    local document_id
+    local document_key
+    document_id=$(parse_json "$upload_response" "document_id")
+    document_key=$(parse_json "$upload_response" "document_key")
+
+    [[ -n "$document_id" ]] || die "Upload falhou. Resposta da API:\n$upload_response"
+    [[ -n "$document_key" ]] || die "document_key ausente na resposta."
+
+    echo "    Documento recebido. ID: $document_id"
+    echo "==> Aguardando tradução..."
+
+    while true; do
+        local status_response
+        local status
+        status_response=$(curl -sS \
+            -X POST "$DEEPL_BASE/document/$document_id" \
+            -H "Authorization: DeepL-Auth-Key $DEEPL_API_KEY" \
+            --data-urlencode "document_key=$document_key")
+
+        status=$(parse_json "$status_response" "status")
+
+        case "$status" in
+            done)
+                local chars
+                chars=$(parse_json "$status_response" "billed_characters")
+                echo "    Tradução concluída. Caracteres faturados: ${chars:-?}"
+                break
+                ;;
+            error)
+                local msg
+                msg=$(parse_json "$status_response" "message")
+                die "API retornou erro: ${msg:-desconhecido}"
+                ;;
+            queued|translating)
+                local secs
+                secs=$(parse_json "$status_response" "seconds_remaining")
+                echo "    Status: $status | ~${secs:-?}s restantes. Verificando em ${POLL_INTERVAL}s..."
+                sleep "$POLL_INTERVAL"
+                ;;
+            "")
+                die "Resposta sem campo 'status'. Resposta: $status_response"
+                ;;
+            *)
+                die "Status desconhecido: '$status'. Resposta: $status_response"
+                ;;
+        esac
+    done
+
+    echo "==> Baixando arquivo traduzido..."
+
+    local http_code
+    http_code=$(curl -sS \
+        -X POST "$DEEPL_BASE/document/$document_id/result" \
+        -H "Authorization: DeepL-Auth-Key $DEEPL_API_KEY" \
+        --data-urlencode "document_key=$document_key" \
+        -o "$output_file" \
+        -w "%{http_code}")
+
+    [[ "$http_code" == "200" ]] || die "Download falhou (HTTP $http_code). O arquivo '$output_file' pode estar incompleto."
+}
+
+split_srt_into_parts() {
+    local input_file="$1"
+    local max_bytes="$2"
+    local out_dir="$3"
+
+    python3 - "$input_file" "$max_bytes" "$out_dir" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+input_path = Path(sys.argv[1])
+max_bytes = int(sys.argv[2])
+out_dir = Path(sys.argv[3])
+text = input_path.read_text(encoding="utf-8", errors="replace")
+
+blocks = [b.strip("\n") for b in re.split(r"\n\s*\n", text.strip()) if b.strip()]
+if not blocks:
+    print("EMPTY")
+    sys.exit(0)
+
+parts = []
+current = []
+current_size = 0
+
+for block in blocks:
+    chunk = (block + "\n\n").encode("utf-8")
+    size = len(chunk)
+    if size > max_bytes:
+        print(f"BLOCK_TOO_LARGE:{size}")
+        sys.exit(2)
+
+    if current and current_size + size > max_bytes:
+        parts.append("".join(current).rstrip() + "\n")
+        current = []
+        current_size = 0
+
+    current.append(block + "\n\n")
+    current_size += size
+
+if current:
+    parts.append("".join(current).rstrip() + "\n")
+
+for i, content in enumerate(parts, start=1):
+    part_path = out_dir / f"part_{i:04d}.srt"
+    part_path.write_text(content, encoding="utf-8")
+    print(str(part_path))
+PY
+}
+
+merge_srt_parts() {
+    local output_file="$1"
+    shift
+
+    python3 - "$output_file" "$@" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+output = Path(sys.argv[1])
+inputs = [Path(p) for p in sys.argv[2:]]
+
+blocks = []
+for part in inputs:
+    text = part.read_text(encoding="utf-8", errors="replace")
+    part_blocks = [b.strip("\n") for b in re.split(r"\n\s*\n", text.strip()) if b.strip()]
+    blocks.extend(part_blocks)
+
+lines = []
+for idx, block in enumerate(blocks, start=1):
+    block_lines = block.splitlines()
+    if not block_lines:
+        continue
+    while block_lines and re.fullmatch(r"\ufeff?\d+", block_lines[0].strip()):
+        block_lines = block_lines[1:]
+    if not block_lines:
+        continue
+    lines.append(str(idx))
+    lines.extend(block_lines)
+    lines.append("")
+
+output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+PY
 }
 
 usage() {
@@ -90,77 +262,43 @@ esac
 
 [[ -f "$INPUT_FILE" ]] || die "arquivo '$INPUT_FILE' não encontrado."
 [[ -n "${DEEPL_API_KEY:-}" ]] || die "DEEPL_API_KEY não definida. Obtenha gratuitamente em https://www.deepl.com/pro-api"
+[[ "$MAX_UPLOAD_BYTES" =~ ^[0-9]+$ ]] || die "DEEPL_DOC_MAX_BYTES invalido: $MAX_UPLOAD_BYTES"
 
-# --- 1. Upload ---
-echo "==> Enviando '$(basename "$INPUT_FILE")' para o DeepL..."
+INPUT_SIZE_BYTES=$(file_size_bytes "$INPUT_FILE")
 
-UPLOAD_ARGS=(
-    -X POST "$DEEPL_BASE/document"
-    -H "Authorization: DeepL-Auth-Key $DEEPL_API_KEY"
-    -F "file=@$INPUT_FILE"
-    -F "target_lang=$TARGET_LANG_UPPER"
-)
+if (( INPUT_SIZE_BYTES <= MAX_UPLOAD_BYTES )); then
+    translate_single_document "$INPUT_FILE" "$OUTPUT_FILE" "$(basename "$INPUT_FILE")"
+else
+    echo "==> Arquivo maior que o limite por chamada (${MAX_UPLOAD_BYTES} bytes)."
+    echo "==> Dividindo SRT em partes para envio ao DeepL..."
 
-if [[ "$SOURCE_LANG_UPPER" != "AUTO" ]]; then
-    UPLOAD_ARGS+=( -F "source_lang=$SOURCE_LANG_UPPER" )
+    TMP_DIR=$(mktemp -d)
+    trap 'rm -rf "$TMP_DIR"' EXIT
+
+    SPLIT_OUTPUT=$(split_srt_into_parts "$INPUT_FILE" "$MAX_UPLOAD_BYTES" "$TMP_DIR")
+
+    if [[ "$SPLIT_OUTPUT" == "EMPTY" ]]; then
+        die "SRT de entrada vazio após normalização."
+    fi
+    if [[ "$SPLIT_OUTPUT" == BLOCK_TOO_LARGE:* ]]; then
+        die "Um bloco SRT excede o limite de ${MAX_UPLOAD_BYTES} bytes (${SPLIT_OUTPUT#BLOCK_TOO_LARGE:})."
+    fi
+
+    mapfile -t PART_FILES <<< "$SPLIT_OUTPUT"
+    (( ${#PART_FILES[@]} > 0 )) || die "Falha ao dividir SRT em partes."
+
+    TRANSLATED_PARTS=()
+    for i in "${!PART_FILES[@]}"; do
+        PART_FILE="${PART_FILES[$i]}"
+        PART_OUT="$TMP_DIR/translated_$(printf '%04d' "$((i + 1))").srt"
+        PART_SIZE=$(file_size_bytes "$PART_FILE")
+        echo "==> Parte $((i + 1))/${#PART_FILES[@]} (${PART_SIZE} bytes)"
+        translate_single_document "$PART_FILE" "$PART_OUT" "$(basename "$INPUT_FILE") [parte $((i + 1))/${#PART_FILES[@]}]"
+        TRANSLATED_PARTS+=("$PART_OUT")
+    done
+
+    echo "==> Reagrupando partes traduzidas..."
+    merge_srt_parts "$OUTPUT_FILE" "${TRANSLATED_PARTS[@]}"
 fi
-
-UPLOAD_RESPONSE=$(curl -sS \
-    "${UPLOAD_ARGS[@]}")
-
-DOCUMENT_ID=$(parse_json "$UPLOAD_RESPONSE" "document_id")
-DOCUMENT_KEY=$(parse_json "$UPLOAD_RESPONSE" "document_key")
-
-[[ -n "$DOCUMENT_ID" ]] || die "Upload falhou. Resposta da API:\n$UPLOAD_RESPONSE"
-[[ -n "$DOCUMENT_KEY" ]] || die "document_key ausente na resposta."
-
-echo "    Documento recebido. ID: $DOCUMENT_ID"
-
-# --- 2. Polling de status ---
-echo "==> Aguardando tradução..."
-
-while true; do
-    STATUS_RESPONSE=$(curl -sS \
-        -X POST "$DEEPL_BASE/document/$DOCUMENT_ID" \
-        -H "Authorization: DeepL-Auth-Key $DEEPL_API_KEY" \
-        --data-urlencode "document_key=$DOCUMENT_KEY")
-
-    STATUS=$(parse_json "$STATUS_RESPONSE" "status")
-
-    case "$STATUS" in
-        done)
-            CHARS=$(parse_json "$STATUS_RESPONSE" "billed_characters")
-            echo "    Tradução concluída. Caracteres faturados: ${CHARS:-?}"
-            break
-            ;;
-        error)
-            MSG=$(parse_json "$STATUS_RESPONSE" "message")
-            die "API retornou erro: ${MSG:-desconhecido}"
-            ;;
-        queued|translating)
-            SECS=$(parse_json "$STATUS_RESPONSE" "seconds_remaining")
-            echo "    Status: $STATUS | ~${SECS:-?}s restantes. Verificando em ${POLL_INTERVAL}s..."
-            sleep "$POLL_INTERVAL"
-            ;;
-        "")
-            die "Resposta sem campo 'status'. Resposta: $STATUS_RESPONSE"
-            ;;
-        *)
-            die "Status desconhecido: '$STATUS'. Resposta: $STATUS_RESPONSE"
-            ;;
-    esac
-done
-
-# --- 3. Download ---
-echo "==> Baixando arquivo traduzido..."
-
-HTTP_CODE=$(curl -sS \
-    -X POST "$DEEPL_BASE/document/$DOCUMENT_ID/result" \
-    -H "Authorization: DeepL-Auth-Key $DEEPL_API_KEY" \
-    --data-urlencode "document_key=$DOCUMENT_KEY" \
-    -o "$OUTPUT_FILE" \
-    -w "%{http_code}")
-
-[[ "$HTTP_CODE" == "200" ]] || die "Download falhou (HTTP $HTTP_CODE). O arquivo '$OUTPUT_FILE' pode estar incompleto."
 
 echo "==> Pronto! Arquivo salvo em: $OUTPUT_FILE"

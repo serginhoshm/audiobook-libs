@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument("--zh_pause_scale", type=float, default=0.5)
     parser.add_argument("--zh_length_scale", type=float, default=0.88)
     parser.add_argument("--normalize_drift_threshold", type=float, default=0.02)
+    parser.add_argument("--piper-cuda", action="store_true", help="Executa Piper com --cuda")
     return parser.parse_args()
 
 def ms_to_bytes(ms, params):
@@ -130,6 +131,7 @@ def normalize_output_duration_with_ffmpeg(output_wav, target_ms, current_ms, thr
 def main():
     args = parse_args()
     temp_wav = Path("temp_frase.wav")
+    use_piper_cuda = bool(args.piper_cuda)
 
     source_lang_key = (args.source_lang or "auto").strip().lower()
     is_chinese = source_lang_key in {"zh", "zh-cn", "zh_cn"}
@@ -162,6 +164,8 @@ def main():
     total_legendas = len(legendas)
     
     logging.info(f"Processando {total_legendas} entradas do SRT...")
+    if use_piper_cuda:
+        logging.info("Piper CUDA habilitado para esta execucao.")
 
     try:
         for i, leg in enumerate(legendas):
@@ -184,6 +188,8 @@ def main():
 
             synth_text = texto
             piper_cmd = [str(args.piper), "--model", str(args.model), "--output_file", str(temp_wav)]
+            if use_piper_cuda:
+                piper_cmd.append("--cuda")
             if is_chinese:
                 piper_cmd.extend(["--length_scale", str(length_scale)])
 
@@ -194,6 +200,25 @@ def main():
                 capture_output=True,
                 check=False,
             )
+
+            if piper_result.returncode != 0 and use_piper_cuda:
+                logging.warning(
+                    "[%s/%s] Piper com CUDA falhou; alternando para CPU para o restante da execucao. stderr=%s",
+                    i + 1,
+                    total_legendas,
+                    (piper_result.stderr or "").strip()[:300],
+                )
+                use_piper_cuda = False
+                piper_cmd = [str(args.piper), "--model", str(args.model), "--output_file", str(temp_wav)]
+                if is_chinese:
+                    piper_cmd.extend(["--length_scale", str(length_scale)])
+                piper_result = subprocess.run(
+                    piper_cmd,
+                    input=synth_text,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
 
             if piper_result.returncode != 0 or (not temp_wav.exists()) or temp_wav.stat().st_size == 0:
                 sanitized = sanitize_tts_text(texto)
