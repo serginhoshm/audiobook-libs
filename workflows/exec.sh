@@ -19,6 +19,8 @@ AUDIO_TOLERANCE="${AUDIO_TOLERANCE:-1.5}"
 TRANSLATION_BACKEND="${TRANSLATION_BACKEND:-google}"
 NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-$ROOT_DIR/models/nllb/facebook-nllb-200-distilled-600M}"
 DEEPL_CONFIG_FILE="${DEEPL_CONFIG_FILE:-$ROOT_DIR/config/translation/deepl.env}"
+GEMINI_CONFIG_FILE="${GEMINI_CONFIG_FILE:-$ROOT_DIR/config/translation/gemini.env}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-1.5-flash}"
 DEEPL_ENDPOINT="${DEEPL_ENDPOINT:-free}"
 DEEPL_BASE="${DEEPL_BASE:-}"
 NLLB_MAX_INPUT_LENGTH="${NLLB_MAX_INPUT_LENGTH:-768}"
@@ -469,7 +471,7 @@ print_usage() {
 Uso: workflows/exec.sh [opcoes]
 
 Opcoes:
-    --backend <google|nllb_local|deepl_doc>
+    --backend <google|nllb_local|deepl_doc|gemini>
                                                                     Define backend de traducao sem prompt interativo.
     --nllb-profile <fast|legacy|custom>
                                                                     Perfil NLLB sem prompt interativo.
@@ -684,6 +686,9 @@ select_translation_backend() {
             deepl_doc)
                 TRANSLATION_BACKEND="deepl_doc"
                 ;;
+            gemini)
+                TRANSLATION_BACKEND="gemini"
+                ;;
             *)
                 log_error "Backend invalido via --backend: $CLI_TRANSLATION_BACKEND"
                 return 1
@@ -698,6 +703,9 @@ select_translation_backend() {
             ;;
         deepl_doc)
             default_choice="3"
+            ;;
+        gemini)
+            default_choice="4"
             ;;
         google)
             default_choice="1"
@@ -714,9 +722,10 @@ select_translation_backend() {
         echo "  1) google (online, padrao)"
         echo "  2) nllb_local (offline)"
         echo "  3) deepl_doc (DeepL document API)"
+        echo "  4) gemini (Google Gemini API)"
         echo ""
 
-        read -r -p "Selecione backend de traducao [1/2/3] (padrao: ${default_choice}): " choice
+        read -r -p "Selecione backend de traducao [1/2/3/4] (padrao: ${default_choice}): " choice
         choice="${choice:-$default_choice}"
 
         case "$choice" in
@@ -728,6 +737,9 @@ select_translation_backend() {
                 ;;
             3|deepl_doc|DEEPL_DOC|deepl|DEEPL)
                 TRANSLATION_BACKEND="deepl_doc"
+                ;;
+            4|gemini|GEMINI)
+                TRANSLATION_BACKEND="gemini"
                 ;;
             *)
                 log_error "Selecao de backend invalida: $choice"
@@ -789,6 +801,17 @@ select_translation_backend() {
                 return 1
             fi
             DEEPL_BASE="$deepl_base_resolved"
+        fi
+    fi
+
+    if [ "$TRANSLATION_BACKEND" = "gemini" ]; then
+        if [ -f "$GEMINI_CONFIG_FILE" ]; then
+            # shellcheck disable=SC1090
+            source "$GEMINI_CONFIG_FILE"
+        fi
+        if [ -z "${GEMINI_API_KEY:-}" ]; then
+            log_error "GEMINI_API_KEY nao definida. Configure em $GEMINI_CONFIG_FILE"
+            return 1
         fi
     fi
 
@@ -940,6 +963,9 @@ select_translation_backend() {
         log_step "DEEPL config: ${DEEPL_CONFIG_FILE#$ROOT_DIR/}"
         log_step "DEEPL endpoint: $DEEPL_ENDPOINT"
         log_step "DEEPL base: $DEEPL_BASE"
+    elif [ "$TRANSLATION_BACKEND" = "gemini" ]; then
+        log_step "GEMINI config: ${GEMINI_CONFIG_FILE#$ROOT_DIR/}"
+        log_step "GEMINI model: $GEMINI_MODEL"
     fi
 
     return 0
@@ -1126,6 +1152,7 @@ process_video_pre_translation() {
                 "$output_pt_srt"
                 "$source_lang"
                 --backend "$TRANSLATION_BACKEND"
+                --gemini-model "$GEMINI_MODEL"
                 --nllb-model-dir "$NLLB_MODEL_DIR"
             )
 
@@ -1142,7 +1169,11 @@ process_video_pre_translation() {
                 fi
             fi
 
-            "${translation_cmd[@]}"
+            if [ "$TRANSLATION_BACKEND" = "gemini" ]; then
+                GEMINI_API_KEY="${GEMINI_API_KEY:-}" GEMINI_MODEL="$GEMINI_MODEL" "${translation_cmd[@]}"
+            else
+                "${translation_cmd[@]}"
+            fi
         fi
 
         if ! validate_translation_ready "$output_srt" "$output_pt_srt"; then

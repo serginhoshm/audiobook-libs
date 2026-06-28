@@ -18,6 +18,7 @@ DEFAULT_BLOCK_MAX_CHARS = 3500
 TRANSLATION_MEMORY_SUFFIX = ".translation-memory.json"
 MARKER_TEMPLATE = "[[SRT-{index:04d}]]"
 DEFAULT_BACKEND = "google"
+DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
 DEFAULT_NLLB_MODEL_DIR = "models/nllb/facebook-nllb-200-distilled-600M"
 DEFAULT_ZH_CALIBRATION_DIR = "config/translation/zh"
 DEFAULT_ZH_GLOSSARY_LIMIT = 500
@@ -57,9 +58,14 @@ def parse_args():
     )
     parser.add_argument(
         "--backend",
-        choices=["google", "nllb_local"],
+        choices=["google", "nllb_local", "gemini"],
         default=os.getenv("TRANSLATION_BACKEND", DEFAULT_BACKEND),
-        help="Backend de tradução: google (atual) ou nllb_local (offline).",
+        help="Backend de tradução: google (atual), nllb_local (offline) ou gemini (API Google).",
+    )
+    parser.add_argument(
+        "--gemini-model",
+        default=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+        help="Modelo Gemini usado no backend gemini.",
     )
     parser.add_argument(
         "--nllb-model-dir",
@@ -127,6 +133,47 @@ class GoogleBackendTranslator(BaseTranslator):
 
     def translate(self, text):
         return self.translator.translate(text)
+
+
+class GeminiBackendTranslator(BaseTranslator):
+    def __init__(self, api_key, model_name, source_lang):
+        if not normalize_text(api_key):
+            raise ValueError("GEMINI_API_KEY nao definida para backend gemini.")
+
+        try:
+            import google.generativeai as genai
+        except Exception as exc:
+            raise RuntimeError(
+                "Dependencia ausente para gemini. Rode setup/install_all.sh"
+            ) from exc
+
+        self._genai = genai
+        self.source_lang = source_lang or "auto"
+        self.model_name = normalize_text(model_name) or DEFAULT_GEMINI_MODEL
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel(
+            self.model_name,
+            generation_config={"temperature": 0.0, "top_p": 1, "top_k": 1},
+        )
+
+    def translate(self, text):
+        normalized = (text or "").strip()
+        if not normalized:
+            return ""
+
+        prompt = (
+            "Traduza do idioma de origem para portugues brasileiro. "
+            "Responda apenas com a traducao, sem explicacoes. "
+            "Preserve exatamente quaisquer marcadores no formato [[SRT-0001]], "
+            "sem alterar indice, colchetes ou ordem. "
+            f"Idioma de origem esperado: {self.source_lang}.\n\n"
+            f"Texto:\n{normalized}"
+        )
+        response = self.model.generate_content(prompt)
+        translated = normalize_text(getattr(response, "text", ""))
+        if not translated:
+            raise RuntimeError("Resposta vazia do backend Gemini.")
+        return translated
 
 
 class NLLBLocalTranslator(BaseTranslator):
@@ -253,6 +300,15 @@ def build_translator(args, source_lang_key, source_lang_normalized):
             legacy_generation=args.nllb_legacy_generation,
         )
         return translator, "nllb_local"
+
+    if backend == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY", "")
+        translator = GeminiBackendTranslator(
+            api_key=api_key,
+            model_name=args.gemini_model,
+            source_lang=source_lang_normalized,
+        )
+        return translator, "gemini"
 
     return GoogleBackendTranslator(source_lang_normalized), "google"
 

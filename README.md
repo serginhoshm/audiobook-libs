@@ -74,6 +74,30 @@ Também é possível sobrescrever por variável de ambiente:
 - O fluxo também pode migrar arquivos já processados, renomeando o vídeo original, os artefatos gerados e o state de retomada para o novo nome normalizado.
 - A pasta `data/` não é mais necessária para operação do pipeline principal.
 
+## Backends de Tradução
+
+- `google` (online)
+- `nllb_local` (offline)
+- `deepl_doc` (DeepL via `workflows/translate_srt.sh`)
+- `gemini` (Google Gemini API)
+
+### Gemini local (chave fora do Git)
+
+- Template versionado: `config/translation/gemini.env.template`
+- Arquivo local real (ignorado): `config/translation/gemini.env`
+
+Uso no pipeline:
+
+```bash
+bash workflows/exec.sh --backend gemini
+```
+
+Uso de prompt geral (fora da tradução):
+
+```bash
+./.venv/bin/python scripts/gemini_prompt.py "Seu prompt"
+```
+
 ## E2E de referência
 
 - Os ativos de teste ponta a ponta ficam em `e2e/`.

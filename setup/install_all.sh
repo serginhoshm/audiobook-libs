@@ -157,6 +157,7 @@ ensure_translation_deps() {
   info "Verificando dependências de tradução"
   ensure_python_pkg "deep-translator" "deep_translator" ""
   ensure_python_pkg "tqdm" "tqdm" ""
+  ensure_python_pkg "google-generativeai" "google.generativeai" ""
 }
 
 ensure_sync_deps() {

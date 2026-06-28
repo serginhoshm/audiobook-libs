@@ -26,3 +26,4 @@ models/*
 
 # Machine-local pipeline config (do not version)
 config/pipeline.ini
+config/translation/gemini.env
