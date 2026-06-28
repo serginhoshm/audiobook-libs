@@ -2,12 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENV_PIPER="$ROOT_DIR/.venv/bin/piper"
+VENV_PYTHON="$ROOT_DIR/.venv/bin/python"
 
-if [ ! -x "$VENV_PIPER" ]; then
-  echo "ERROR: Piper not found at $VENV_PIPER" >&2
+if [ ! -x "$VENV_PYTHON" ]; then
+  echo "ERROR: Python from venv not found at $VENV_PYTHON" >&2
   echo "Run ./setup/install_all.sh to install dependencies." >&2
   exit 1
 fi
 
-exec "$VENV_PIPER" "$@"
+# Execute Piper through the venv interpreter to avoid broken shebangs in
+# generated console entrypoints (e.g. after moving/cloning the project).
+exec "$VENV_PYTHON" -m piper "$@"
