@@ -43,6 +43,10 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
 
 DATA_DIR="$ROOT_DIR/data"
 DATA_SCOPE_REL="data"
+WORK_EXEC_DIR="$DATA_DIR/exec"
+DONE_DIR="$DATA_DIR/done"
+PUBLISHED_DIR="$DATA_DIR/published"
+REMUX_DIR="$DATA_DIR/remux"
 ARCHIVE_ROOT="$ROOT_DIR/archive"
 STATE_ROOT="$ROOT_DIR/.pipeline-state"
 LOG_DIR="$ROOT_DIR/logs"
@@ -112,10 +116,7 @@ configure_data_scope() {
         scope_abs="$(realpath -m "$ROOT_DIR/$configured_path")"
     fi
 
-    if [ ! -d "$scope_abs" ]; then
-        log_error "Diretorio de escopo nao encontrado: $scope_abs"
-        return 1
-    fi
+    mkdir -p "$scope_abs"
 
     if [ ! -r "$scope_abs" ] || [ ! -w "$scope_abs" ]; then
         log_error "Sem permissao de leitura/escrita no escopo: $scope_abs"
@@ -125,6 +126,15 @@ configure_data_scope() {
     DATA_SCOPE_REL="$configured_path"
     DATA_DIR="$scope_abs"
     return 0
+}
+
+ensure_data_subdirs() {
+    WORK_EXEC_DIR="$DATA_DIR/exec"
+    DONE_DIR="$DATA_DIR/done"
+    PUBLISHED_DIR="$DATA_DIR/published"
+    REMUX_DIR="$DATA_DIR/remux"
+
+    mkdir -p "$WORK_EXEC_DIR" "$DONE_DIR" "$PUBLISHED_DIR" "$REMUX_DIR"
 }
 
 prepare_runtime_paths() {
@@ -151,6 +161,8 @@ bootstrap_runtime() {
         echo "ERRO: Escopo de dados invalido" >&2
         exit 1
     fi
+
+    ensure_data_subdirs
 
     if ! load_pipeline_options_from_config; then
         echo "ERRO: Configuracao de pipeline invalida" >&2
@@ -191,7 +203,7 @@ load_pipeline_options_from_config() {
 }
 
 list_video_files() {
-    find "$DATA_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) | sort
+    find "$WORK_EXEC_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) | sort
 }
 
 state_file_for_video() {
@@ -983,10 +995,10 @@ archive_previous_outputs() {
     source_dir="$(dirname "$source_file")"
     source_base="$(basename "${source_file%.*}")"
 
-    if [[ "$source_dir" = "$ROOT_DIR/data" ]]; then
+    if [[ "$source_dir" = "$DATA_DIR" ]]; then
         rel_dir="root"
-    elif [[ "$source_dir" = "$ROOT_DIR/data/"* ]]; then
-        rel_dir="${source_dir#$ROOT_DIR/data/}"
+    elif [[ "$source_dir" = "$DATA_DIR/"* ]]; then
+        rel_dir="${source_dir#$DATA_DIR/}"
     else
         rel_dir="external/$(printf '%s' "$source_dir" | sed -e 's#^/##' -e 's#[^A-Za-z0-9._/-]#_#g')"
     fi
@@ -1311,6 +1323,47 @@ process_video_audiobook_phase() {
     return 0
 }
 
+move_processed_bundle_to_done() {
+    local video_file="$1"
+    local selected_dir
+    local base_name
+    local source_file
+    local target_file
+    local moved=0
+
+    selected_dir="$(dirname "$video_file")"
+    base_name="$(basename "${video_file%.*}")"
+
+    log_section "Fase 4 - Movimentacao para done"
+
+    for source_file in \
+        "$selected_dir/$base_name.mkv" \
+        "$selected_dir/$base_name.mp4" \
+        "$selected_dir/$base_name.wav" \
+        "$selected_dir/$base_name.json" \
+        "$selected_dir/$base_name.srt" \
+        "$selected_dir/$base_name.tsv" \
+        "$selected_dir/$base_name.txt" \
+        "$selected_dir/$base_name.vtt" \
+        "$selected_dir/$base_name.pt.srt" \
+        "$selected_dir/$base_name.pt.wav"
+    do
+        if [ -f "$source_file" ]; then
+            target_file="$DONE_DIR/$(basename "$source_file")"
+            mv -f "$source_file" "$target_file"
+            moved=$((moved + 1))
+            log_step "Movido para done: ${target_file#$ROOT_DIR/}"
+        fi
+    done
+
+    if [ "$moved" -eq 0 ]; then
+        log_error "Nenhum arquivo encontrado para mover para done: $base_name"
+        return 1
+    fi
+
+    return 0
+}
+
 if ! parse_cli_args "$@"; then
     exit 1
 fi
@@ -1341,6 +1394,10 @@ bootstrap_runtime
 
     log_step "Config: ${CONFIG_FILE#$ROOT_DIR/}"
     log_step "Escopo de dados: ${DATA_DIR#$ROOT_DIR/}"
+    log_step "Diretorio de trabalho (exec): ${WORK_EXEC_DIR#$ROOT_DIR/}"
+    log_step "Diretorio de concluidos (done): ${DONE_DIR#$ROOT_DIR/}"
+    log_step "Diretorio de publicados (published): ${PUBLISHED_DIR#$ROOT_DIR/}"
+    log_step "Diretorio de remux: ${REMUX_DIR#$ROOT_DIR/}"
     log_step "Resume mode: $RESUME_MODE"
     log_step "Archive on start: $ARCHIVE_ON_START"
     if [ "$NORMALIZE_DRY_RUN" = "1" ]; then
@@ -1363,7 +1420,7 @@ bootstrap_runtime
     mapfile -t VIDEO_FILES < <(list_video_files)
 
     if [ "${#VIDEO_FILES[@]}" -eq 0 ]; then
-        log_error "Nenhum arquivo .mkv/.mp4 encontrado em ${DATA_DIR#$ROOT_DIR/}"
+        log_error "Nenhum arquivo .mkv/.mp4 encontrado em ${WORK_EXEC_DIR#$ROOT_DIR/}"
         log_summary "FALHA" "Sem videos"
         exit 1
     fi
@@ -1457,6 +1514,8 @@ bootstrap_runtime
     phase2_fail=0
     phase3_success=0
     phase3_fail=0
+    phase4_success=0
+    phase4_fail=0
 
     log_section "Fase 1 (lote) - Whisper + Traducao"
     READY_FOR_RENAME_VIDEOS=()
@@ -1493,21 +1552,28 @@ bootstrap_runtime
         LOG_FILE="$phase_video_log"
         if process_video_audiobook_phase "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
             phase3_success=$((phase3_success + 1))
-            success_count=$((success_count + 1))
+            if move_processed_bundle_to_done "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
+                phase4_success=$((phase4_success + 1))
+                success_count=$((success_count + 1))
+            else
+                phase4_fail=$((phase4_fail + 1))
+                fail_count=$((fail_count + 1))
+            fi
         else
             phase3_fail=$((phase3_fail + 1))
             fail_count=$((fail_count + 1))
         fi
     done
 
-    success_count="$phase3_success"
-    fail_count=$((phase1_fail + phase2_fail + phase3_fail))
+    success_count="$phase4_success"
+    fail_count=$((phase1_fail + phase2_fail + phase3_fail + phase4_fail))
 
     log_section "Resumo por Fase"
     log_step "Total selecionado: $total_selected"
     log_step "Fase 1 (Whisper + Traducao) - sucesso: $phase1_success | falha: $phase1_fail"
     log_step "Fase 2 (Renomeacao) - sucesso: $phase2_success | falha: $phase2_fail"
     log_step "Fase 3 (Piper) - sucesso: $phase3_success | falha: $phase3_fail"
+    log_step "Fase 4 (Mover para done) - sucesso: $phase4_success | falha: $phase4_fail"
 
     log_section "Resumo Final"
     log_step "Videos com sucesso: $success_count"

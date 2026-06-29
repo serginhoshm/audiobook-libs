@@ -13,6 +13,10 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
 
 DATA_DIR="$ROOT_DIR/data"
 DATA_SCOPE_REL="data"
+WORK_EXEC_DIR="$DATA_DIR/exec"
+DONE_DIR="$DATA_DIR/done"
+PUBLISHED_DIR="$DATA_DIR/published"
+REMUX_DIR="$DATA_DIR/remux"
 LOG_DIR="$ROOT_DIR/logs"
 LOG_FILE="$LOG_DIR/remux-${TIMESTAMP}.log"
 SCRIPT_NAME="Remux"
@@ -83,10 +87,7 @@ configure_data_scope() {
         scope_abs="$(realpath -m "$ROOT_DIR/$configured_path")"
     fi
 
-    if [ ! -d "$scope_abs" ]; then
-        log_error "Diretorio de escopo nao encontrado: $scope_abs"
-        return 1
-    fi
+    mkdir -p "$scope_abs"
 
     if [ ! -r "$scope_abs" ] || [ ! -w "$scope_abs" ]; then
         log_error "Sem permissao de leitura/escrita no escopo: $scope_abs"
@@ -96,6 +97,15 @@ configure_data_scope() {
     DATA_SCOPE_REL="$configured_path"
     DATA_DIR="$scope_abs"
     return 0
+}
+
+ensure_data_subdirs() {
+    WORK_EXEC_DIR="$DATA_DIR/exec"
+    DONE_DIR="$DATA_DIR/done"
+    PUBLISHED_DIR="$DATA_DIR/published"
+    REMUX_DIR="$DATA_DIR/remux"
+
+    mkdir -p "$WORK_EXEC_DIR" "$DONE_DIR" "$PUBLISHED_DIR" "$REMUX_DIR"
 }
 
 prepare_runtime_paths() {
@@ -114,6 +124,8 @@ bootstrap_runtime() {
         echo "ERRO: Escopo de dados invalido" >&2
         exit 1
     fi
+
+    ensure_data_subdirs
 
     prepare_runtime_paths
 }
@@ -172,8 +184,16 @@ PY
 }
 
 list_video_files() {
-    find "$DATA_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
+    find "$DONE_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
         ! -name '* (remux).*' | sort
+}
+
+build_remux_dest_path() {
+    local video_file="$1"
+    local output_file
+
+    output_file="$(build_remux_path "$video_file")"
+    printf '%s/%s' "$REMUX_DIR" "$(basename "$output_file")"
 }
 
 build_remux_path() {
@@ -198,6 +218,7 @@ process_video() {
     local selected_dir
     local base_name
     local output_file
+    local remux_dest_file
     local audio_file
     local original_duration
     local existing_duration
@@ -206,10 +227,12 @@ process_video() {
     base_name="$(basename "${video_file%.*}")"
     audio_file="$selected_dir/$base_name.pt.wav"
     output_file="$(build_remux_path "$video_file")"
+    remux_dest_file="$(build_remux_dest_path "$video_file")"
 
     log_section "Processando video: ${video_file#$ROOT_DIR/}"
     log_step "Arquivo de audio PT: ${audio_file#$ROOT_DIR/}"
-    log_step "Saida remux: ${output_file#$ROOT_DIR/}"
+    log_step "Saida temporaria remux: ${output_file#$ROOT_DIR/}"
+    log_step "Saida final remux: ${remux_dest_file#$ROOT_DIR/}"
 
     if [ ! -f "$audio_file" ]; then
         log_error "Arquivo .pt.wav nao encontrado: $audio_file"
@@ -218,9 +241,20 @@ process_video() {
 
     original_duration="$(read_video_duration "$video_file")"
 
+    if [ -f "$remux_dest_file" ]; then
+        if existing_duration="$(remux_output_duration "$remux_dest_file")" && duration_matches "$original_duration" "$existing_duration"; then
+            log_step "Remux valido ja existente: ${remux_dest_file#$ROOT_DIR/}"
+            return 0
+        fi
+
+        log_step "Remux final existente invalido; removendo: ${remux_dest_file#$ROOT_DIR/}"
+        rm -f "$remux_dest_file"
+    fi
+
     if [ -f "$output_file" ]; then
         if existing_duration="$(remux_output_duration "$output_file")" && duration_matches "$original_duration" "$existing_duration"; then
-            log_step "Remux valido ja existente: ${output_file#$ROOT_DIR/}"
+            mv -f "$output_file" "$remux_dest_file"
+            log_step "Remux ja existente movido para destino final: ${remux_dest_file#$ROOT_DIR/}"
             return 0
         fi
 
@@ -250,7 +284,8 @@ process_video() {
         return 1
     fi
 
-    log_step "Remux gerado com sucesso: ${output_file#$ROOT_DIR/}"
+    mv -f "$output_file" "$remux_dest_file"
+    log_step "Remux gerado com sucesso: ${remux_dest_file#$ROOT_DIR/}"
     return 0
 }
 
@@ -268,13 +303,15 @@ bootstrap_runtime
 
     log_step "Config: ${CONFIG_FILE#$ROOT_DIR/}"
     log_step "Escopo de dados: ${DATA_DIR#$ROOT_DIR/}"
+    log_step "Entrada de remux (done): ${DONE_DIR#$ROOT_DIR/}"
+    log_step "Saida de remux: ${REMUX_DIR#$ROOT_DIR/}"
     log_step "Remux tolerance: $REMUX_TOLERANCE s"
 
     log_section "Selecao de Video"
     mapfile -t VIDEO_FILES < <(list_video_files)
 
     if [ "${#VIDEO_FILES[@]}" -eq 0 ]; then
-        log_error "Nenhum arquivo .mkv/.mp4 encontrado em ${DATA_DIR#$ROOT_DIR/}"
+        log_error "Nenhum arquivo .mkv/.mp4 encontrado em ${DONE_DIR#$ROOT_DIR/}"
         log_summary "FALHA" "Sem videos"
         exit 1
     fi
