@@ -9,6 +9,7 @@ import sys
 import wave
 from pathlib import Path
 import pysrt
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -168,18 +169,13 @@ def main():
         logging.info("Piper CUDA habilitado para esta execucao.")
 
     try:
-        for i, leg in enumerate(legendas):
+        for i, leg in enumerate(
+            tqdm(legendas, total=total_legendas, desc="[piper]", unit="legenda", leave=False, disable=not sys.stderr.isatty()),
+            start=1,
+        ):
             texto = leg.text.replace('\r', '').replace('\n', ' ').strip()
             if not texto:
                 continue
-
-            logging.info("[%s/%s] Gerando audio para legenda em %02d:%02d:%02d,%03d",
-                         i + 1,
-                         total_legendas,
-                         leg.start.hours,
-                         leg.start.minutes,
-                         leg.start.seconds,
-                         leg.start.milliseconds)
 
             # Tempo de inicio desejado para esta fala.
             target_start_ms = to_ms(leg.start)
@@ -287,8 +283,6 @@ def main():
                     p_ms = int(args.pause_duration * 1000 * pause_scale)
                     audio_frames.append(b"\x00" * ms_to_bytes(p_ms, final_params))
                     current_clock_ms += p_ms
-
-            logging.info("[%s/%s] Audio acumulado: %.2fs", i + 1, total_legendas, current_clock_ms / 1000)
 
             if temp_wav.exists():
                 os.remove(temp_wav)

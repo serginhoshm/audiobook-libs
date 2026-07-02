@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from faster_whisper import WhisperModel
+from tqdm import tqdm
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
@@ -133,15 +134,8 @@ def main():
         logging.info(f"[whisper] Iniciando transcricao de {audio.name}")
 
     collected_segments = []
-    for index, seg in enumerate(segments, start=1):
+    for seg in tqdm(segments, desc="[whisper]", unit="seg", leave=False, disable=not sys.stderr.isatty()):
         collected_segments.append(seg)
-        if duration and duration > 0:
-            percent = min((seg.end / duration) * 100, 100)
-            logging.info(
-                f"[whisper] Segmento {index}: {seg.start:.1f}s -> {seg.end:.1f}s ({percent:.1f}%)"
-            )
-        else:
-            logging.info(f"[whisper] Segmento {index}: {seg.start:.1f}s -> {seg.end:.1f}s")
 
     segments = collected_segments
     logging.info(f"[whisper] Transcricao concluida com {len(segments)} segmentos")

@@ -224,6 +224,9 @@ class NLLBLocalTranslator(BaseTranslator):
         self.model.to(self.device)
         self.model.eval()
 
+        if not self.legacy_generation:
+            self.model.generation_config.max_length = None
+
         self.source_lang = self.SOURCE_LANG_MAP[source_lang_key]
         self.target_lang = "por_Latn"
         self.tokenizer.src_lang = self.source_lang
@@ -660,7 +663,10 @@ def translate_chinese_srt(
     blocks = split_into_blocks(subtitles, block_max_lines, block_max_chars)
     total_blocks = len(blocks)
 
-    for block_index, block in enumerate(tqdm(blocks), start=1):
+    for block_index, block in enumerate(
+        tqdm(blocks, desc="[traducao]", unit="bloco", leave=False, disable=not sys.stderr.isatty()),
+        start=1,
+    ):
         block_texts = [normalize_text(subtitle.text) for subtitle in block]
         if all((text in source_memory) or get_auto_glossary_target(state, text) for text in block_texts if text):
             translated_lines = []
@@ -696,11 +702,9 @@ def translate_chinese_srt(
         save_json_file(calibration_bundle["state_path"], state)
 
         save_translation_memory(memory_path, source_memory)
-        print(f"Bloco {block_index}/{total_blocks} traduzido")
-
 
 def translate_simple_srt(subtitles, tradutor):
-    for subtitle in tqdm(subtitles):
+    for subtitle in tqdm(subtitles, desc="[traducao]", unit="item", leave=False, disable=not sys.stderr.isatty()):
         texto = normalize_text(subtitle.text)
         if not texto:
             continue
