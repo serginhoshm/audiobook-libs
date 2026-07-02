@@ -25,6 +25,8 @@ SCRIPT_START_TIME="$(date +%s)"
 MAX_STEM_LENGTH=120
 REMUX_SUFFIX=" (remux)"
 REMUX_TOLERANCE="${REMUX_TOLERANCE:-0.5}"
+FFMPEG_MODE="${FFMPEG_MODE:-normal}"
+CLI_FFMPEG_MODE=""
 
 read_ini_value() {
     local file="$1"
@@ -141,6 +143,48 @@ duration_matches() {
     awk -v a="$first" -v b="$second" -v tol="$REMUX_TOLERANCE" 'BEGIN { diff = a - b; if (diff < 0) diff = -diff; exit(diff <= tol ? 0 : 1) }'
 }
 
+print_usage() {
+    cat <<'EOF'
+Uso: workflows/remux.sh [opcoes]
+
+Opcoes:
+    --ffmpeg-mode <normal|cuda>    Define o modo do FFmpeg sem prompt interativo.
+    --ffmpeg-mode=normal|cuda      Forma abreviada da opcao acima.
+    --help                         Exibe esta ajuda.
+EOF
+}
+
+parse_cli_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --ffmpeg-mode)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --ffmpeg-mode exige um valor (normal/cuda)."
+                    print_usage
+                    return 1
+                fi
+                CLI_FFMPEG_MODE="$1"
+                ;;
+            --ffmpeg-mode=*)
+                CLI_FFMPEG_MODE="${1#*=}"
+                ;;
+            --help|-h)
+                print_usage
+                exit 0
+                ;;
+            *)
+                log_error "Opcao desconhecida: $1"
+                print_usage
+                return 1
+                ;;
+        esac
+        shift
+    done
+
+    return 0
+}
+
 normalize_for_system() {
     local stem="$1"
     local source_id="$2"
@@ -213,6 +257,109 @@ remux_output_duration() {
     read_video_duration "$remux_file"
 }
 
+detect_video_codec() {
+    local media_file="$1"
+
+    ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "$media_file" | head -n 1
+}
+
+cuda_encoder_for_codec() {
+    local codec_name="$1"
+
+    case "$codec_name" in
+        h264|avc1)
+            printf '%s' "h264_nvenc"
+            ;;
+        hevc|h265)
+            printf '%s' "hevc_nvenc"
+            ;;
+        *)
+            printf ''
+            ;;
+    esac
+}
+
+run_ffmpeg_with_progress() {
+    local total_duration="$1"
+    shift
+
+    local -a ffmpeg_cmd=("$@")
+    local last_bucket=-10
+    local progress_seconds
+    local percent
+    local bucket
+
+    "${ffmpeg_cmd[@]}" -progress pipe:1 -nostats -loglevel error |
+        while IFS='=' read -r key value; do
+            case "$key" in
+                out_time_ms)
+                    if [[ "$total_duration" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+                        progress_seconds="$(awk -v ms="$value" 'BEGIN { printf "%.3f", ms / 1000000 }')"
+                        percent="$(awk -v current="$progress_seconds" -v total="$total_duration" 'BEGIN { if (total <= 0) { print 0; exit } pct = int((current / total) * 100); if (pct > 100) pct = 100; print pct }')"
+                        bucket=$((percent / 10 * 10))
+                        if [ "$bucket" -gt "$last_bucket" ]; then
+                            last_bucket="$bucket"
+                            log_step "Progresso FFmpeg: ${bucket}%"
+                        fi
+                    fi
+                    ;;
+                progress)
+                    if [ "$value" = "end" ]; then
+                        log_step "Progresso FFmpeg: 100%"
+                    fi
+                    ;;
+            esac
+        done
+}
+
+select_ffmpeg_mode() {
+    local choice
+
+    if [ -n "$CLI_FFMPEG_MODE" ]; then
+        case "$CLI_FFMPEG_MODE" in
+            normal|NORMAL|Normal|cpu|CPU|0|off|OFF|false|FALSE)
+                FFMPEG_MODE="normal"
+                ;;
+            cuda|CUDA|Cuda|gpu|GPU|1|on|ON|true|TRUE)
+                FFMPEG_MODE="cuda"
+                ;;
+            *)
+                log_error "--ffmpeg-mode invalido: $CLI_FFMPEG_MODE (use normal/cuda)"
+                return 1
+                ;;
+        esac
+        log_step "FFmpeg definido por CLI: $FFMPEG_MODE"
+    else
+        echo ""
+        echo "Modo do FFmpeg no remux:"
+        echo "  1) Normal (padrao)"
+        echo "  2) CUDA (GPU)"
+        echo ""
+        read -r -p "Usar FFmpeg com CUDA? [1/2] (padrao: 1): " choice
+        choice="${choice:-1}"
+        case "$choice" in
+            1|normal|NORMAL|cpu|CPU)
+                FFMPEG_MODE="normal"
+                ;;
+            2|cuda|CUDA|Cuda|gpu|GPU)
+                FFMPEG_MODE="cuda"
+                ;;
+            *)
+                log_error "Selecao de modo do FFmpeg invalida: $choice"
+                return 1
+                ;;
+        esac
+    fi
+
+    if [ "$FFMPEG_MODE" = "cuda" ]; then
+        log_step "FFmpeg CUDA: habilitado"
+    else
+        log_step "FFmpeg CUDA: desabilitado (normal)"
+    fi
+
+    return 0
+}
+
 process_video() {
     local video_file="$1"
     local selected_dir
@@ -222,6 +369,8 @@ process_video() {
     local audio_file
     local original_duration
     local existing_duration
+    local video_codec
+    local ffmpeg_video_codec
 
     selected_dir="$(dirname "$video_file")"
     base_name="$(basename "${video_file%.*}")"
@@ -263,16 +412,38 @@ process_video() {
     fi
 
     log_section "Geracao do Remux"
-    if ! ffmpeg -hide_banner -loglevel error -y \
-        -i "$video_file" \
-        -i "$audio_file" \
-        -map 0:v:0 \
-        -map 1:a:0 \
-        -c:v copy \
-        -c:a aac \
-        -af apad \
-        -t "$original_duration" \
-        "$output_file"; then
+    local -a ffmpeg_cmd=(ffmpeg -hide_banner -loglevel error -y)
+    ffmpeg_video_codec="copy"
+
+    if [ "$FFMPEG_MODE" = "cuda" ]; then
+        video_codec="$(detect_video_codec "$video_file")"
+        ffmpeg_video_codec="$(cuda_encoder_for_codec "$video_codec")"
+        if [ -z "$ffmpeg_video_codec" ]; then
+            log_step "Codec de video nao suportado para CUDA: ${video_codec:-desconhecido}; mantendo modo normal"
+            FFMPEG_MODE="normal"
+        else
+            log_step "Codec de video detectado: $video_codec -> encoder CUDA: $ffmpeg_video_codec"
+            ffmpeg_cmd+=(-hwaccel cuda -hwaccel_output_format cuda)
+        fi
+    fi
+
+    if [ "$FFMPEG_MODE" = "normal" ]; then
+        ffmpeg_video_codec="copy"
+    fi
+
+    ffmpeg_cmd+=(
+        -i "$video_file"
+        -i "$audio_file"
+        -map 0:v:0
+        -map 1:a:0
+        -c:v "$ffmpeg_video_codec"
+        -c:a aac
+        -af apad
+        -t "$original_duration"
+        "$output_file"
+    )
+
+    if ! run_ffmpeg_with_progress "$original_duration" "${ffmpeg_cmd[@]}"; then
         rm -f "$output_file"
         log_error "Falha ao gerar remux: $output_file"
         return 1
@@ -289,12 +460,22 @@ process_video() {
     return 0
 }
 
+if ! parse_cli_args "$@"; then
+    exit 1
+fi
+
 bootstrap_runtime
 
 {
     if ! command -v ffmpeg >/dev/null 2>&1; then
         log_error "ffmpeg nao encontrado no PATH"
         log_summary "FALHA" "ffmpeg ausente"
+        exit 1
+    fi
+
+    if ! command -v ffprobe >/dev/null 2>&1; then
+        log_error "ffprobe nao encontrado no PATH"
+        log_summary "FALHA" "ffprobe ausente"
         exit 1
     fi
 
@@ -306,6 +487,11 @@ bootstrap_runtime
     log_step "Entrada de remux (done): ${DONE_DIR#$ROOT_DIR/}"
     log_step "Saida de remux: ${REMUX_DIR#$ROOT_DIR/}"
     log_step "Remux tolerance: $REMUX_TOLERANCE s"
+
+    if ! select_ffmpeg_mode; then
+        log_summary "FALHA" "Selecao do FFmpeg invalida"
+        exit 1
+    fi
 
     log_section "Selecao de Video"
     mapfile -t VIDEO_FILES < <(list_video_files)

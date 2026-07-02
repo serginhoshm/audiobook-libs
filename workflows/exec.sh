@@ -27,6 +27,7 @@ NLLB_MAX_INPUT_LENGTH="${NLLB_MAX_INPUT_LENGTH:-768}"
 NLLB_MAX_NEW_TOKENS="${NLLB_MAX_NEW_TOKENS:-192}"
 NLLB_USE_GPU="${NLLB_USE_GPU:-1}"
 NLLB_LEGACY_GENERATION="${NLLB_LEGACY_GENERATION:-0}"
+WHISPER_USE_CUDA="${WHISPER_USE_CUDA:-0}"
 PIPER_USE_CUDA="${PIPER_USE_CUDA:-0}"
 CLI_TRANSLATION_BACKEND=""
 CLI_NLLB_PROFILE=""
@@ -35,6 +36,7 @@ CLI_NLLB_MAX_NEW_TOKENS=""
 CLI_NLLB_USE_GPU=""
 CLI_NLLB_LEGACY_GENERATION=""
 CLI_DEEPL_ENDPOINT=""
+CLI_WHISPER_CUDA=""
 CLI_PIPER_CUDA=""
 NORMALIZE_DRY_RUN=0
 
@@ -494,6 +496,7 @@ Opcoes:
                                                                     Forca modo legacy do NLLB on/off.
     --deepl-endpoint <free|pro|URL>
                                                                     Define endpoint DeepL (free/pro/custom URL).
+        --whisper-cuda <on|off>      Liga/desliga CUDA no Whisper (transcricao).
         --piper-cuda <on|off>        Liga/desliga CUDA no Piper.
     --normalize-dry-run             Simula apenas a normalizacao inicial e encerra.
   --help                          Exibe esta ajuda.
@@ -581,6 +584,18 @@ parse_cli_args() {
             --deepl-endpoint=*)
                 CLI_DEEPL_ENDPOINT="${1#*=}"
                 ;;
+            --whisper-cuda)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --whisper-cuda exige um valor (on/off)."
+                    print_usage
+                    return 1
+                fi
+                CLI_WHISPER_CUDA="$1"
+                ;;
+            --whisper-cuda=*)
+                CLI_WHISPER_CUDA="${1#*=}"
+                ;;
             --piper-cuda)
                 shift
                 if [ "$#" -eq 0 ]; then
@@ -655,6 +670,54 @@ select_piper_execution_mode() {
         log_step "Piper CUDA: habilitado"
     else
         log_step "Piper CUDA: desabilitado (CPU)"
+    fi
+
+    return 0
+}
+
+select_whisper_execution_mode() {
+    local choice
+
+    if [ -n "$CLI_WHISPER_CUDA" ]; then
+        case "$CLI_WHISPER_CUDA" in
+            on|ON|On|1|true|TRUE)
+                WHISPER_USE_CUDA="1"
+                ;;
+            off|OFF|Off|0|false|FALSE)
+                WHISPER_USE_CUDA="0"
+                ;;
+            *)
+                log_error "--whisper-cuda invalido: $CLI_WHISPER_CUDA (use on/off)"
+                return 1
+                ;;
+        esac
+        log_step "Whisper CUDA definido por CLI: $WHISPER_USE_CUDA"
+    else
+        echo ""
+        echo "Execucao do Whisper (transcricao):"
+        echo "  1) CPU (padrao)"
+        echo "  2) CUDA (GPU)"
+        echo ""
+        read -r -p "Usar Whisper com CUDA? [1/2] (padrao: 1): " choice
+        choice="${choice:-1}"
+        case "$choice" in
+            1|cpu|CPU)
+                WHISPER_USE_CUDA="0"
+                ;;
+            2|cuda|CUDA|gpu|GPU)
+                WHISPER_USE_CUDA="1"
+                ;;
+            *)
+                log_error "Selecao de execucao do Whisper invalida: $choice"
+                return 1
+                ;;
+        esac
+    fi
+
+    if [ "$WHISPER_USE_CUDA" = "1" ]; then
+        log_step "Whisper CUDA: habilitado"
+    else
+        log_step "Whisper CUDA: desabilitado (CPU)"
     fi
 
     return 0
@@ -1048,6 +1111,7 @@ process_video_pre_translation() {
     local video_log_file
     local deepl_source_lang
     local translation_cmd
+    local whisper_device
 
     selected_dir="$(dirname "$video_file")"
     base_name="$(basename "${video_file%.*}")"
@@ -1061,6 +1125,10 @@ process_video_pre_translation() {
 
     whisper_lang="auto"
     source_lang="auto"
+    whisper_device="cpu"
+    if [ "$WHISPER_USE_CUDA" = "1" ]; then
+        whisper_device="cuda"
+    fi
 
     state_set "$state_file" "input_video" "$video_file"
     state_set "$state_file" "scope" "$DATA_SCOPE_REL"
@@ -1072,6 +1140,7 @@ process_video_pre_translation() {
 
     log_section "Fase 1 - Preparacao (Whisper + Traducao): ${video_file#$ROOT_DIR/}"
     log_step "Idioma transcricao: $whisper_lang (deteccao automatica)"
+    log_step "Whisper device: $whisper_device"
     log_step "State file: ${state_file#$ROOT_DIR/}"
     if [ "$RUN_LOG_FILE" != "$video_log_file" ]; then
         log_step "Log do video: ${video_log_file#$ROOT_DIR/}"
@@ -1105,6 +1174,11 @@ process_video_pre_translation() {
     fi
 
     log_section "Etapa 1 - Transcricao"
+    if [ "$WHISPER_USE_CUDA" = "1" ]; then
+        log_step "Whisper CUDA: ON"
+    else
+        log_step "Whisper CUDA: OFF"
+    fi
     if [ "$RESUME_MODE" = "1" ] && validate_transcription_ready "$audio_wav" "$output_srt"; then
         update_step_state "$state_file" "transcribe" "success" "reutilizado"
         log_step "Transcricao valida ja existente: ${output_srt#$ROOT_DIR/}"
@@ -1115,7 +1189,8 @@ process_video_pre_translation() {
             "$selected_dir" \
             "$whisper_lang" \
             "$MODEL_SIZE" \
-            "$base_name"
+            "$base_name" \
+            --device "$whisper_device"
 
         if ! validate_transcription_ready "$audio_wav" "$output_srt"; then
             update_step_state "$state_file" "transcribe" "failed" "SRT nao validado"
@@ -1290,6 +1365,11 @@ process_video_audiobook_phase() {
     fi
 
     log_section "Etapa 3 - Geracao de Audiobook"
+    if [ "$PIPER_USE_CUDA" = "1" ]; then
+        log_step "Piper CUDA: ON"
+    else
+        log_step "Piper CUDA: OFF"
+    fi
     if [ "$RESUME_MODE" = "1" ] && validate_audio_ready "$output_pt_srt" "$output_pt_wav"; then
         update_step_state "$state_file" "audiobook" "success" "reutilizado"
         log_step "Audiobook valido ja existente: ${output_pt_wav#$ROOT_DIR/}"
@@ -1407,6 +1487,12 @@ bootstrap_runtime
     log_section "Selecao de Backend de Traducao"
     if ! select_translation_backend; then
         log_summary "FALHA" "Selecao de backend invalida"
+        exit 1
+    fi
+
+    log_section "Modo de Execucao do Whisper"
+    if ! select_whisper_execution_mode; then
+        log_summary "FALHA" "Selecao do Whisper invalida"
         exit 1
     fi
 

@@ -48,6 +48,7 @@ ensure_system_deps() {
       python3-pip \
       python3-virtualenv \
       ffmpeg \
+      yt-dlp \
       socat \
       wget \
       tar \
@@ -61,6 +62,7 @@ ensure_system_deps() {
       python3-pip \
       python3-venv \
       ffmpeg \
+      yt-dlp \
       socat \
       wget \
       tar \
@@ -165,6 +167,11 @@ ensure_sync_deps() {
   ensure_python_pkg "pysrt" "pysrt" ""
 }
 
+ensure_youtube_deps() {
+  info "Verificando dependências do workflow YouTube"
+  ensure_python_pkg "yt-dlp" "yt_dlp" ""
+}
+
 ensure_piper() {
   info "Verificando instalação do Piper TTS"
   ensure_python_pkg "piper-tts" "piper" ""
@@ -229,6 +236,7 @@ main() {
   ensure_whisper_model_cache
   ensure_translation_deps
   ensure_sync_deps
+  ensure_youtube_deps
   ensure_piper
   ensure_model
 

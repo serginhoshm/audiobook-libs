@@ -22,6 +22,13 @@ def parse_args():
     parser.add_argument("language", type=str, help="Código do idioma (ex: es, zh) ou auto.")
     parser.add_argument("model_size", type=str, help="Tamanho do modelo Whisper (ex: tiny, base).")
     parser.add_argument("output_base", type=str, help="Nome base para os arquivos gerados.")
+    parser.add_argument(
+        "--device",
+        type=str,
+        choices=["cpu", "cuda"],
+        default="cpu",
+        help="Device do faster-whisper (cpu ou cuda).",
+    )
     return parser.parse_args()
 
 
@@ -74,14 +81,36 @@ def main():
         )
         sys.exit(1)
 
-    model = WhisperModel(
-        str(model_dir),
-        device="cpu",
-        compute_type="int8",
-        local_files_only=True,
-    )
+    selected_device = args.device
+    compute_type = "float16" if selected_device == "cuda" else "int8"
 
-    logging.info(f"[whisper] Modelo carregado: {args.model_size}")
+    try:
+        model = WhisperModel(
+            str(model_dir),
+            device=selected_device,
+            compute_type=compute_type,
+            local_files_only=True,
+        )
+    except Exception as exc:
+        if selected_device == "cuda":
+            logging.warning(
+                "[whisper] Falha ao iniciar em CUDA (%s). Recuando para CPU.",
+                exc,
+            )
+            selected_device = "cpu"
+            compute_type = "int8"
+            model = WhisperModel(
+                str(model_dir),
+                device=selected_device,
+                compute_type=compute_type,
+                local_files_only=True,
+            )
+        else:
+            raise
+
+    logging.info(
+        f"[whisper] Modelo carregado: {args.model_size} | device={selected_device} | compute_type={compute_type}"
+    )
 
     language = (args.language or "").strip().lower()
     if language not in {"es", "zh", "auto"}:
