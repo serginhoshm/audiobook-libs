@@ -19,6 +19,8 @@ AUDIO_TOLERANCE="${AUDIO_TOLERANCE:-1.5}"
 TRANSLATION_BACKEND="${TRANSLATION_BACKEND:-google}"
 NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-$ROOT_DIR/models/nllb/facebook-nllb-200-distilled-600M}"
 DEEPL_CONFIG_FILE="${DEEPL_CONFIG_FILE:-$ROOT_DIR/config/translation/deepl.env}"
+DEEPL_KEYS_INI="${DEEPL_KEYS_INI:-$ROOT_DIR/config/translation/deepl_keys.ini}"
+DEEPL_KEYS_STATE_INI="${DEEPL_KEYS_STATE_INI:-$ROOT_DIR/config/translation/deepl_keys_state.ini}"
 GEMINI_CONFIG_FILE="${GEMINI_CONFIG_FILE:-$ROOT_DIR/config/translation/gemini.env}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-1.5-flash}"
 DEEPL_ENDPOINT="${DEEPL_ENDPOINT:-free}"
@@ -36,6 +38,7 @@ CLI_NLLB_MAX_NEW_TOKENS=""
 CLI_NLLB_USE_GPU=""
 CLI_NLLB_LEGACY_GENERATION=""
 CLI_DEEPL_ENDPOINT=""
+CLI_RESET_DEEPL_KEYS_STATE="0"
 CLI_WHISPER_CUDA=""
 CLI_PIPER_CUDA=""
 NORMALIZE_DRY_RUN=0
@@ -496,6 +499,7 @@ Opcoes:
                                                                     Forca modo legacy do NLLB on/off.
     --deepl-endpoint <free|pro|URL>
                                                                     Define endpoint DeepL (free/pro/custom URL).
+    --reset-deepl-keys-state      Remove estado local de bloqueio de chaves DeepL.
         --whisper-cuda <on|off>      Liga/desliga CUDA no Whisper (transcricao).
         --piper-cuda <on|off>        Liga/desliga CUDA no Piper.
     --normalize-dry-run             Simula apenas a normalizacao inicial e encerra.
@@ -583,6 +587,9 @@ parse_cli_args() {
                 ;;
             --deepl-endpoint=*)
                 CLI_DEEPL_ENDPOINT="${1#*=}"
+                ;;
+            --reset-deepl-keys-state)
+                CLI_RESET_DEEPL_KEYS_STATE="1"
                 ;;
             --whisper-cuda)
                 shift
@@ -741,6 +748,21 @@ resolve_deepl_base() {
     esac
 }
 
+reset_deepl_keys_state_if_requested() {
+    if [ "$CLI_RESET_DEEPL_KEYS_STATE" != "1" ]; then
+        return 0
+    fi
+
+    if [ "$TRANSLATION_BACKEND" != "deepl_doc" ]; then
+        log_step "Reset de estado DeepL ignorado (backend atual: $TRANSLATION_BACKEND)"
+        return 0
+    fi
+
+    rm -f "$DEEPL_KEYS_STATE_INI"
+    log_step "Estado de chaves DeepL resetado: ${DEEPL_KEYS_STATE_INI#$ROOT_DIR/}"
+    return 0
+}
+
 select_translation_backend() {
     local choice
     local default_choice
@@ -841,8 +863,9 @@ select_translation_backend() {
             # shellcheck disable=SC1090
             source "$DEEPL_CONFIG_FILE"
         fi
-        if [ -z "${DEEPL_API_KEY:-}" ]; then
-            log_error "DEEPL_API_KEY nao definida. Configure em $DEEPL_CONFIG_FILE"
+        if [ ! -f "$DEEPL_KEYS_INI" ]; then
+            log_error "Arquivo de chaves DeepL nao encontrado: $DEEPL_KEYS_INI"
+            log_step "Copie o template config/translation/deepl_keys_template.ini para config/translation/deepl_keys.ini e preencha as chaves."
             return 1
         fi
 
@@ -1035,7 +1058,9 @@ select_translation_backend() {
         log_step "NLLB use_gpu: $NLLB_USE_GPU"
         log_step "NLLB legacy_generation: $NLLB_LEGACY_GENERATION"
     elif [ "$TRANSLATION_BACKEND" = "deepl_doc" ]; then
-        log_step "DEEPL config: ${DEEPL_CONFIG_FILE#$ROOT_DIR/}"
+        log_step "DEEPL keys INI: ${DEEPL_KEYS_INI#$ROOT_DIR/}"
+        log_step "DEEPL keys state INI: ${DEEPL_KEYS_STATE_INI#$ROOT_DIR/}"
+        log_step "DEEPL env legado: ${DEEPL_CONFIG_FILE#$ROOT_DIR/}"
         log_step "DEEPL endpoint: $DEEPL_ENDPOINT"
         log_step "DEEPL base: $DEEPL_BASE"
     elif [ "$TRANSLATION_BACKEND" = "gemini" ]; then
@@ -1227,7 +1252,9 @@ process_video_pre_translation() {
                     deepl_source_lang="AUTO"
                     ;;
             esac
-            DEEPL_API_KEY="${DEEPL_API_KEY:-}" DEEPL_BASE="$DEEPL_BASE" "$ROOT_DIR/workflows/translate_srt.sh" \
+            DEEPL_BASE="$DEEPL_BASE" "$ROOT_DIR/workflows/translate_srt.sh" \
+                --keys-ini "$DEEPL_KEYS_INI" \
+                --keys-state-ini "$DEEPL_KEYS_STATE_INI" \
                 --source-lang "$deepl_source_lang" \
                 --target-lang "PT-BR" \
                 "$output_srt" \
@@ -1487,6 +1514,10 @@ bootstrap_runtime
     log_section "Selecao de Backend de Traducao"
     if ! select_translation_backend; then
         log_summary "FALHA" "Selecao de backend invalida"
+        exit 1
+    fi
+    if ! reset_deepl_keys_state_if_requested; then
+        log_summary "FALHA" "Reset do estado de chaves DeepL"
         exit 1
     fi
 

@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPEC - Lista de Execucao do Pipeline</title>
+  <style>
+    :root {
+      --bg-1: #f6f2ea;
+      --bg-2: #d9e9e5;
+      --ink: #15261f;
+      --muted: #48645b;
+      --panel: #fbfaf7cc;
+      --line: #b6c7c1;
+      --ok: #197c4d;
+      --warn: #ab6a15;
+      --run: #0a7f65;
+      --stop: #af3c2c;
+      --chip: #e8f3ef;
+      --chip-running: #fff1de;
+      --chip-failed: #ffe5e0;
+      --shadow: 0 12px 28px rgba(21, 38, 31, 0.12);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+      background:
+        radial-gradient(circle at 15% 12%, #fff8e8 0, #fff8e800 36%),
+        radial-gradient(circle at 88% 82%, #d4efe8 0, #d4efe800 34%),
+        linear-gradient(140deg, var(--bg-1), var(--bg-2));
+      min-height: 100vh;
+    }
+
+    .wrap {
+      width: min(1300px, 96vw);
+      margin: 30px auto;
+      padding: 20px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.2rem, 2.5vw, 2rem);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .stamp {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #ffffffaa;
+      color: var(--muted);
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+
+    .btn {
+      border: 0;
+      padding: 11px 14px;
+      border-radius: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: transform .12s ease, filter .12s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); filter: brightness(1.03); }
+
+    .btn.scan { background: #dfe8ff; color: #20357a; }
+    .btn.run { background: var(--run); color: #fff; }
+    .btn.stop { background: var(--stop); color: #fff; }
+
+    .selection {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 600;
+      padding: 8px 10px;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      background: #ffffff88;
+    }
+
+    .table-card {
+      background: var(--panel);
+      border: 1px solid #ffffff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(6px);
+    }
+
+    .table-wrap {
+      overflow: auto;
+      max-height: 72vh;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1200px;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      text-align: left;
+      padding: 12px;
+      font-size: 0.79rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #2f4a41;
+      background: #edf6f3;
+      border-bottom: 1px solid var(--line);
+    }
+
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #d6e2dd;
+      vertical-align: top;
+      font-size: 0.92rem;
+    }
+
+    tr:hover td { background: #f8fbfa; }
+
+    .file-cell b { display: block; font-size: 0.94rem; }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      background: var(--chip);
+      color: #184f3a;
+      border: 1px solid #cae6dc;
+    }
+
+    .chip.running {
+      background: var(--chip-running);
+      color: #8a4d08;
+      border-color: #f5d8af;
+    }
+
+    .chip.failed {
+      background: var(--chip-failed);
+      color: #8d1f10;
+      border-color: #f4beb3;
+    }
+
+    .opts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(130px, 1fr));
+      gap: 6px;
+    }
+
+    select {
+      width: 100%;
+      background: #fff;
+      color: #19372f;
+      border: 1px solid #c2d4ce;
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 0.8rem;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-top: 6px;
+    }
+
+    .footer {
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      border-top: 1px solid var(--line);
+      background: #f2f8f6;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; }
+      .selection { margin-left: 0; }
+      .wrap { margin-top: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div>
+        <h1>Pipeline Runner Local - SPEC de Lista</h1>
+        <div class="subtitle">Preview visual para validacao de UX: selecao por arquivo, opcoes na linha, run/stop em background e status vivo.</div>
+      </div>
+      <div class="stamp">Django UI SPEC • Sem backend real</div>
+    </section>
+
+    <section class="toolbar">
+      <button class="btn scan" id="scanBtn">Scan</button>
+      <button class="btn run" id="runBtn">Executar</button>
+      <button class="btn stop" id="stopBtn">Parar</button>
+      <div class="selection" id="selectionInfo">Selecionados: 0</div>
+    </section>
+
+    <section class="table-card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="toggleAll"></th>
+              <th>Arquivo</th>
+              <th>Duracao</th>
+              <th>Idioma</th>
+              <th>Status</th>
+              <th>Etapas</th>
+              <th>Opcoes (linha)</th>
+              <th>Ultima atualizacao</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr>
+              <td><input type="checkbox" class="row-check"></td>
+              <td class="file-cell"><b>003 spanish.mp4</b><span class="small">/mnt/public500/ab-work/exec/003 spanish.mp4</span></td>
+              <td>01:12:44</td>
+              <td>es</td>
+              <td><span class="chip running">running</span></td>
+              <td>
+                <div class="chips">
+                  <span class="chip">extract: ok</span>
+                  <span class="chip">transcribe: ok</span>
+                  <span class="chip running">translate: running</span>
+                  <span class="chip">audiobook: pending</span>
+                </div>
+              </td>
+              <td>
+                <div class="opts">
+                  <select><option>backend: deepl_doc</option><option>backend: google</option><option>backend: nllb_local</option><option>backend: gemini</option></select>
+                  <select><option>cuda: yes</option><option>cuda: no</option></select>
+                  <select><option>deepl-endpoint: free</option><option>deepl-endpoint: pro</option></select>
+                  <select><option>reset-deepl-state: no</option><option>reset-deepl-state: yes</option></select>
+                  <select><option>nllb-profile: fast</option><option>nllb-profile: legacy</option><option>nllb-profile: custom</option></select>
+                  <select><option>normalize-dry-run: no</option><option>normalize-dry-run: yes</option></select>
+                </div>
+              </td>
+              <td>agora</td>
+            </tr>
+
+            <tr>
+              <td><input type="checkbox" class="row-check"></td>
+              <td class="file-cell"><b>004 spanish.mp4</b><span class="small">/mnt/public500/ab-work/exec/004 spanish.mp4</span></td>
+              <td>00:58:31</td>
+              <td>es</td>
+              <td><span class="chip failed">failed</span></td>
+              <td>
+                <div class="chips">
+                  <span class="chip">extract: ok</span>
+                  <span class="chip">transcribe: ok</span>
+                  <span class="chip failed">translate: failed</span>
+                  <span class="chip">audiobook: pending</span>
+                </div>
+              </td>
+              <td>
+                <div class="opts">
+                  <select><option>backend: deepl_doc</option><option>backend: google</option><option>backend: nllb_local</option><option>backend: gemini</option></select>
+                  <select><option>cuda: yes</option><option>cuda: no</option></select>
+                  <select><option>deepl-endpoint: free</option><option>deepl-endpoint: pro</option></select>
+                  <select><option>reset-deepl-state: yes</option><option>reset-deepl-state: no</option></select>
+                  <select><option>nllb-profile: fast</option><option>nllb-profile: legacy</option><option>nllb-profile: custom</option></select>
+                  <select><option>normalize-dry-run: no</option><option>normalize-dry-run: yes</option></select>
+                </div>
+              </td>
+              <td>2 min atras</td>
+            </tr>
+
+            <tr>
+              <td><input type="checkbox" class="row-check"></td>
+              <td class="file-cell"><b>015 chinese.mp4</b><span class="small">/mnt/public500/ab-work/exec/015 chinese.mp4</span></td>
+              <td>01:26:10</td>
+              <td>zh-CN</td>
+              <td><span class="chip">queued</span></td>
+              <td>
+                <div class="chips">
+                  <span class="chip">extract: pending</span>
+                  <span class="chip">transcribe: pending</span>
+                  <span class="chip">translate: pending</span>
+                  <span class="chip">audiobook: pending</span>
+                </div>
+              </td>
+              <td>
+                <div class="opts">
+                  <select><option>backend: nllb_local</option><option>backend: deepl_doc</option><option>backend: google</option><option>backend: gemini</option></select>
+                  <select><option>cuda: no</option><option>cuda: yes</option></select>
+                  <select><option>nllb-profile: fast</option><option>nllb-profile: legacy</option><option>nllb-profile: custom</option></select>
+                  <select><option>nllb-gpu: off</option><option>nllb-gpu: on</option></select>
+                  <select><option>nllb-legacy: off</option><option>nllb-legacy: on</option></select>
+                  <select><option>normalize-dry-run: no</option><option>normalize-dry-run: yes</option></select>
+                </div>
+              </td>
+              <td>5 min atras</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="footer">
+        <div>SPEC: dropdowns por linha + selecao por checkbox + run/stop em lote.</div>
+        <div id="ticker">ultima acao: nenhuma</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const checks = Array.from(document.querySelectorAll('.row-check'));
+    const toggleAll = document.getElementById('toggleAll');
+    const selectionInfo = document.getElementById('selectionInfo');
+    const ticker = document.getElementById('ticker');
+    const scanBtn = document.getElementById('scanBtn');
+    const runBtn = document.getElementById('runBtn');
+    const stopBtn = document.getElementById('stopBtn');
+
+    function updateSelection() {
+      const count = checks.filter(c => c.checked).length;
+      selectionInfo.textContent = `Selecionados: ${count}`;
+      toggleAll.checked = count === checks.length;
+      toggleAll.indeterminate = count > 0 && count < checks.length;
+    }
+
+    checks.forEach(c => c.addEventListener('change', updateSelection));
+
+    toggleAll.addEventListener('change', () => {
+      checks.forEach(c => c.checked = toggleAll.checked);
+      updateSelection();
+    });
+
+    scanBtn.addEventListener('click', () => {
+      ticker.textContent = 'ultima acao: scan manual executado (simulado)';
+      scanBtn.textContent = 'Scan ✓';
+      setTimeout(() => scanBtn.textContent = 'Scan', 900);
+    });
+
+    runBtn.addEventListener('click', () => {
+      ticker.textContent = 'ultima acao: run em itens selecionados (simulado)';
+      runBtn.textContent = 'Executando...';
+      setTimeout(() => runBtn.textContent = 'Executar', 900);
+    });
+
+    stopBtn.addEventListener('click', () => {
+      ticker.textContent = 'ultima acao: stop em itens selecionados (simulado)';
+      stopBtn.textContent = 'Parando...';
+      setTimeout(() => stopBtn.textContent = 'Parar', 900);
+    });
+
+    updateSelection();
+  </script>
+</body>
+</html>

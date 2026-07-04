@@ -81,6 +81,48 @@ Também é possível sobrescrever por variável de ambiente:
 - `deepl_doc` (DeepL via `workflows/translate_srt.sh`)
 - `gemini` (Google Gemini API)
 
+### DeepL local (rotacao de chaves por bloco)
+
+- Template versionado: `config/translation/deepl_keys_template.ini`
+- Arquivo local real (ignorado): `config/translation/deepl_keys.ini`
+- Estado local de bloqueio por cota (ignorado e gerado automaticamente): `config/translation/deepl_keys_state.ini`
+- O backend `deepl_doc` alterna automaticamente entre as chaves a cada bloco/parte enviado para traducao.
+- Se o DeepL retornar `HTTP 456` para uma chave, o fluxo marca a chave como indisponivel no estado local e tenta a proxima automaticamente.
+- Antes de iniciar a traducao, o fluxo consulta `GET /v2/usage` para cada chave e ja bloqueia no estado local as chaves sem cota.
+- Se a consulta `/usage` falhar de forma inconclusiva para uma chave, ela continua candidata (o fallback por `HTTP 456` cobre esse caso durante a traducao).
+
+Opcao util para limpar o estado de bloqueio quando a cota renovar:
+
+```bash
+bash workflows/translate_srt.sh --reset-keys-state --source-lang ES --target-lang PT-BR entrada.srt saida.srt
+```
+
+Atalho pelo orquestrador principal:
+
+```bash
+bash workflows/exec.sh --backend deepl_doc --reset-deepl-keys-state
+```
+
+Timeout da consulta de uso (opcional):
+
+```bash
+DEEPL_USAGE_TIMEOUT_SECONDS=12 bash workflows/exec.sh --backend deepl_doc
+```
+
+Exemplo do INI:
+
+```ini
+[deepl_keys]
+key_1 = sua-chave-1:fx
+key_2 = sua-chave-2:fx
+```
+
+Uso no pipeline:
+
+```bash
+bash workflows/exec.sh --backend deepl_doc
+```
+
 ### Gemini local (chave fora do Git)
 
 - Template versionado: `config/translation/gemini.env.template`

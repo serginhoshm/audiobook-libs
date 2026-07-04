@@ -27,3 +27,5 @@ models/*
 # Machine-local pipeline config (do not version)
 config/pipeline.ini
 config/translation/gemini.env
+config/translation/deepl_keys.ini
+config/translation/deepl_keys_state.ini

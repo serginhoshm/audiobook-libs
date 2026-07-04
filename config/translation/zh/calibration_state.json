@@ -311,7 +311,7 @@
       "target": "Mas a vida em casa"
     },
     "你": {
-      "count": 21,
+      "count": 24,
       "target": "Você é um"
     },
     "你一会儿去吃": {
@@ -707,7 +707,7 @@
       "target": "Gosta?"
     },
     "嗯": {
-      "count": 10,
+      "count": 18,
       "target": "- Não."
     },
     "嘩啦一聲": {
@@ -823,7 +823,7 @@
       "target": "Ela quer que eu faça o que ela quer."
     },
     "好": {
-      "count": 40,
+      "count": 53,
       "target": "Muito bem."
     },
     "好 好": {
@@ -847,7 +847,7 @@
       "target": "Parece que tudo isto é escrito."
     },
     "好好": {
-      "count": 3,
+      "count": 4,
       "target": "Muito bem."
     },
     "好的 娘": {
@@ -859,7 +859,7 @@
       "target": "Eu já sou mulher há seis anos."
     },
     "娘": {
-      "count": 46,
+      "count": 48,
       "target": "A minha filha."
     },
     "媽媽讓他們獨立生活": {
@@ -1491,7 +1491,7 @@
       "target": "O que é que é?"
     },
     "没事": {
-      "count": 12,
+      "count": 22,
       "target": "Está tudo bem."
     },
     "没人便寻到了我家": {
@@ -1855,7 +1855,7 @@
       "target": "O alimento de madeira foi feito por mim mesmo."
     },
     "这可不行": {
-      "count": 2,
+      "count": 5,
       "target": "Não é possível."
     },
     "这孩子倒是有心": {
@@ -1915,7 +1915,7 @@
       "target": "É a primeira vez que alguém diz que não se culpa."
     },
     "进来吧": {
-      "count": 3,
+      "count": 4,
       "target": "Vamos lá."
     },
     "连闹洞房都不让": {
@@ -2050,10 +2050,10 @@
       "triggered": true
     }
   ],
-  "last_run": "2026-07-02T05:56:28.604839+00:00",
+  "last_run": "2026-07-04T03:47:15.123517+00:00",
   "watch_hits": {
-    "phrase_o_que_e_que_eu_faco": 82,
-    "term_patron": 4
+    "phrase_o_que_e_que_eu_faco": 134,
+    "term_patron": 9
   },
   "watch_samples": [
     {
@@ -2485,6 +2485,291 @@
       "pattern": "phrase_o_que_e_que_eu_faco",
       "source": "或者我做家用家具时出了什么问题",
       "translated": "Ou o que é que eu faço de meu móvel?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就十六的",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就收回家烧柴火的",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "如果能找人帮忙就好了",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "找到了卖出去的钱平分",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就我家背后山上竹林的那种",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "平日里家里来客",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "干脆一人一半平分",
+      "translated": "E o que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "可帮我办成了大事",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "到头来落得这般下场",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "昨天咱们进山打猎",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "以后说不定还经常交易",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "等以后赚铜板了再发钱也行",
+      "translated": "E depois, o que é que eu faço é fazer um cartão de cobre e enviar dinheiro."
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "照顾咱们乡下过来的人了",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "多亏遇上热心的陈美丽",
+      "translated": "O que é que eu faço para você?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "简直痴心妄想",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "狠狠抓住这波机会",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "揣着大把现金了",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "早就被我几个老客户",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "刚才反应太慢了",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "偷偷拍下来看看的",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "接下来迟早累坏身体",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "我昨天晚上在直播的时候",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "一会要回复粉丝私信",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "看完记得回来兑现道理吃赏的诺言",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "看老娘找到她不把她腿打断",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "居然敢大半夜入室盗窃",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "找出来一起送去官府",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "这次就打五个大板",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就怕碰到些野兽啥的",
+      "translated": "E o que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "只能随便应付过去",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "为啥在这个臭丫头家里",
+      "translated": "O que é que eu faço para ficar na casa de um homem cheio de merda?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "把这个私淫闹事的宋婆子",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "跑到我们下家村来撒野挑事",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "居然被夏小芒一桶粪水泼身",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "可以疼出手来帮忙了",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "尺寸都量妥当了",
+      "translated": "Mas o que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "阿牛哥",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "阿牛哥",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "舅舅让我来问村长爷爷拿个主意",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就按村长说的来",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "像是老板和帮我送货的小哥韩阳",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "term_patron",
+      "source": "老板给你送货的时候多检查一下",
+      "translated": "E quando o patrão lhe dá o seu produto, verifique mais."
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就会动点手脚",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "送去给梁掌柜",
+      "translated": "E o que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "想知道我手上这伤用的哪个大夫开的药",
+      "translated": "O que é que eu faço com o meu corpo?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "都让长青记得去问了",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "term_patron",
+      "source": "要是人老板看得上",
+      "translated": "Se o patrão da pessoa olhar para cima"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "我来做什么",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "在这指手画脚",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就想把外甥女拐骗回家罗",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "送来给你",
+      "translated": "- E o que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "起码能赚四十文以上",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "就能把猪下水卤好",
+      "translated": "E o que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "这期间要时不时翻搅",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "term_patron",
+      "source": "人老板等着你答复",
+      "translated": "O patrão está à tua espera."
+    },
+    {
+      "pattern": "term_patron",
+      "source": "昨天我拿那罐肉酱去给老板尝了",
+      "translated": "Ontem, eu levei o frango para o meu patrão."
+    },
+    {
+      "pattern": "term_patron",
+      "source": "王老板没给我开低价",
+      "translated": "O meu patrão não me deu um preço baixo."
     }
   ]
 }
