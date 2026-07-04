@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import wave
 from pathlib import Path
 import pysrt
@@ -131,7 +132,11 @@ def normalize_output_duration_with_ffmpeg(output_wav, target_ms, current_ms, thr
 
 def main():
     args = parse_args()
-    temp_wav = Path("temp_frase.wav")
+    # Use a unique temp WAV file to avoid collisions across concurrent worker runs.
+    fd, temp_path = tempfile.mkstemp(prefix="piper-frase-", suffix=".wav")
+    os.close(fd)
+    temp_wav = Path(temp_path)
+    temp_wav.unlink(missing_ok=True)
     use_piper_cuda = bool(args.piper_cuda)
 
     source_lang_key = (args.source_lang or "auto").strip().lower()

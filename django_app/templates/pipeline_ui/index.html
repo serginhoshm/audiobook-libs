@@ -13,6 +13,10 @@
     .run { background: #117a62; color: #fff; }
     .remux { background: #1f5b99; color: #fff; }
     .stop { background: #b5382b; color: #fff; }
+    .worker-pill { border-radius: 999px; padding: 5px 10px; font-size: .82rem; font-weight: 700; border: 1px solid #c6dcd3; background: #e9f4ef; color: #2c584a; }
+    .worker-online { background: #d9f5e8; color: #13613f; border-color: #97d7bb; }
+    .worker-offline { background: #ffe5e1; color: #8a2318; border-color: #efb3ab; }
+    .worker-unknown { background: #f3f4f6; color: #4f5962; border-color: #d6d9de; }
     .hint { margin-left: auto; font-size: .9rem; color: #49655c; }
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d6e2dd; }
     th, td { border-bottom: 1px solid #e2ece8; padding: 8px 9px; text-align: left; vertical-align: top; font-size: .88rem; }
@@ -35,6 +39,7 @@
       <button class="btn run" id="runBtn">Create new video</button>
       <button class="btn remux" id="remuxBtn">Remux</button>
       <button class="btn stop" id="stopBtn">Parar</button>
+      <span class="worker-pill worker-unknown" id="workerStatus">Worker: desconhecido</span>
       <span class="hint" id="hint">Selecionados: 0</span>
     </div>
 
@@ -50,6 +55,7 @@
             <th>Etapas</th>
             <th>Opcoes</th>
             <th>Log</th>
+            <th>Log Tail</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -61,6 +67,7 @@
     const tbody = document.getElementById('tbody');
     const hint = document.getElementById('hint');
     const all = document.getElementById('all');
+    const workerStatusEl = document.getElementById('workerStatus');
 
     let items = [];
 
@@ -96,12 +103,23 @@
       return `<select data-id="${videoId}" data-key="${key}" class="opt">${opts}</select>`;
     }
 
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function render() {
       tbody.innerHTML = items.map(item => {
         const run = item.latest_run;
         const remuxRun = item.latest_remux_run;
         const profile = item.profile;
         const steps = run?.steps || [];
+        const logLink = run?.log_url ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">abrir</a>` : '-';
+        const logTail = run?.log_tail ? escapeHtml(run.log_tail) : '-';
         const pipelineStepsHtml = steps.length ? steps.map(s => chip(`${s.step_name}: ${s.status}`)).join('') : chip('sem execucao');
         const remuxStatusHtml = remuxRun ? chip(`remux: ${remuxRun.status}`) : '';
         const stepsHtml = `${pipelineStepsHtml}${remuxStatusHtml}`;
@@ -109,7 +127,6 @@
         const optsHtml = `
           <div class="opts">
             ${selectField(item.id, 'backend', profile.backend, ['google','nllb_local','deepl_doc','gemini'])}
-            ${selectField(item.id, 'cuda_enabled', boolOpt(profile.cuda_enabled), ['yes','no'])}
             ${selectField(item.id, 'deepl_endpoint', profile.deepl_endpoint, ['free','pro'])}
             ${selectField(item.id, 'reset_deepl_keys_state', boolOpt(profile.reset_deepl_keys_state), ['no','yes'])}
             ${selectField(item.id, 'nllb_profile', profile.nllb_profile, ['fast','legacy','custom'])}
@@ -125,7 +142,8 @@
             <td><span class="${statusClass(run?.status || 'discovered')}">${run?.status || 'discovered'}</span></td>
             <td><div class="chips">${stepsHtml}</div></td>
             <td>${optsHtml}</td>
-            <td class="mono">${run?.log_file_path || '-'}</td>
+            <td class="mono">${logLink}</td>
+            <td class="mono">${logTail}</td>
           </tr>
         `;
       }).join('');
@@ -135,10 +153,39 @@
       updateHint();
     }
 
-    async function loadStatus() {
-      const res = await fetch('/api/status');
-      const data = await res.json();
-      items = data.items || [];
+    function renderWorkerStatus(worker) {
+      workerStatusEl.classList.remove('worker-online', 'worker-offline', 'worker-unknown');
+
+      if (!worker || typeof worker.running !== 'boolean') {
+        workerStatusEl.classList.add('worker-unknown');
+        workerStatusEl.textContent = 'Worker: desconhecido';
+        return;
+      }
+
+      const queue = worker.queue || {};
+      const queued = Number(queue.queued || 0);
+      const running = Number(queue.running || 0);
+      const suffix = ` | fila: ${queued} | em execucao: ${running}`;
+
+      if (worker.running) {
+        workerStatusEl.classList.add('worker-online');
+        workerStatusEl.textContent = `Worker: online${suffix}`;
+      } else {
+        workerStatusEl.classList.add('worker-offline');
+        workerStatusEl.textContent = `Worker: offline${suffix}`;
+      }
+    }
+
+    async function loadStatus(includeLogTail = false) {
+      const statusUrl = includeLogTail ? '/api/status?include_log_tail=true' : '/api/status';
+      const [statusRes, workerRes] = await Promise.all([
+        fetch(statusUrl),
+        fetch('/api/worker-status')
+      ]);
+      const statusData = await statusRes.json();
+      const workerData = await workerRes.json();
+      items = statusData.items || [];
+      renderWorkerStatus(workerData.worker || null);
       render();
     }
 
@@ -147,7 +194,7 @@
       const key = evt.target.dataset.key;
       let value = evt.target.value;
 
-      if (['cuda_enabled','reset_deepl_keys_state'].includes(key)) {
+      if (['reset_deepl_keys_state'].includes(key)) {
         value = value === 'yes';
       }
 
@@ -160,7 +207,7 @@
 
     document.getElementById('scanBtn').addEventListener('click', async () => {
       await fetch('/api/scan', {method: 'POST'});
-      await loadStatus();
+      await loadStatus(true);
     });
 
     document.getElementById('runBtn').addEventListener('click', async () => {
@@ -171,7 +218,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({video_ids: ids})
       });
-      await loadStatus();
+      await loadStatus(false);
     });
 
     document.getElementById('remuxBtn').addEventListener('click', async () => {
@@ -181,7 +228,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({video_ids: ids})
       });
-      await loadStatus();
+      await loadStatus(false);
     });
 
     document.getElementById('stopBtn').addEventListener('click', async () => {
@@ -192,7 +239,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({video_ids: ids})
       });
-      await loadStatus();
+      await loadStatus(false);
     });
 
     all.addEventListener('change', () => {
@@ -200,7 +247,7 @@
       updateHint();
     });
 
-    loadStatus();
+    loadStatus(false);
   </script>
 </body>
 </html>

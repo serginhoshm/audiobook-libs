@@ -1,4 +1,5 @@
 import configparser
+import os
 import re
 import subprocess
 from datetime import timedelta
@@ -142,15 +143,11 @@ def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
 
 
 def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
-    # Nao interfere em execucoes ativas; apenas reconcilia estado quando parado.
-    if active_run_exists(asset.id, run_mode=RUN_MODE_PIPELINE):
-        return
-
     evidence = step_evidence_for_asset(asset)
-    if not any(found for found, _ in evidence.values()):
+    run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
+    if run is None and not any(found for found, _ in evidence.values()):
         return
 
-    run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
     if run is None:
         run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status="discovered")
 
@@ -168,15 +165,27 @@ def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
             step.detail = detail
             step.save(update_fields=["status", "detail", "updated_at"])
             step_changed = True
+        elif (not found) and step.status == "success" and step.detail.startswith("Evidencia:"):
+            step.status = "pending"
+            step.detail = ""
+            step.save(update_fields=["status", "detail", "updated_at"])
+            step_changed = True
 
     found_audiobook = evidence["audiobook"][0]
-    if found_audiobook and run.status != "success":
+    is_active = run.status in {"queued", "running", "stopping"}
+
+    if found_audiobook and (not is_active) and run.status != "success":
         run.status = "success"
         run.exit_code = 0
         run.error_message = ""
         if not run.finished_at:
             run.finished_at = timezone.now()
         run.save(update_fields=["status", "exit_code", "error_message", "finished_at", "updated_at"])
+    elif (not found_audiobook) and (not is_active) and run.status == "success":
+        run.status = "discovered"
+        run.exit_code = None
+        run.finished_at = None
+        run.save(update_fields=["status", "exit_code", "finished_at", "updated_at"])
     elif step_changed:
         run.save(update_fields=["updated_at"])
 
@@ -254,6 +263,42 @@ def run_evidence_worker(
                 missing += 1
 
     return {"synced": synced, "missing": missing}
+
+
+def worker_health_status() -> dict[str, Any]:
+    run_dir = project_root() / ".run" / "webapp"
+    pid_file = run_dir / "worker.pid"
+
+    queued = PipelineRun.objects.filter(status="queued").count()
+    running = PipelineRun.objects.filter(status="running").count()
+    stopping = PipelineRun.objects.filter(status="stopping").count()
+
+    pid = None
+    process_running = False
+    source = "pid_file"
+
+    if pid_file.exists():
+        try:
+            raw = pid_file.read_text(encoding="utf-8").strip()
+            if raw:
+                pid = int(raw)
+                os.kill(pid, 0)
+                process_running = True
+        except Exception:
+            process_running = False
+    else:
+        source = "pid_file_missing"
+
+    return {
+        "running": process_running,
+        "pid": pid,
+        "source": source,
+        "queue": {
+            "queued": queued,
+            "running": running,
+            "stopping": stopping,
+        },
+    }
 
 
 def active_run_exists(video_asset_id: int, run_mode: str | None = None) -> bool:
@@ -351,11 +396,9 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
         "nllb_profile",
         "nllb_max_input_length",
         "nllb_max_new_tokens",
-        "nllb_gpu",
         "nllb_legacy",
         "deepl_endpoint",
         "reset_deepl_keys_state",
-        "cuda_enabled",
     }
 
     for key in allowed:
@@ -367,7 +410,7 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
                 value = int(value)
             except Exception:
                 continue
-        elif key in {"nllb_gpu", "nllb_legacy", "reset_deepl_keys_state", "cuda_enabled"}:
+        elif key in {"nllb_legacy", "reset_deepl_keys_state"}:
             value = parse_bool(value, default=getattr(profile, key))
         setattr(profile, key, value)
 
@@ -392,11 +435,9 @@ def serialize_profile(profile: ExecutionProfile) -> dict[str, Any]:
         "nllb_profile": profile.nllb_profile,
         "nllb_max_input_length": profile.nllb_max_input_length,
         "nllb_max_new_tokens": profile.nllb_max_new_tokens,
-        "nllb_gpu": profile.nllb_gpu,
         "nllb_legacy": profile.nllb_legacy,
         "deepl_endpoint": profile.deepl_endpoint,
         "reset_deepl_keys_state": profile.reset_deepl_keys_state,
-        "cuda_enabled": profile.cuda_enabled,
     }
 
 
@@ -407,7 +448,29 @@ def latest_run_for_asset(asset: VideoAsset, run_mode: str | None = None) -> Pipe
     return qs.first()
 
 
-def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
+def _safe_log_tail(log_file_path: str | None) -> str:
+    if not log_file_path:
+        return ""
+
+    try:
+        path = Path(log_file_path)
+        if not path.exists() or (not path.is_file()):
+            return ""
+
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+
+        for line in reversed(lines):
+            tail = line.strip()
+            if tail:
+                return tail
+    except Exception:
+        return ""
+
+    return ""
+
+
+def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[str, Any]:
     profile = ensure_execution_profile(asset)
     latest_run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
     latest_remux_run = latest_run_for_asset(asset, run_mode=RUN_MODE_REMUX)
@@ -436,6 +499,9 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
             for s in latest_remux_run.steps.order_by("id")
         ]
 
+    latest_log_tail = _safe_log_tail(latest_run.log_file_path) if latest_run and include_log_tail else ""
+    remux_log_tail = _safe_log_tail(latest_remux_run.log_file_path) if latest_remux_run and include_log_tail else ""
+
     return {
         "id": asset.id,
         "file_path": asset.file_path,
@@ -455,6 +521,8 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
             "exit_code": latest_run.exit_code,
             "error_message": latest_run.error_message,
             "log_file_path": latest_run.log_file_path,
+            "log_url": f"/api/runs/{latest_run.id}/log",
+            "log_tail": latest_log_tail,
             "steps": steps,
         }
         if latest_run
@@ -468,6 +536,8 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
             "exit_code": latest_remux_run.exit_code,
             "error_message": latest_remux_run.error_message,
             "log_file_path": latest_remux_run.log_file_path,
+            "log_url": f"/api/runs/{latest_remux_run.id}/log",
+            "log_tail": remux_log_tail,
             "steps": remux_steps,
         }
         if latest_remux_run
@@ -475,7 +545,11 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
     }
 
 
-def list_assets(present_only: bool = True, include_active_runs: bool = False) -> list[dict[str, Any]]:
+def list_assets(
+    present_only: bool = True,
+    include_active_runs: bool = False,
+    include_log_tail: bool = False,
+) -> list[dict[str, Any]]:
     qs = VideoAsset.objects.all().order_by("file_name")
     if present_only:
         if include_active_runs:
@@ -485,4 +559,9 @@ def list_assets(present_only: bool = True, include_active_runs: bool = False) ->
             qs = qs.filter(Q(is_present=True) | Q(id__in=active_asset_ids))
         else:
             qs = qs.filter(is_present=True)
-    return [serialize_asset(asset) for asset in qs]
+
+    items = []
+    for asset in qs:
+        sync_run_steps_with_artifacts(asset)
+        items.append(serialize_asset(asset, include_log_tail=include_log_tail))
+    return items

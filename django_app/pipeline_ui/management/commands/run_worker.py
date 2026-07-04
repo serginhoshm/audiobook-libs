@@ -17,24 +17,27 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("[worker] iniciado"))
         self._reconcile_inflight_runs()
 
-        while True:
-            self._reconcile_inflight_runs()
-            run = self._next_queued_run()
-            if run is None:
-                self._sync_stop_requests()
-                time.sleep(poll_seconds)
-                continue
+        try:
+            while True:
+                self._reconcile_inflight_runs()
+                run = self._next_queued_run()
+                if run is None:
+                    self._sync_stop_requests()
+                    time.sleep(poll_seconds)
+                    continue
 
-            self.stdout.write(
-                f"[worker] processando run id={run.id} mode={run.run_mode} video={run.video_asset.file_name}"
-            )
-            try:
-                execute_run(run)
-            except Exception as exc:
-                run.refresh_from_db()
-                run.status = "failed"
-                run.error_message = f"Erro interno do worker: {exc}"
-                run.save(update_fields=["status", "error_message", "updated_at"])
+                self.stdout.write(
+                    f"[worker] processando run id={run.id} mode={run.run_mode} video={run.video_asset.file_name}"
+                )
+                try:
+                    execute_run(run)
+                except Exception as exc:
+                    run.refresh_from_db()
+                    run.status = "failed"
+                    run.error_message = f"Erro interno do worker: {exc}"
+                    run.save(update_fields=["status", "error_message", "updated_at"])
+        except KeyboardInterrupt:
+            self.stdout.write("[worker] encerrando...")
 
     def _reconcile_inflight_runs(self):
         running_like = PipelineRun.objects.filter(status__in=["running", "stopping"])
@@ -61,13 +64,19 @@ class Command(BaseCommand):
     def _next_queued_run(self):
         with transaction.atomic():
             run = (
-                PipelineRun.objects.select_for_update()
-                .select_related("video_asset", "video_asset__execution_profile")
+                PipelineRun.objects.select_related("video_asset", "video_asset__execution_profile")
                 .filter(status="queued")
                 .order_by("created_at")
                 .first()
             )
-            return run
+            if run is None:
+                return None
+
+            claimed = PipelineRun.objects.filter(id=run.id, status="queued").update(status="running")
+            if claimed:
+                run.status = "running"
+                return run
+        return None
 
     def _sync_stop_requests(self):
         running = PipelineRun.objects.filter(status="stopping").exclude(process_group_id__isnull=True)

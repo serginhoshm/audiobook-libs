@@ -89,8 +89,7 @@ def build_exec_command(profile: ExecutionProfile, run_mode: str) -> list[str]:
     root_dir = Path(settings.WEBAPP["ROOT_DIR"])
 
     if run_mode == RUN_MODE_REMUX:
-        ffmpeg_mode = "cuda" if profile.cuda_enabled else "normal"
-        return ["bash", str(root_dir / "workflows" / "remux.sh"), "--ffmpeg-mode", ffmpeg_mode]
+        return ["bash", str(root_dir / "workflows" / "remux.sh"), "--ffmpeg-mode", "normal"]
 
     command = ["bash", str(root_dir / "workflows" / "exec.sh")]
 
@@ -98,7 +97,6 @@ def build_exec_command(profile: ExecutionProfile, run_mode: str) -> list[str]:
     command.extend(["--nllb-profile", profile.nllb_profile])
     command.extend(["--nllb-max-input-length", str(profile.nllb_max_input_length)])
     command.extend(["--nllb-max-new-tokens", str(profile.nllb_max_new_tokens)])
-    command.extend(["--nllb-gpu", _bool_to_on_off(profile.nllb_gpu)])
 
     if profile.nllb_legacy:
         command.append("--nllb-legacy")
@@ -109,9 +107,6 @@ def build_exec_command(profile: ExecutionProfile, run_mode: str) -> list[str]:
 
     if profile.reset_deepl_keys_state:
         command.append("--reset-deepl-keys-state")
-
-    command.extend(["--whisper-cuda", _bool_to_on_off(profile.cuda_enabled)])
-    command.extend(["--piper-cuda", _bool_to_on_off(profile.cuda_enabled)])
 
     return command
 
@@ -143,6 +138,15 @@ def _ensure_step_rows(run: PipelineRun) -> None:
             step_name=step_name,
             defaults={"status": "pending", "detail": ""},
         )
+
+
+def _reset_step_rows_for_attempt(run: PipelineRun) -> None:
+    step_order = REMUX_STEP_ORDER if run.run_mode == RUN_MODE_REMUX else PIPELINE_STEP_ORDER
+    PipelineStepStatus.objects.filter(pipeline_run=run, step_name__in=step_order).update(
+        status="pending",
+        detail="",
+        updated_at=timezone.now(),
+    )
 
 
 def _set_step_status(run_id: int, step_name: str, status: str, detail: str = "") -> None:
@@ -218,6 +222,7 @@ def execute_run(run: PipelineRun) -> None:
     run.refresh_from_db()
     profile = run.video_asset.execution_profile
     _ensure_step_rows(run)
+    _reset_step_rows_for_attempt(run)
 
     selected_video_path = _resolve_video_path_for_run(run)
     command = build_exec_command(profile, run.run_mode)
@@ -239,6 +244,7 @@ def execute_run(run: PipelineRun) -> None:
         fh.write(f"[webapp] command: {' '.join(command)}\n")
         fh.write(f"[webapp] selection index: {selection_index}\n")
         fh.write(f"[webapp] run mode: {run.run_mode}\n")
+        fh.write("[webapp] worker kind: serial-cpu\n")
         fh.write(f"[webapp] selected video path: {selected_video_path}\n")
         fh.flush()
 

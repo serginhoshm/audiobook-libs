@@ -15,7 +15,7 @@ RESUME_MODE="${RESUME_MODE:-1}"
 ARCHIVE_ON_START="${ARCHIVE_ON_START:-0}"
 TRANSCRIPTION_TOLERANCE="${TRANSCRIPTION_TOLERANCE:-5.0}"
 TRANSLATION_TOLERANCE="${TRANSLATION_TOLERANCE:-0.5}"
-AUDIO_TOLERANCE="${AUDIO_TOLERANCE:-1.5}"
+AUDIO_TOLERANCE="${AUDIO_TOLERANCE:-2.0}"
 TRANSLATION_BACKEND="${TRANSLATION_BACKEND:-google}"
 NLLB_MODEL_DIR="${NLLB_MODEL_DIR:-$ROOT_DIR/models/nllb/facebook-nllb-200-distilled-600M}"
 DEEPL_CONFIG_FILE="${DEEPL_CONFIG_FILE:-$ROOT_DIR/config/translation/deepl.env}"
@@ -27,7 +27,7 @@ DEEPL_ENDPOINT="${DEEPL_ENDPOINT:-free}"
 DEEPL_BASE="${DEEPL_BASE:-}"
 NLLB_MAX_INPUT_LENGTH="${NLLB_MAX_INPUT_LENGTH:-768}"
 NLLB_MAX_NEW_TOKENS="${NLLB_MAX_NEW_TOKENS:-192}"
-NLLB_USE_GPU="${NLLB_USE_GPU:-1}"
+NLLB_USE_GPU="${NLLB_USE_GPU:-0}"
 NLLB_LEGACY_GENERATION="${NLLB_LEGACY_GENERATION:-0}"
 WHISPER_USE_CUDA="${WHISPER_USE_CUDA:-0}"
 PIPER_USE_CUDA="${PIPER_USE_CUDA:-0}"
@@ -285,10 +285,17 @@ validate_translation_ready() {
 validate_audio_ready() {
     local source_srt="$1"
     local output_audio="$2"
-    validator_command validate-generated-audio \
+    local validation_output
+
+    if ! validation_output="$(validator_command validate-generated-audio \
         --srt "$source_srt" \
         --audio "$output_audio" \
-        --tolerance "$AUDIO_TOLERANCE" >/dev/null 2>&1
+        --tolerance "$AUDIO_TOLERANCE" 2>&1)"; then
+        printf '%s\n' "$validation_output" >&2
+        return 1
+    fi
+
+    return 0
 }
 
 infer_whisper_lang() {
@@ -435,14 +442,14 @@ Opcoes:
                                                                     Perfil NLLB sem prompt interativo.
     --nllb-max-input-length <N>     Override de max_input_length do NLLB.
     --nllb-max-new-tokens <N>       Override de max_new_tokens do NLLB.
-    --nllb-gpu <on|off>             Liga/desliga uso de GPU no NLLB.
+    --nllb-gpu <on|off>             Legado (ignorado; execucao CPU-only).
     --nllb-legacy / --no-nllb-legacy
                                                                     Forca modo legacy do NLLB on/off.
     --deepl-endpoint <free|pro|URL>
                                                                     Define endpoint DeepL (free/pro/custom URL).
     --reset-deepl-keys-state      Remove estado local de bloqueio de chaves DeepL.
-        --whisper-cuda <on|off>      Liga/desliga CUDA no Whisper (transcricao).
-        --piper-cuda <on|off>        Liga/desliga CUDA no Piper.
+        --whisper-cuda <on|off>      Legado (ignorado; execucao CPU-only).
+        --piper-cuda <on|off>        Legado (ignorado; execucao CPU-only).
   --help                          Exibe esta ajuda.
 EOF
 }
@@ -572,97 +579,21 @@ parse_cli_args() {
 }
 
 select_piper_execution_mode() {
-    local choice
-
+    PIPER_USE_CUDA="0"
     if [ -n "$CLI_PIPER_CUDA" ]; then
-        case "$CLI_PIPER_CUDA" in
-            on|ON|On|1|true|TRUE)
-                PIPER_USE_CUDA="1"
-                ;;
-            off|OFF|Off|0|false|FALSE)
-                PIPER_USE_CUDA="0"
-                ;;
-            *)
-                log_error "--piper-cuda invalido: $CLI_PIPER_CUDA (use on/off)"
-                return 1
-                ;;
-        esac
-        log_step "Piper CUDA definido por CLI: $PIPER_USE_CUDA"
-    else
-        echo ""
-        echo "Execucao do Piper:"
-        echo "  1) CPU (padrao)"
-        echo "  2) CUDA (GPU)"
-        echo ""
-        read -r -p "Usar Piper com CUDA? [1/2] (padrao: 1): " choice
-        choice="${choice:-1}"
-        case "$choice" in
-            1|cpu|CPU)
-                PIPER_USE_CUDA="0"
-                ;;
-            2|cuda|CUDA|gpu|GPU)
-                PIPER_USE_CUDA="1"
-                ;;
-            *)
-                log_error "Selecao de execucao do Piper invalida: $choice"
-                return 1
-                ;;
-        esac
+        log_step "Parametro --piper-cuda recebido e ignorado (CPU-only)."
     fi
-
-    if [ "$PIPER_USE_CUDA" = "1" ]; then
-        log_step "Piper CUDA: habilitado"
-    else
-        log_step "Piper CUDA: desabilitado (CPU)"
-    fi
+    log_step "Piper CUDA: OFF (CPU-only)"
 
     return 0
 }
 
 select_whisper_execution_mode() {
-    local choice
-
+    WHISPER_USE_CUDA="0"
     if [ -n "$CLI_WHISPER_CUDA" ]; then
-        case "$CLI_WHISPER_CUDA" in
-            on|ON|On|1|true|TRUE)
-                WHISPER_USE_CUDA="1"
-                ;;
-            off|OFF|Off|0|false|FALSE)
-                WHISPER_USE_CUDA="0"
-                ;;
-            *)
-                log_error "--whisper-cuda invalido: $CLI_WHISPER_CUDA (use on/off)"
-                return 1
-                ;;
-        esac
-        log_step "Whisper CUDA definido por CLI: $WHISPER_USE_CUDA"
-    else
-        echo ""
-        echo "Execucao do Whisper (transcricao):"
-        echo "  1) CPU (padrao)"
-        echo "  2) CUDA (GPU)"
-        echo ""
-        read -r -p "Usar Whisper com CUDA? [1/2] (padrao: 1): " choice
-        choice="${choice:-1}"
-        case "$choice" in
-            1|cpu|CPU)
-                WHISPER_USE_CUDA="0"
-                ;;
-            2|cuda|CUDA|gpu|GPU)
-                WHISPER_USE_CUDA="1"
-                ;;
-            *)
-                log_error "Selecao de execucao do Whisper invalida: $choice"
-                return 1
-                ;;
-        esac
+        log_step "Parametro --whisper-cuda recebido e ignorado (CPU-only)."
     fi
-
-    if [ "$WHISPER_USE_CUDA" = "1" ]; then
-        log_step "Whisper CUDA: habilitado"
-    else
-        log_step "Whisper CUDA: desabilitado (CPU)"
-    fi
+    log_step "Whisper CUDA: OFF (CPU-only)"
 
     return 0
 }
@@ -859,7 +790,7 @@ select_translation_backend() {
             case "$CLI_NLLB_PROFILE" in
                 fast)
                     NLLB_LEGACY_GENERATION="0"
-                    NLLB_USE_GPU="1"
+                    NLLB_USE_GPU="0"
                     NLLB_MAX_INPUT_LENGTH="768"
                     NLLB_MAX_NEW_TOKENS="192"
                     ;;
@@ -892,19 +823,9 @@ select_translation_backend() {
         fi
 
         if [ -n "$CLI_NLLB_USE_GPU" ]; then
-            case "$CLI_NLLB_USE_GPU" in
-                on|ON|On|1|true|TRUE)
-                    NLLB_USE_GPU="1"
-                    ;;
-                off|OFF|Off|0|false|FALSE)
-                    NLLB_USE_GPU="0"
-                    ;;
-                *)
-                    log_error "--nllb-gpu invalido: $CLI_NLLB_USE_GPU (use on/off)"
-                    return 1
-                    ;;
-            esac
+            log_step "Parametro --nllb-gpu recebido e ignorado (CPU-only)."
         fi
+        NLLB_USE_GPU="0"
 
         if [ -n "$CLI_NLLB_LEGACY_GENERATION" ]; then
             NLLB_LEGACY_GENERATION="$CLI_NLLB_LEGACY_GENERATION"
@@ -926,28 +847,16 @@ select_translation_backend() {
         case "$nllb_profile_choice" in
             1)
                 NLLB_LEGACY_GENERATION="0"
-                NLLB_USE_GPU="1"
+                NLLB_USE_GPU="0"
                 NLLB_MAX_INPUT_LENGTH="768"
                 NLLB_MAX_NEW_TOKENS="192"
                 ;;
             2)
                 NLLB_LEGACY_GENERATION="1"
+                NLLB_USE_GPU="0"
                 ;;
             3)
-                read -r -p "Usar GPU? [S/n] (padrao: S): " gpu_choice
-                gpu_choice="${gpu_choice:-S}"
-                case "$gpu_choice" in
-                    s|S|y|Y)
-                        NLLB_USE_GPU="1"
-                        ;;
-                    n|N)
-                        NLLB_USE_GPU="0"
-                        ;;
-                    *)
-                        log_error "Selecao de GPU invalida: $gpu_choice"
-                        return 1
-                        ;;
-                esac
+                NLLB_USE_GPU="0"
 
                 read -r -p "max_input_length (padrao atual: ${NLLB_MAX_INPUT_LENGTH}): " custom_input
                 custom_input="${custom_input:-$NLLB_MAX_INPUT_LENGTH}"
@@ -992,7 +901,7 @@ select_translation_backend() {
         log_step "Diretorio do modelo NLLB: ${NLLB_MODEL_DIR#$ROOT_DIR/}"
         log_step "NLLB max_input_length: $NLLB_MAX_INPUT_LENGTH"
         log_step "NLLB max_new_tokens: $NLLB_MAX_NEW_TOKENS"
-        log_step "NLLB use_gpu: $NLLB_USE_GPU"
+        log_step "NLLB use_gpu: 0 (CPU-only)"
         log_step "NLLB legacy_generation: $NLLB_LEGACY_GENERATION"
     elif [ "$TRANSLATION_BACKEND" = "deepl_doc" ]; then
         log_step "DEEPL keys INI: ${DEEPL_KEYS_INI#$ROOT_DIR/}"

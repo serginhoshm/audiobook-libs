@@ -12,8 +12,8 @@ class VideoAssetAdmin(admin.ModelAdmin):
 
 @admin.register(ExecutionProfile)
 class ExecutionProfileAdmin(admin.ModelAdmin):
-    list_display = ("id", "video_asset", "backend", "cuda_enabled", "updated_at")
-    list_filter = ("backend", "cuda_enabled")
+    list_display = ("id", "video_asset", "backend", "updated_at")
+    list_filter = ("backend",)
 
 
 @admin.register(PipelineRun)

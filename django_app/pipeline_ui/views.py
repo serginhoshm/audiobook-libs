@@ -1,9 +1,12 @@
 import json
+from pathlib import Path
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
+
+from .models import PipelineRun
 
 from .services import (
     list_assets,
@@ -13,6 +16,7 @@ from .services import (
     run_evidence_worker,
     scan_videos,
     update_execution_profile,
+    worker_health_status,
 )
 
 
@@ -80,7 +84,40 @@ def api_runs_stop(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 def api_status(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"ok": True, "items": list_assets(present_only=True, include_active_runs=True)})
+    include_log_tail = request.GET.get("include_log_tail", "false").lower() in {"1", "true", "yes", "on"}
+    return JsonResponse(
+        {
+            "ok": True,
+            "items": list_assets(
+                present_only=True,
+                include_active_runs=True,
+                include_log_tail=include_log_tail,
+            ),
+        }
+    )
+
+
+@require_GET
+def api_run_log(request: HttpRequest, run_id: int) -> HttpResponse:
+    run = PipelineRun.objects.filter(id=run_id).first()
+    if run is None:
+        return HttpResponse("Run nao encontrada\n", status=404, content_type="text/plain; charset=utf-8")
+
+    log_file_path = run.log_file_path
+    if not log_file_path:
+        return HttpResponse("Log indisponivel para esta run\n", status=404, content_type="text/plain; charset=utf-8")
+
+    path = Path(log_file_path)
+    if not path.exists() or (not path.is_file()):
+        return HttpResponse("Arquivo de log nao encontrado\n", status=404, content_type="text/plain; charset=utf-8")
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return HttpResponse(text, content_type="text/plain; charset=utf-8")
+
+
+@require_GET
+def api_worker_status(request: HttpRequest) -> JsonResponse:
+    return JsonResponse({"ok": True, "worker": worker_health_status()})
 
 
 @csrf_exempt
@@ -97,11 +134,9 @@ def api_video_options_patch(request: HttpRequest, video_id: int) -> JsonResponse
                 "nllb_profile": profile.nllb_profile,
                 "nllb_max_input_length": profile.nllb_max_input_length,
                 "nllb_max_new_tokens": profile.nllb_max_new_tokens,
-                "nllb_gpu": profile.nllb_gpu,
                 "nllb_legacy": profile.nllb_legacy,
                 "deepl_endpoint": profile.deepl_endpoint,
                 "reset_deepl_keys_state": profile.reset_deepl_keys_state,
-                "cuda_enabled": profile.cuda_enabled,
             },
         }
     )
