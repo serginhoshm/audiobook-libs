@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pipeline Local Webapp</title>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f4f7f8; color: #173026; }
+    .container { width: min(1280px, 96vw); margin: 18px auto; }
+    .top { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .btn { border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 700; cursor: pointer; }
+    .scan { background: #d8e7ff; color: #1f3c7f; }
+    .run { background: #117a62; color: #fff; }
+    .stop { background: #b5382b; color: #fff; }
+    .hint { margin-left: auto; font-size: .9rem; color: #49655c; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d6e2dd; }
+    th, td { border-bottom: 1px solid #e2ece8; padding: 8px 9px; text-align: left; vertical-align: top; font-size: .88rem; }
+    th { background: #edf6f3; position: sticky; top: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip { padding: 3px 7px; border-radius: 999px; font-size: .75rem; font-weight: 700; border: 1px solid #c6dcd3; background: #e9f4ef; }
+    .opts { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 6px; }
+    select { width: 100%; border: 1px solid #c1d2cc; border-radius: 7px; padding: 5px; font-size: .8rem; background: #fff; }
+    .mono { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: #4a5f58; }
+    .status-running { color: #9a590c; font-weight: 700; }
+    .status-success { color: #126c43; font-weight: 700; }
+    .status-failed { color: #9b2517; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Pipeline Local Webapp</h2>
+    <div class="top">
+      <button class="btn scan" id="scanBtn">Scan</button>
+      <button class="btn run" id="runBtn">Executar</button>
+      <button class="btn stop" id="stopBtn">Parar</button>
+      <span class="hint" id="hint">Selecionados: 0</span>
+    </div>
+
+    <div style="overflow:auto; max-height: 78vh; border:1px solid #d6e2dd;">
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="all"></th>
+            <th>Arquivo</th>
+            <th>Duracao</th>
+            <th>Idioma</th>
+            <th>Status</th>
+            <th>Etapas</th>
+            <th>Opcoes</th>
+            <th>Log</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const tbody = document.getElementById('tbody');
+    const hint = document.getElementById('hint');
+    const all = document.getElementById('all');
+
+    let items = [];
+
+    function selectedIds() {
+      return Array.from(document.querySelectorAll('.row-check:checked')).map(el => Number(el.dataset.id));
+    }
+
+    function updateHint() {
+      const sel = selectedIds();
+      hint.textContent = `Selecionados: ${sel.length}`;
+      const total = document.querySelectorAll('.row-check').length;
+      all.checked = total > 0 && sel.length === total;
+      all.indeterminate = sel.length > 0 && sel.length < total;
+    }
+
+    function chip(text) {
+      return `<span class="chip">${text}</span>`;
+    }
+
+    function statusClass(status) {
+      if (status === 'running' || status === 'stopping') return 'status-running';
+      if (status === 'success') return 'status-success';
+      if (status === 'failed') return 'status-failed';
+      return '';
+    }
+
+    function boolOpt(v) {
+      return v ? 'yes' : 'no';
+    }
+
+    function selectField(videoId, key, value, options) {
+      const opts = options.map(o => `<option value="${o}" ${String(value) === String(o) ? 'selected' : ''}>${key}: ${o}</option>`).join('');
+      return `<select data-id="${videoId}" data-key="${key}" class="opt">${opts}</select>`;
+    }
+
+    function render() {
+      tbody.innerHTML = items.map(item => {
+        const run = item.latest_run;
+        const profile = item.profile;
+        const steps = run?.steps || [];
+        const stepsHtml = steps.length ? steps.map(s => chip(`${s.step_name}: ${s.status}`)).join('') : chip('sem execucao');
+
+        const optsHtml = `
+          <div class="opts">
+            ${selectField(item.id, 'backend', profile.backend, ['google','nllb_local','deepl_doc','gemini'])}
+            ${selectField(item.id, 'cuda_enabled', boolOpt(profile.cuda_enabled), ['yes','no'])}
+            ${selectField(item.id, 'deepl_endpoint', profile.deepl_endpoint, ['free','pro'])}
+            ${selectField(item.id, 'reset_deepl_keys_state', boolOpt(profile.reset_deepl_keys_state), ['no','yes'])}
+            ${selectField(item.id, 'nllb_profile', profile.nllb_profile, ['fast','legacy','custom'])}
+            ${selectField(item.id, 'normalize_dry_run', boolOpt(profile.normalize_dry_run), ['no','yes'])}
+          </div>
+        `;
+
+        return `
+          <tr>
+            <td><input type="checkbox" class="row-check" data-id="${item.id}"></td>
+            <td><b>${item.file_name}</b><div class="mono">${item.file_path}</div></td>
+            <td>${item.duration_hms}</td>
+            <td>${item.original_language}</td>
+            <td><span class="${statusClass(run?.status || 'discovered')}">${run?.status || 'discovered'}</span></td>
+            <td><div class="chips">${stepsHtml}</div></td>
+            <td>${optsHtml}</td>
+            <td class="mono">${run?.log_file_path || '-'}</td>
+          </tr>
+        `;
+      }).join('');
+
+      document.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', updateHint));
+      document.querySelectorAll('.opt').forEach(el => el.addEventListener('change', onOptionChange));
+      updateHint();
+    }
+
+    async function loadStatus() {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+      items = data.items || [];
+      render();
+    }
+
+    async function onOptionChange(evt) {
+      const id = Number(evt.target.dataset.id);
+      const key = evt.target.dataset.key;
+      let value = evt.target.value;
+
+      if (['cuda_enabled','reset_deepl_keys_state','normalize_dry_run'].includes(key)) {
+        value = value === 'yes';
+      }
+
+      await fetch(`/api/videos/${id}/options`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({[key]: value})
+      });
+    }
+
+    document.getElementById('scanBtn').addEventListener('click', async () => {
+      await fetch('/api/scan', {method: 'POST'});
+      await loadStatus();
+    });
+
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      const ids = selectedIds();
+      if (!ids.length) return;
+      await fetch('/api/runs/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_ids: ids})
+      });
+      await loadStatus();
+    });
+
+    document.getElementById('stopBtn').addEventListener('click', async () => {
+      const ids = selectedIds();
+      if (!ids.length) return;
+      await fetch('/api/runs/stop', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_ids: ids})
+      });
+      await loadStatus();
+    });
+
+    all.addEventListener('change', () => {
+      document.querySelectorAll('.row-check').forEach(el => el.checked = all.checked);
+      updateHint();
+    });
+
+    loadStatus();
+    setInterval(loadStatus, 3000);
+  </script>
+</body>
+</html>

@@ -29,3 +29,7 @@ config/pipeline.ini
 config/translation/gemini.env
 config/translation/deepl_keys.ini
 config/translation/deepl_keys_state.ini
+
+# Django local webapp runtime artifacts
+django_app/db.sqlite3
+.run/webapp/
