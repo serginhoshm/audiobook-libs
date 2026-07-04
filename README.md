@@ -154,6 +154,29 @@ Uso de prompt geral (fora da tradução):
 - Os scripts shell por etapa (`0` a `5`) foram removidos para simplificar operação e manutenção.
 - A síntese de voz utiliza somente a voz Faber (`pt_BR-faber-medium.onnx`).
 
+## Webapp local (Django)
+
+- Wrapper recomendado: `workflows/webapp.sh`
+- O comando `start` sobe o website e o worker em background e informa a URL para abrir no navegador.
+
+Comandos:
+
+```bash
+bash workflows/webapp.sh setup
+bash workflows/webapp.sh start
+bash workflows/webapp.sh status
+bash workflows/webapp.sh stop
+```
+
+Atalho:
+
+```bash
+bash workflows/webapp.sh
+```
+
+- Sem argumento, o wrapper usa `start` por padrão.
+- URL padrão: `http://127.0.0.1:8000/` (pode ser alterada por `WEBAPP_HOST` e `WEBAPP_PORT`).
+
 ## Mudanças recentes
 
 - Adicionado orquestrador único `workflows/exec.sh` com seleção interativa de vídeo.
