@@ -171,6 +171,7 @@ Comandos:
 ```bash
 bash workflows/webapp.sh setup
 bash workflows/webapp.sh start
+bash workflows/webapp.sh start-lan
 bash workflows/webapp.sh status
 bash workflows/webapp.sh stop
 ```
@@ -182,7 +183,11 @@ bash workflows/webapp.sh
 ```
 
 - Sem argumento, o wrapper usa `start` por padrão.
-- URL padrão: `http://127.0.0.1:8000/` (pode ser alterada por `WEBAPP_HOST` e `WEBAPP_PORT`).
+- O `start`/`restart` agora sobe por padrão em modo LAN (`0.0.0.0`) e imprime a URL LAN detectada.
+- Para manter compatibilidade, `start-lan` e `restart-lan` continuam disponíveis como alias.
+- A porta padrão continua `8000` (pode ser alterada por `WEBAPP_PORT`).
+- O modo `start-lan` usa `WEBAPP_HOST=0.0.0.0`, tenta abrir a porta no `ufw` (Debian/Ubuntu) ou `firewalld` (Fedora), e imprime a URL LAN detectada.
+- O Django agora aceita `DJANGO_ALLOWED_HOSTS` (lista separada por virgulas). Exemplo: `DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost,192.168.1.20`.
 
 Sincronização manual de evidências:
 

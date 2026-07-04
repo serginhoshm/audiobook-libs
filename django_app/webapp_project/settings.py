@@ -6,7 +6,15 @@ ROOT_DIR = BASE_DIR.parent
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-secret-key-change-me")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+
+
+def _parse_allowed_hosts() -> list[str]:
+    raw_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost")
+    hosts = [item.strip() for item in raw_hosts.split(",") if item.strip()]
+    return hosts or ["127.0.0.1", "localhost"]
+
+
+ALLOWED_HOSTS = _parse_allowed_hosts()
 
 INSTALLED_APPS = [
     "django.contrib.admin",
