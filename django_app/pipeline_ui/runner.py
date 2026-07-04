@@ -10,10 +10,11 @@ from django.conf import settings
 from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus
-from .services import load_work_exec_dir
+from .services import RUN_MODE_PIPELINE, RUN_MODE_REMUX, load_data_root, load_work_exec_dir
 
 
-STEP_ORDER = ["extract", "transcribe", "translate", "audiobook"]
+PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook"]
+REMUX_STEP_ORDER = ["remux"]
 
 
 def _bool_to_on_off(value: bool) -> str:
@@ -28,7 +29,7 @@ def _display_lang_tag(lang: str) -> str:
     return "auto"
 
 
-def _ordered_video_paths() -> list[str]:
+def _ordered_video_paths_pipeline() -> list[str]:
     work_exec = load_work_exec_dir()
     videos = []
     for path in sorted(work_exec.iterdir()):
@@ -50,16 +51,47 @@ def _ordered_video_paths() -> list[str]:
     return ordered
 
 
-def _selection_index_for_video(video_path: str) -> int:
-    ordered = _ordered_video_paths()
+def _ordered_video_paths_remux() -> list[str]:
+    done_dir = load_data_root() / "done"
+    if not done_dir.exists():
+        return []
+
+    videos = []
+    for path in sorted(done_dir.iterdir()):
+        if not path.is_file() or path.suffix.lower() not in {".mp4", ".mkv"}:
+            continue
+        if " (remux)." in path.name:
+            continue
+        videos.append(str(path))
+    return videos
+
+
+def _selection_index_for_video(video_path: str, run_mode: str) -> int:
+    if run_mode == RUN_MODE_REMUX:
+        ordered = _ordered_video_paths_remux()
+    else:
+        ordered = _ordered_video_paths_pipeline()
+
     for idx, path in enumerate(ordered, start=1):
         if path == video_path:
             return idx
-    raise ValueError(f"Video nao encontrado no indice do exec.sh: {video_path}")
+    raise ValueError(f"Video nao encontrado no indice do workflow ({run_mode}): {video_path}")
 
 
-def build_exec_command(profile: ExecutionProfile) -> list[str]:
+def _resolve_video_path_for_run(run: PipelineRun) -> str:
+    if run.run_mode == RUN_MODE_REMUX:
+        done_video = load_data_root() / "done" / run.video_asset.file_name
+        return str(done_video)
+    return run.video_asset.file_path
+
+
+def build_exec_command(profile: ExecutionProfile, run_mode: str) -> list[str]:
     root_dir = Path(settings.WEBAPP["ROOT_DIR"])
+
+    if run_mode == RUN_MODE_REMUX:
+        ffmpeg_mode = "cuda" if profile.cuda_enabled else "normal"
+        return ["bash", str(root_dir / "workflows" / "remux.sh"), "--ffmpeg-mode", ffmpeg_mode]
+
     command = ["bash", str(root_dir / "workflows" / "exec.sh")]
 
     command.extend(["--backend", profile.backend])
@@ -104,7 +136,8 @@ def request_stop(run: PipelineRun) -> None:
 
 
 def _ensure_step_rows(run: PipelineRun) -> None:
-    for step_name in STEP_ORDER:
+    step_order = REMUX_STEP_ORDER if run.run_mode == RUN_MODE_REMUX else PIPELINE_STEP_ORDER
+    for step_name in step_order:
         PipelineStepStatus.objects.get_or_create(
             pipeline_run=run,
             step_name=step_name,
@@ -136,6 +169,14 @@ def _promote_step_from_log_line(run_id: int, line: str, current_step: str | None
     if "etapa 3" in lower or "geracao wav (piper)" in lower or "sintese" in lower:
         _set_step_status(run_id, "audiobook", "running", text)
         return "audiobook"
+
+    if "geracao do remux" in lower or "processando video" in lower and "remux" in lower:
+        _set_step_status(run_id, "remux", "running", text)
+        return "remux"
+
+    if "remux gerado com sucesso" in lower:
+        _set_step_status(run_id, "remux", "success", text)
+        return "remux"
 
     if "srt traduzido nao gerado/validado" in lower:
         _set_step_status(run_id, "translate", "failed", text)
@@ -178,8 +219,9 @@ def execute_run(run: PipelineRun) -> None:
     profile = run.video_asset.execution_profile
     _ensure_step_rows(run)
 
-    command = build_exec_command(profile)
-    selection_index = _selection_index_for_video(run.video_asset.file_path)
+    selected_video_path = _resolve_video_path_for_run(run)
+    command = build_exec_command(profile, run.run_mode)
+    selection_index = _selection_index_for_video(selected_video_path, run.run_mode)
 
     log_dir = ensure_webapp_log_dir()
     stamp = timezone.now().strftime("%Y%m%d_%H%M%S")
@@ -196,6 +238,8 @@ def execute_run(run: PipelineRun) -> None:
     with open(log_file, "a", encoding="utf-8") as fh:
         fh.write(f"[webapp] command: {' '.join(command)}\n")
         fh.write(f"[webapp] selection index: {selection_index}\n")
+        fh.write(f"[webapp] run mode: {run.run_mode}\n")
+        fh.write(f"[webapp] selected video path: {selected_video_path}\n")
         fh.flush()
 
         proc = subprocess.Popen(

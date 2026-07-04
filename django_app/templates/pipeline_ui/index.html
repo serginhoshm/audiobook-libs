@@ -11,6 +11,7 @@
     .btn { border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 700; cursor: pointer; }
     .scan { background: #d8e7ff; color: #1f3c7f; }
     .run { background: #117a62; color: #fff; }
+    .remux { background: #1f5b99; color: #fff; }
     .stop { background: #b5382b; color: #fff; }
     .hint { margin-left: auto; font-size: .9rem; color: #49655c; }
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d6e2dd; }
@@ -31,7 +32,8 @@
     <h2>Pipeline Local Webapp</h2>
     <div class="top">
       <button class="btn scan" id="scanBtn">Refresh</button>
-      <button class="btn run" id="runBtn">Executar</button>
+      <button class="btn run" id="runBtn">Create new video</button>
+      <button class="btn remux" id="remuxBtn">Remux</button>
       <button class="btn stop" id="stopBtn">Parar</button>
       <span class="hint" id="hint">Selecionados: 0</span>
     </div>
@@ -97,9 +99,12 @@
     function render() {
       tbody.innerHTML = items.map(item => {
         const run = item.latest_run;
+        const remuxRun = item.latest_remux_run;
         const profile = item.profile;
         const steps = run?.steps || [];
-        const stepsHtml = steps.length ? steps.map(s => chip(`${s.step_name}: ${s.status}`)).join('') : chip('sem execucao');
+        const pipelineStepsHtml = steps.length ? steps.map(s => chip(`${s.step_name}: ${s.status}`)).join('') : chip('sem execucao');
+        const remuxStatusHtml = remuxRun ? chip(`remux: ${remuxRun.status}`) : '';
+        const stepsHtml = `${pipelineStepsHtml}${remuxStatusHtml}`;
 
         const optsHtml = `
           <div class="opts">
@@ -162,6 +167,16 @@
       const ids = selectedIds();
       if (!ids.length) return;
       await fetch('/api/runs/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_ids: ids})
+      });
+      await loadStatus();
+    });
+
+    document.getElementById('remuxBtn').addEventListener('click', async () => {
+      const ids = selectedIds();
+      await fetch('/api/runs/remux/start', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({video_ids: ids})

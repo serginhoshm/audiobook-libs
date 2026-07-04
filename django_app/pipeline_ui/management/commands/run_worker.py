@@ -25,7 +25,9 @@ class Command(BaseCommand):
                 time.sleep(poll_seconds)
                 continue
 
-            self.stdout.write(f"[worker] processando run id={run.id} video={run.video_asset.file_name}")
+            self.stdout.write(
+                f"[worker] processando run id={run.id} mode={run.run_mode} video={run.video_asset.file_name}"
+            )
             try:
                 execute_run(run)
             except Exception as exc:

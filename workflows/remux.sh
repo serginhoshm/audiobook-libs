@@ -132,6 +132,20 @@ bootstrap_runtime() {
     prepare_runtime_paths
 }
 
+trigger_evidence_sync_worker() {
+    local video_file="${1:-}"
+
+    if [ ! -x "$PYTHON_BIN" ] || [ ! -f "$ROOT_DIR/django_app/manage.py" ]; then
+        return 0
+    fi
+
+    if [ -n "$video_file" ]; then
+        "$PYTHON_BIN" "$ROOT_DIR/django_app/manage.py" sync_evidence --video-path "$video_file" >/dev/null 2>&1 || true
+    else
+        "$PYTHON_BIN" "$ROOT_DIR/django_app/manage.py" sync_evidence >/dev/null 2>&1 || true
+    fi
+}
+
 read_video_duration() {
     local media_file="$1"
     "$PYTHON_BIN" "$ROOT_DIR/scripts/pipeline_validators.py" media-duration --input "$media_file" | tail -n 1
@@ -456,6 +470,7 @@ process_video() {
     fi
 
     mv -f "$output_file" "$remux_dest_file"
+    trigger_evidence_sync_worker "$video_file"
     log_step "Remux gerado com sucesso: ${remux_dest_file#$ROOT_DIR/}"
     return 0
 }

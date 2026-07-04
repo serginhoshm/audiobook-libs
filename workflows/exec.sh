@@ -241,6 +241,20 @@ update_step_state() {
     state_set "$state_file" "${step_name}_detail" "$detail"
 }
 
+trigger_evidence_sync_worker() {
+    local video_file="${1:-}"
+
+    if [ ! -x "$PYTHON_BIN" ] || [ ! -f "$ROOT_DIR/django_app/manage.py" ]; then
+        return 0
+    fi
+
+    if [ -n "$video_file" ]; then
+        "$PYTHON_BIN" "$ROOT_DIR/django_app/manage.py" sync_evidence --video-path "$video_file" >/dev/null 2>&1 || true
+    else
+        "$PYTHON_BIN" "$ROOT_DIR/django_app/manage.py" sync_evidence --housekeeping >/dev/null 2>&1 || true
+    fi
+}
+
 validator_command() {
     "$PYTHON_BIN" "$ROOT_DIR/scripts/pipeline_validators.py" "$@"
 }
@@ -1100,6 +1114,7 @@ process_video_pre_translation() {
     log_section "Etapa 0 - Extracao de Audio"
     if [ "$RESUME_MODE" = "1" ] && [ -f "$audio_wav" ] && validate_existing_media "$audio_wav"; then
         update_step_state "$state_file" "extract" "success" "reutilizado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "WAV reutilizado: ${audio_wav#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "extract" "running" "extraindo WAV"
@@ -1114,6 +1129,7 @@ process_video_pre_translation() {
             return 1
         fi
         update_step_state "$state_file" "extract" "success" "WAV gerado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "WAV gerado: ${audio_wav#$ROOT_DIR/}"
     fi
 
@@ -1125,6 +1141,7 @@ process_video_pre_translation() {
     fi
     if [ "$RESUME_MODE" = "1" ] && validate_transcription_ready "$audio_wav" "$output_srt"; then
         update_step_state "$state_file" "transcribe" "success" "reutilizado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "Transcricao valida ja existente: ${output_srt#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "transcribe" "running" "transcrevendo"
@@ -1142,6 +1159,7 @@ process_video_pre_translation() {
             return 1
         fi
         update_step_state "$state_file" "transcribe" "success" "SRT validado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "Transcricao gerada: ${output_srt#$ROOT_DIR/}"
     fi
 
@@ -1156,6 +1174,7 @@ process_video_pre_translation() {
     log_section "Etapa 2 - Traducao"
     if [ "$RESUME_MODE" = "1" ] && validate_translation_ready "$output_srt" "$output_srtpt"; then
         update_step_state "$state_file" "translate" "success" "reutilizado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "Traducao valida ja existente: ${output_srtpt#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "translate" "running" "traduzindo"
@@ -1215,6 +1234,7 @@ process_video_pre_translation() {
             return 1
         fi
         update_step_state "$state_file" "translate" "success" "SRT traduzido validado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "Traducao gerada: ${output_srtpt#$ROOT_DIR/}"
     fi
 
@@ -1269,6 +1289,7 @@ process_video_audiobook_phase() {
     fi
     if [ "$RESUME_MODE" = "1" ] && validate_audio_ready "$output_srtpt" "$output_pt_wav"; then
         update_step_state "$state_file" "audiobook" "success" "reutilizado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "Audiobook valido ja existente: ${output_pt_wav#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "audiobook" "running" "gerando audio"
@@ -1294,6 +1315,7 @@ process_video_audiobook_phase() {
             return 1
         fi
         update_step_state "$state_file" "audiobook" "success" "audio validado"
+        trigger_evidence_sync_worker "$video_file"
         log_step "Audiobook gerado: ${output_pt_wav#$ROOT_DIR/}"
     fi
 
@@ -1495,6 +1517,7 @@ bootstrap_runtime
         if process_video_audiobook_phase "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
             phase2_success=$((phase2_success + 1))
             if move_processed_bundle_to_done "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
+                trigger_evidence_sync_worker
                 phase3_success=$((phase3_success + 1))
                 success_count=$((success_count + 1))
             else

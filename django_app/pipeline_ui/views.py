@@ -5,7 +5,15 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from .services import list_assets, queue_runs, request_stop_for_runs, scan_videos, update_execution_profile
+from .services import (
+    list_assets,
+    queue_remux_runs,
+    queue_runs,
+    request_stop_for_runs,
+    run_evidence_worker,
+    scan_videos,
+    update_execution_profile,
+)
 
 
 def _json_payload(request: HttpRequest) -> dict:
@@ -31,7 +39,8 @@ def api_videos(request: HttpRequest) -> JsonResponse:
 @require_POST
 def api_scan(request: HttpRequest) -> JsonResponse:
     summary = scan_videos()
-    return JsonResponse({"ok": True, "summary": summary})
+    evidence = run_evidence_worker(include_housekeeping=True)
+    return JsonResponse({"ok": True, "summary": summary, "evidence": evidence})
 
 
 @csrf_exempt
@@ -43,6 +52,15 @@ def api_runs_start(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "video_ids vazio"}, status=400)
 
     result = queue_runs([int(v) for v in video_ids])
+    return JsonResponse({"ok": True, "result": result})
+
+
+@csrf_exempt
+@require_POST
+def api_runs_remux_start(request: HttpRequest) -> JsonResponse:
+    payload = _json_payload(request)
+    video_ids = payload.get("video_ids") or []
+    result = queue_remux_runs([int(v) for v in video_ids] if video_ids else None)
     return JsonResponse({"ok": True, "result": result})
 
 

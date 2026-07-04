@@ -13,6 +13,10 @@ from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsse
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
+PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook"]
+REMUX_STEP_ORDER = ["remux"]
+RUN_MODE_PIPELINE = "pipeline"
+RUN_MODE_REMUX = "remux"
 
 
 def project_root() -> Path:
@@ -35,6 +39,10 @@ def load_data_root() -> Path:
 
 def load_work_exec_dir() -> Path:
     return load_data_root() / "exec"
+
+
+def load_done_dir() -> Path:
+    return load_data_root() / "done"
 
 
 def infer_language_from_name(file_name: str) -> str:
@@ -96,6 +104,83 @@ def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
     return profile
 
 
+def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
+    video_path = Path(asset.file_path)
+    done_video_path = load_done_dir() / asset.file_name
+    stem_path = video_path.with_suffix("")
+    done_stem_path = done_video_path.with_suffix("")
+
+    def _first_existing(*paths: Path) -> Path:
+        for path in paths:
+            if path.exists():
+                return path
+        return paths[0]
+
+    return {
+        "video": _first_existing(video_path, done_video_path),
+        "wav": _first_existing(stem_path.with_suffix(".wav"), done_stem_path.with_suffix(".wav")),
+        "srt": _first_existing(stem_path.with_suffix(".srt"), done_stem_path.with_suffix(".srt")),
+        "srtpt": _first_existing(stem_path.with_suffix(".srtpt"), done_stem_path.with_suffix(".srtpt")),
+        "pt_wav": _first_existing(stem_path.with_suffix(".pt.wav"), done_stem_path.with_suffix(".pt.wav")),
+        "done_video": done_video_path,
+    }
+
+
+def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
+    artifacts = artifact_paths_for_asset(asset)
+    has_wav = artifacts["wav"].exists()
+    has_srt = artifacts["srt"].exists()
+    has_srtpt = artifacts["srtpt"].exists()
+    has_pt_wav = artifacts["pt_wav"].exists()
+
+    return {
+        "extract": (has_wav or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/SRT encontrado"),
+        "transcribe": (has_wav or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/SRT encontrado"),
+        "translate": (has_srtpt or has_pt_wav, "Evidencia: arquivo .srtpt encontrado"),
+        "audiobook": (has_pt_wav, "Evidencia: arquivo .pt.wav encontrado"),
+    }
+
+
+def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
+    # Nao interfere em execucoes ativas; apenas reconcilia estado quando parado.
+    if active_run_exists(asset.id, run_mode=RUN_MODE_PIPELINE):
+        return
+
+    evidence = step_evidence_for_asset(asset)
+    if not any(found for found, _ in evidence.values()):
+        return
+
+    run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
+    if run is None:
+        run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status="discovered")
+
+    step_changed = False
+    for step_name in PIPELINE_STEP_ORDER:
+        found, detail = evidence[step_name]
+        step, created = PipelineStepStatus.objects.get_or_create(
+            pipeline_run=run,
+            step_name=step_name,
+            defaults={"status": "pending", "detail": ""},
+        )
+
+        if found and (created or step.status != "success" or step.detail != detail):
+            step.status = "success"
+            step.detail = detail
+            step.save(update_fields=["status", "detail", "updated_at"])
+            step_changed = True
+
+    found_audiobook = evidence["audiobook"][0]
+    if found_audiobook and run.status != "success":
+        run.status = "success"
+        run.exit_code = 0
+        run.error_message = ""
+        if not run.finished_at:
+            run.finished_at = timezone.now()
+        run.save(update_fields=["status", "exit_code", "error_message", "finished_at", "updated_at"])
+    elif step_changed:
+        run.save(update_fields=["updated_at"])
+
+
 def scan_videos() -> dict[str, int]:
     work_exec = load_work_exec_dir()
     work_exec.mkdir(parents=True, exist_ok=True)
@@ -122,6 +207,7 @@ def scan_videos() -> dict[str, int]:
         }
         asset, created = VideoAsset.objects.update_or_create(file_path=str(path), defaults=defaults)
         ensure_execution_profile(asset)
+        sync_run_steps_with_artifacts(asset)
         if created:
             discovered += 1
         else:
@@ -138,8 +224,43 @@ def scan_videos() -> dict[str, int]:
     return {"discovered": discovered, "updated": updated, "missing": missing}
 
 
-def active_run_exists(video_asset_id: int) -> bool:
-    return PipelineRun.objects.filter(video_asset_id=video_asset_id, status__in=["queued", "running", "stopping"]).exists()
+def run_evidence_worker(
+    video_ids: list[int] | None = None,
+    video_paths: list[str] | None = None,
+    include_housekeeping: bool = False,
+) -> dict[str, int]:
+    qs = VideoAsset.objects.all()
+    if video_ids:
+        qs = qs.filter(id__in=video_ids)
+
+    if video_paths:
+        path_set = {str(Path(path)) for path in video_paths}
+        file_names = {Path(path).name for path in video_paths}
+        qs = qs.filter(Q(file_path__in=path_set) | Q(file_name__in=file_names))
+
+    synced = 0
+    for asset in qs:
+        sync_run_steps_with_artifacts(asset)
+        synced += 1
+
+    missing = 0
+    if include_housekeeping:
+        now = timezone.now()
+        for asset in VideoAsset.objects.filter(is_present=True):
+            if not Path(asset.file_path).exists():
+                asset.is_present = False
+                asset.last_seen_at = now
+                asset.save(update_fields=["is_present", "last_seen_at"])
+                missing += 1
+
+    return {"synced": synced, "missing": missing}
+
+
+def active_run_exists(video_asset_id: int, run_mode: str | None = None) -> bool:
+    qs = PipelineRun.objects.filter(video_asset_id=video_asset_id, status__in=["queued", "running", "stopping"])
+    if run_mode:
+        qs = qs.filter(run_mode=run_mode)
+    return qs.exists()
 
 
 def queue_runs(video_ids: list[int]) -> dict[str, Any]:
@@ -147,15 +268,53 @@ def queue_runs(video_ids: list[int]) -> dict[str, Any]:
     skipped = 0
 
     for video_id in video_ids:
-        if active_run_exists(video_id):
+        if active_run_exists(video_id, run_mode=RUN_MODE_PIPELINE):
             skipped += 1
             continue
-        run = PipelineRun.objects.create(video_asset_id=video_id, status="queued")
-        for step_name in ["extract", "transcribe", "translate", "audiobook"]:
+        run = PipelineRun.objects.create(video_asset_id=video_id, run_mode=RUN_MODE_PIPELINE, status="queued")
+        for step_name in PIPELINE_STEP_ORDER:
             PipelineStepStatus.objects.create(pipeline_run=run, step_name=step_name, status="pending")
         queued_ids.append(run.id)
 
     return {"queued": len(queued_ids), "skipped": skipped, "run_ids": queued_ids}
+
+
+def remux_is_eligible(asset: VideoAsset) -> bool:
+    artifacts = artifact_paths_for_asset(asset)
+    if artifacts["done_video"].exists() and artifacts["pt_wav"].exists():
+        return True
+
+    latest_pipeline = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
+    if not latest_pipeline:
+        return False
+
+    audiobook_ok = latest_pipeline.steps.filter(step_name="audiobook", status="success").exists()
+    return bool(audiobook_ok and artifacts["done_video"].exists())
+
+
+def queue_remux_runs(video_ids: list[int] | None = None) -> dict[str, Any]:
+    qs = VideoAsset.objects.all().order_by("file_name")
+    if video_ids:
+        qs = qs.filter(id__in=video_ids)
+
+    queued_ids = []
+    skipped = 0
+    ineligible = 0
+
+    for asset in qs:
+        if active_run_exists(asset.id, run_mode=RUN_MODE_REMUX):
+            skipped += 1
+            continue
+
+        if not remux_is_eligible(asset):
+            ineligible += 1
+            continue
+
+        run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_REMUX, status="queued")
+        PipelineStepStatus.objects.create(pipeline_run=run, step_name="remux", status="pending")
+        queued_ids.append(run.id)
+
+    return {"queued": len(queued_ids), "skipped": skipped, "ineligible": ineligible, "run_ids": queued_ids}
 
 
 def request_stop_for_runs(run_ids: list[int] | None = None, video_ids: list[int] | None = None) -> int:
@@ -241,13 +400,17 @@ def serialize_profile(profile: ExecutionProfile) -> dict[str, Any]:
     }
 
 
-def latest_run_for_asset(asset: VideoAsset) -> PipelineRun | None:
-    return asset.runs.order_by("-created_at").first()
+def latest_run_for_asset(asset: VideoAsset, run_mode: str | None = None) -> PipelineRun | None:
+    qs = asset.runs.order_by("-created_at")
+    if run_mode:
+        qs = qs.filter(run_mode=run_mode)
+    return qs.first()
 
 
 def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
     profile = ensure_execution_profile(asset)
-    latest_run = latest_run_for_asset(asset)
+    latest_run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
+    latest_remux_run = latest_run_for_asset(asset, run_mode=RUN_MODE_REMUX)
 
     steps = []
     if latest_run:
@@ -259,6 +422,18 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
                 "updated_at": s.updated_at.isoformat(),
             }
             for s in latest_run.steps.order_by("id")
+        ]
+
+    remux_steps = []
+    if latest_remux_run:
+        remux_steps = [
+            {
+                "step_name": s.step_name,
+                "status": s.status,
+                "detail": s.detail,
+                "updated_at": s.updated_at.isoformat(),
+            }
+            for s in latest_remux_run.steps.order_by("id")
         ]
 
     return {
@@ -273,6 +448,7 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
         "profile": serialize_profile(profile),
         "latest_run": {
             "id": latest_run.id,
+            "run_mode": latest_run.run_mode,
             "status": latest_run.status,
             "started_at": latest_run.started_at.isoformat() if latest_run.started_at else None,
             "finished_at": latest_run.finished_at.isoformat() if latest_run.finished_at else None,
@@ -282,6 +458,19 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
             "steps": steps,
         }
         if latest_run
+        else None,
+        "latest_remux_run": {
+            "id": latest_remux_run.id,
+            "run_mode": latest_remux_run.run_mode,
+            "status": latest_remux_run.status,
+            "started_at": latest_remux_run.started_at.isoformat() if latest_remux_run.started_at else None,
+            "finished_at": latest_remux_run.finished_at.isoformat() if latest_remux_run.finished_at else None,
+            "exit_code": latest_remux_run.exit_code,
+            "error_message": latest_remux_run.error_message,
+            "log_file_path": latest_remux_run.log_file_path,
+            "steps": remux_steps,
+        }
+        if latest_remux_run
         else None,
     }
 

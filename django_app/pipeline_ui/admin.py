@@ -18,8 +18,8 @@ class ExecutionProfileAdmin(admin.ModelAdmin):
 
 @admin.register(PipelineRun)
 class PipelineRunAdmin(admin.ModelAdmin):
-    list_display = ("id", "video_asset", "status", "started_at", "finished_at", "exit_code")
-    list_filter = ("status",)
+    list_display = ("id", "video_asset", "run_mode", "status", "started_at", "finished_at", "exit_code")
+    list_filter = ("run_mode", "status")
 
 
 @admin.register(PipelineStepStatus)

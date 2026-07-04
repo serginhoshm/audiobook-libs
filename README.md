@@ -146,14 +146,24 @@ Uso de prompt geral (fora da tradução):
 
 - O fluxo principal está centralizado em `workflows/exec.sh`.
 - O `exec.sh` suporta execução de um único vídeo (por número) ou de todos os vídeos (`T`).
+- A cada etapa confirmada por evidência em disco, o fluxo dispara sincronização de estado no banco via `manage.py sync_evidence`.
 - Os scripts shell por etapa (`0` a `5`) foram removidos para simplificar operação e manutenção.
 - A síntese de voz utiliza somente a voz Faber (`pt_BR-faber-medium.onnx`).
+
+## Remux
+
+- O fluxo de remux está em `workflows/remux.sh`.
+- O remux usa vídeos em `done/` e exige evidência de áudio traduzido (`.pt.wav`) para o mesmo nome-base.
+- A execução do remux também dispara sincronização de evidências no banco ao concluir.
 
 ## Webapp local (Django)
 
 - Wrapper recomendado: `workflows/webapp.sh`
 - O comando `start` sobe o website e o worker em background e informa a URL para abrir no navegador.
 - Os comandos `start` e `restart` aplicam `manage.py migrate` automaticamente antes de subir os processos.
+- O botão `Refresh` executa scan + sincronização de evidências + housekeeping de itens removidos da pasta de trabalho.
+- O botão `Create new video` cria um run no modo `pipeline`.
+- O botão `Remux` cria um run no modo `remux` para itens elegíveis (com evidência de pipeline concluído e artefatos necessários).
 
 Comandos:
 
@@ -173,11 +183,19 @@ bash workflows/webapp.sh
 - Sem argumento, o wrapper usa `start` por padrão.
 - URL padrão: `http://127.0.0.1:8000/` (pode ser alterada por `WEBAPP_HOST` e `WEBAPP_PORT`).
 
+Sincronização manual de evidências:
+
+```bash
+cd django_app
+../.venv/bin/python manage.py sync_evidence --housekeeping
+```
+
 ## Mudanças recentes
 
 - Adicionado orquestrador único `workflows/exec.sh` com seleção interativa de vídeo.
 - Removido `scripts/extrair-texto.py` (obsoleto) e documentação atualizada para refletir essa remoção.
 - `workflows/test-e2e.sh` atualizado para executar diretamente os scripts Python (`transcrever.py`, `traduzir.py`, `gerar-sincronizado.py`).
+- Webapp atualizado com dois modos de execução (`pipeline` e `remux`) e rastreio por evidências para refletir etapas concluídas no Refresh.
 - Para síntese, mantenha os modelos da voz Faber em `models/` (arquivos `.onnx` e `.json`).
 - Para executar o fluxo de verificação completa: rode `workflows/test-e2e.sh`.
 

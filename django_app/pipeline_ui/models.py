@@ -48,6 +48,11 @@ class ExecutionProfile(models.Model):
 
 
 class PipelineRun(models.Model):
+    RUN_MODE_CHOICES = [
+        ("pipeline", "pipeline"),
+        ("remux", "remux"),
+    ]
+
     STATUS_CHOICES = [
         ("discovered", "discovered"),
         ("queued", "queued"),
@@ -60,6 +65,7 @@ class PipelineRun(models.Model):
     ]
 
     video_asset = models.ForeignKey(VideoAsset, on_delete=models.CASCADE, related_name="runs")
+    run_mode = models.CharField(max_length=24, choices=RUN_MODE_CHOICES, default="pipeline")
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="queued")
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -82,6 +88,7 @@ class PipelineStepStatus(models.Model):
         ("transcribe", "transcribe"),
         ("translate", "translate"),
         ("audiobook", "audiobook"),
+        ("remux", "remux"),
     ]
 
     STATUS_CHOICES = [
