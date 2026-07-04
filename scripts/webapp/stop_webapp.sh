@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN_DIR="$ROOT_DIR/.run/webapp"
+VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
+VENV_PY="$VENV_DIR/bin/python"
+MANAGE_PY="$ROOT_DIR/django_app/manage.py"
 
 stop_by_pidfile() {
   local name="$1"
@@ -28,6 +31,12 @@ stop_by_pidfile() {
 
   rm -f "$pid_file"
 }
+
+if [ -x "$VENV_PY" ] && [ -f "$MANAGE_PY" ]; then
+  "$VENV_PY" "$MANAGE_PY" stop_active_runs || echo "[stop_webapp] aviso: falha ao sincronizar stop_active_runs"
+else
+  echo "[stop_webapp] aviso: ambiente Django indisponivel para stop_active_runs"
+fi
 
 stop_by_pidfile "web" "$RUN_DIR/web.pid"
 stop_by_pidfile "worker" "$RUN_DIR/worker.pid"

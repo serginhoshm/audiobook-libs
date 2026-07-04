@@ -161,6 +161,7 @@ Uso de prompt geral (fora da tradução):
 - Wrapper recomendado: `workflows/webapp.sh`
 - O comando `start` sobe o website e o worker em background e informa a URL para abrir no navegador.
 - Os comandos `start` e `restart` aplicam `manage.py migrate` automaticamente antes de subir os processos.
+- O comando `stop` interrompe runs ativos com `manage.py stop_active_runs` antes de encerrar web e worker, evitando processos órfãos.
 - O botão `Refresh` executa scan + sincronização de evidências + housekeeping de itens removidos da pasta de trabalho.
 - O botão `Create new video` cria um run no modo `pipeline`.
 - O botão `Remux` cria um run no modo `remux` para itens elegíveis (com evidência de pipeline concluído e artefatos necessários).
