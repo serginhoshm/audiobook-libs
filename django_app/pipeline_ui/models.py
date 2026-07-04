@@ -32,7 +32,7 @@ class ExecutionProfile(models.Model):
     ]
 
     video_asset = models.OneToOneField(VideoAsset, on_delete=models.CASCADE, related_name="execution_profile")
-    backend = models.CharField(max_length=32, choices=BACKEND_CHOICES, default="google")
+    backend = models.CharField(max_length=32, choices=BACKEND_CHOICES, default="deepl_doc")
     nllb_profile = models.CharField(max_length=16, choices=NLLB_PROFILE_CHOICES, default="fast")
     nllb_max_input_length = models.PositiveIntegerField(default=768)
     nllb_max_new_tokens = models.PositiveIntegerField(default=192)
@@ -40,8 +40,7 @@ class ExecutionProfile(models.Model):
     nllb_legacy = models.BooleanField(default=False)
     deepl_endpoint = models.CharField(max_length=64, default="free")
     reset_deepl_keys_state = models.BooleanField(default=False)
-    normalize_dry_run = models.BooleanField(default=False)
-    cuda_enabled = models.BooleanField(default=False)
+    cuda_enabled = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

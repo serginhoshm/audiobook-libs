@@ -22,7 +22,7 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 3. Coloque os vídeos dentro desse diretório configurado.
 4. Execute `bash workflows/exec.sh`.
 5. Na tela, selecione qual vídeo será processado pelo número, ou digite `T` para processar todos os vídeos listados.
-6. Antes de iniciar a extração, o `exec.sh` normaliza o nome do vídeo para português, removendo emojis e caracteres especiais, e reaplica a renomeação aos artefatos já existentes daquele vídeo.
+6. O `exec.sh` mantém o nome original do arquivo de vídeo (stem antes da extensão) durante todo o processamento.
 7. Depois disso, o `exec.sh` executa automaticamente: extração `.wav`, transcrição, tradução e geração do audiobook `.pt.wav`.
 
 ## Configuração de escopo e retomada
@@ -53,14 +53,9 @@ Também é possível sobrescrever por variável de ambiente:
 ## Saídas esperadas
 
 - `<work_root>/<nome_base>.wav` — áudio extraído do vídeo
-- `<work_root>/<nome_base>.json` — metadados de transcrição
 - `<work_root>/<nome_base>.srt` — legenda original
-- `<work_root>/<nome_base>.tsv` — tabela de segmentos
-- `<work_root>/<nome_base>.txt` — transcrição em texto
-- `<work_root>/<nome_base>.vtt` — legenda VTT
-- `<work_root>/<nome_base>.pt.srt` — legenda traduzida para português
+- `<work_root>/<nome_base>.srtpt` — legenda traduzida para português
 - `<work_root>/<nome_base>.pt.wav` — audiobook final gerado pelo Piper
-- `<work_root>/<nome_base normalizado>` — nome-base traduzido e sanitizado para português, preservando espaços e parênteses
 - `<work_root>/logs/` — logs de execução (`exec.sh` e `test-e2e.sh`)
 - `<work_root>/archive/` — artefatos antigos (quando `archive_on_start=1`)
 - `<work_root>/.pipeline-state/` — estado por vídeo para retomada
@@ -71,7 +66,6 @@ Também é possível sobrescrever por variável de ambiente:
 - O arquivo principal de configuração do ambiente está em `setup/`.
 - Os arquivos de mídia podem ficar em um disco externo, desde que o `data_root_relative` aponte para esse local.
 - O fluxo é idempotente: quando os artefatos já estão válidos, as etapas são reaproveitadas sem reprocessar.
-- O fluxo também pode migrar arquivos já processados, renomeando o vídeo original, os artefatos gerados e o state de retomada para o novo nome normalizado.
 - A pasta `data/` não é mais necessária para operação do pipeline principal.
 
 ## Backends de Tradução
@@ -146,6 +140,7 @@ Uso de prompt geral (fora da tradução):
 - Os arquivos de entrada dedicados do E2E (`e2e-test_spanish.wav` e `e2e-test_chinese.mp3`) ficam em `e2e/`.
 - O teste escreve todos os artefatos de validação em `e2e/`.
 - Execute `bash workflows/test-e2e.sh` para rodar a validação com os ativos `e2e/e2e-test_spanish.wav` e `e2e/e2e-test_chinese.mp3`.
+- Para um teste curto (arquivo único), use `bash workflows/test-e2e-short.sh`.
 
 ## Execução única
 
@@ -158,6 +153,7 @@ Uso de prompt geral (fora da tradução):
 
 - Wrapper recomendado: `workflows/webapp.sh`
 - O comando `start` sobe o website e o worker em background e informa a URL para abrir no navegador.
+- Os comandos `start` e `restart` aplicam `manage.py migrate` automaticamente antes de subir os processos.
 
 Comandos:
 

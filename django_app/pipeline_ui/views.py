@@ -83,7 +83,6 @@ def api_video_options_patch(request: HttpRequest, video_id: int) -> JsonResponse
                 "nllb_legacy": profile.nllb_legacy,
                 "deepl_endpoint": profile.deepl_endpoint,
                 "reset_deepl_keys_state": profile.reset_deepl_keys_state,
-                "normalize_dry_run": profile.normalize_dry_run,
                 "cuda_enabled": profile.cuda_enabled,
             },
         }

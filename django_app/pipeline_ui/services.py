@@ -196,7 +196,6 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
         "nllb_legacy",
         "deepl_endpoint",
         "reset_deepl_keys_state",
-        "normalize_dry_run",
         "cuda_enabled",
     }
 
@@ -209,7 +208,7 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
                 value = int(value)
             except Exception:
                 continue
-        elif key in {"nllb_gpu", "nllb_legacy", "reset_deepl_keys_state", "normalize_dry_run", "cuda_enabled"}:
+        elif key in {"nllb_gpu", "nllb_legacy", "reset_deepl_keys_state", "cuda_enabled"}:
             value = parse_bool(value, default=getattr(profile, key))
         setattr(profile, key, value)
 
@@ -238,7 +237,6 @@ def serialize_profile(profile: ExecutionProfile) -> dict[str, Any]:
         "nllb_legacy": profile.nllb_legacy,
         "deepl_endpoint": profile.deepl_endpoint,
         "reset_deepl_keys_state": profile.reset_deepl_keys_state,
-        "normalize_dry_run": profile.normalize_dry_run,
         "cuda_enabled": profile.cuda_enabled,
     }
 

@@ -115,7 +115,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         local output_prefix="$3"
 
         local transcript_srt="$E2E_DIR/${output_prefix}_${language_label}.srt"
-        local translated_srt="$E2E_DIR/${output_prefix}_${language_label}.pt.srt"
+        local translated_srt="$E2E_DIR/${output_prefix}_${language_label}.srtpt"
         local output_wav="$E2E_DIR/${output_prefix}_${language_label}.wav"
 
         if [ ! -f "$input_audio" ]; then
@@ -125,12 +125,8 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
         fi
 
         rm -f \
-            "$E2E_DIR/${output_prefix}_${language_label}.json" \
             "$E2E_DIR/${output_prefix}_${language_label}.srt" \
-            "$E2E_DIR/${output_prefix}_${language_label}.tsv" \
-            "$E2E_DIR/${output_prefix}_${language_label}.txt" \
-            "$E2E_DIR/${output_prefix}_${language_label}.vtt" \
-            "$E2E_DIR/${output_prefix}_${language_label}.pt.srt" \
+            "$E2E_DIR/${output_prefix}_${language_label}.srtpt" \
             "$E2E_DIR/${output_prefix}_${language_label}.wav"
 
         whisper_lang="auto"

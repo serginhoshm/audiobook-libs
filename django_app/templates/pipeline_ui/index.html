@@ -30,7 +30,7 @@
   <div class="container">
     <h2>Pipeline Local Webapp</h2>
     <div class="top">
-      <button class="btn scan" id="scanBtn">Scan</button>
+      <button class="btn scan" id="scanBtn">Refresh</button>
       <button class="btn run" id="runBtn">Executar</button>
       <button class="btn stop" id="stopBtn">Parar</button>
       <span class="hint" id="hint">Selecionados: 0</span>
@@ -108,7 +108,6 @@
             ${selectField(item.id, 'deepl_endpoint', profile.deepl_endpoint, ['free','pro'])}
             ${selectField(item.id, 'reset_deepl_keys_state', boolOpt(profile.reset_deepl_keys_state), ['no','yes'])}
             ${selectField(item.id, 'nllb_profile', profile.nllb_profile, ['fast','legacy','custom'])}
-            ${selectField(item.id, 'normalize_dry_run', boolOpt(profile.normalize_dry_run), ['no','yes'])}
           </div>
         `;
 
@@ -143,7 +142,7 @@
       const key = evt.target.dataset.key;
       let value = evt.target.value;
 
-      if (['cuda_enabled','reset_deepl_keys_state','normalize_dry_run'].includes(key)) {
+      if (['cuda_enabled','reset_deepl_keys_state'].includes(key)) {
         value = value === 'yes';
       }
 
@@ -187,7 +186,6 @@
     });
 
     loadStatus();
-    setInterval(loadStatus, 3000);
   </script>
 </body>
 </html>

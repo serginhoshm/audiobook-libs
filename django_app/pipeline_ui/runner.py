@@ -78,9 +78,6 @@ def build_exec_command(profile: ExecutionProfile) -> list[str]:
     if profile.reset_deepl_keys_state:
         command.append("--reset-deepl-keys-state")
 
-    if profile.normalize_dry_run:
-        command.append("--normalize-dry-run")
-
     command.extend(["--whisper-cuda", _bool_to_on_off(profile.cuda_enabled)])
     command.extend(["--piper-cuda", _bool_to_on_off(profile.cuda_enabled)])
 

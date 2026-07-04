@@ -41,7 +41,6 @@ CLI_DEEPL_ENDPOINT=""
 CLI_RESET_DEEPL_KEYS_STATE="0"
 CLI_WHISPER_CUDA=""
 CLI_PIPER_CUDA=""
-NORMALIZE_DRY_RUN=0
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 source "$ROOT_DIR/scripts/log_helpers.sh"
@@ -357,20 +356,6 @@ else:
 PY
 }
 
-translation_lang_suffix() {
-    case "$1" in
-        zh-CN)
-            printf 'chinese'
-            ;;
-        es)
-            printf 'spanish'
-            ;;
-        *)
-            printf ''
-            ;;
-    esac
-}
-
 display_lang_tag() {
     case "$1" in
         es)
@@ -425,64 +410,6 @@ infer_original_lang_for_video() {
     infer_translation_lang_from_name "$stem"
 }
 
-normalize_video_file() {
-    local video_file="$1"
-    local lang_suffix="$2"
-    local preview_only="${3:-0}"
-    local normalized
-    local cmd
-
-    cmd=(
-        "$PYTHON_BIN" -u "$ROOT_DIR/scripts/renomear-arquivos.py"
-        --root-dir "$ROOT_DIR"
-        --data-root "$DATA_DIR"
-        --archive-root "$ARCHIVE_ROOT"
-        --state-root "$STATE_ROOT"
-        --logs-dir "$LOG_DIR"
-        --scope-rel "$DATA_SCOPE_REL"
-        --video "$video_file"
-    )
-
-    if [ -n "$lang_suffix" ]; then
-        cmd+=(--lang-suffix "$lang_suffix")
-    fi
-
-    if [ "$preview_only" = "1" ]; then
-        cmd+=(--preview)
-    fi
-
-    normalized="$("${cmd[@]}")"
-    printf '%s' "$normalized"
-}
-
-rename_artifacts_with_base() {
-    local dir="$1"
-    local old_base="$2"
-    local new_base="$3"
-    local old_path
-    local new_path
-
-    if [ "$old_base" = "$new_base" ]; then
-        return 0
-    fi
-
-    for ext in \
-        ".json" \
-        ".srt" \
-        ".tsv" \
-        ".txt" \
-        ".vtt" \
-        ".pt.srt" \
-        ".pt.wav"
-    do
-        old_path="$dir/$old_base$ext"
-        new_path="$dir/$new_base$ext"
-        if [ -f "$old_path" ] && [ ! -f "$new_path" ]; then
-            mv -f "$old_path" "$new_path"
-        fi
-    done
-}
-
 print_usage() {
     cat <<'EOF'
 Uso: workflows/exec.sh [opcoes]
@@ -502,7 +429,6 @@ Opcoes:
     --reset-deepl-keys-state      Remove estado local de bloqueio de chaves DeepL.
         --whisper-cuda <on|off>      Liga/desliga CUDA no Whisper (transcricao).
         --piper-cuda <on|off>        Liga/desliga CUDA no Piper.
-    --normalize-dry-run             Simula apenas a normalizacao inicial e encerra.
   --help                          Exibe esta ajuda.
 EOF
 }
@@ -618,9 +544,6 @@ parse_cli_args() {
             --help|-h)
                 print_usage
                 exit 0
-                ;;
-            --normalize-dry-run)
-                NORMALIZE_DRY_RUN=1
                 ;;
             *)
                 log_error "Opcao desconhecida: $1"
@@ -1095,12 +1018,8 @@ archive_previous_outputs() {
     mkdir -p "$target_dir"
 
     for artifact in \
-        "$source_dir/$source_base.json" \
         "$source_dir/$source_base.srt" \
-        "$source_dir/$source_base.tsv" \
-        "$source_dir/$source_base.txt" \
-        "$source_dir/$source_base.vtt" \
-        "$source_dir/$source_base.pt.srt" \
+        "$source_dir/$source_base.srtpt" \
         "$source_dir/$source_base.pt.wav"
     do
         if [ -f "$artifact" ]; then
@@ -1128,7 +1047,7 @@ process_video_pre_translation() {
     local base_name
     local audio_wav
     local output_srt
-    local output_pt_srt
+    local output_srtpt
     local output_pt_wav
     local whisper_lang
     local source_lang
@@ -1144,7 +1063,7 @@ process_video_pre_translation() {
     LOG_FILE="$video_log_file"
     audio_wav="$selected_dir/$base_name.wav"
     output_srt="$selected_dir/$base_name.srt"
-    output_pt_srt="$selected_dir/$base_name.pt.srt"
+    output_srtpt="$selected_dir/$base_name.srtpt"
     output_pt_wav="$selected_dir/$base_name.pt.wav"
     state_file="$(state_file_for_video "$video_file")"
 
@@ -1159,7 +1078,7 @@ process_video_pre_translation() {
     state_set "$state_file" "scope" "$DATA_SCOPE_REL"
     state_set "$state_file" "audio_wav" "$audio_wav"
     state_set "$state_file" "output_srt" "$output_srt"
-    state_set "$state_file" "output_pt_srt" "$output_pt_srt"
+    state_set "$state_file" "output_srtpt" "$output_srtpt"
     state_set "$state_file" "output_pt_wav" "$output_pt_wav"
     state_set "$state_file" "last_run" "$(date -Iseconds)"
 
@@ -1235,9 +1154,9 @@ process_video_pre_translation() {
     log_step "Idioma traducao inferido pelo SRT: $source_lang"
 
     log_section "Etapa 2 - Traducao"
-    if [ "$RESUME_MODE" = "1" ] && validate_translation_ready "$output_srt" "$output_pt_srt"; then
+    if [ "$RESUME_MODE" = "1" ] && validate_translation_ready "$output_srt" "$output_srtpt"; then
         update_step_state "$state_file" "translate" "success" "reutilizado"
-        log_step "Traducao valida ja existente: ${output_pt_srt#$ROOT_DIR/}"
+        log_step "Traducao valida ja existente: ${output_srtpt#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "translate" "running" "traduzindo"
         if [ "$TRANSLATION_BACKEND" = "deepl_doc" ]; then
@@ -1258,12 +1177,12 @@ process_video_pre_translation() {
                 --source-lang "$deepl_source_lang" \
                 --target-lang "PT-BR" \
                 "$output_srt" \
-                "$output_pt_srt"
+                "$output_srtpt"
         else
             translation_cmd=(
                 "$PYTHON_BIN" "$ROOT_DIR/scripts/traduzir.py"
                 "$output_srt"
-                "$output_pt_srt"
+                "$output_srtpt"
                 "$source_lang"
                 --backend "$TRANSLATION_BACKEND"
                 --gemini-model "$GEMINI_MODEL"
@@ -1290,64 +1209,15 @@ process_video_pre_translation() {
             fi
         fi
 
-        if ! validate_translation_ready "$output_srt" "$output_pt_srt"; then
+        if ! validate_translation_ready "$output_srt" "$output_srtpt"; then
             update_step_state "$state_file" "translate" "failed" "SRT traduzido nao validado"
-            log_error "SRT traduzido nao gerado/validado: $output_pt_srt"
+            log_error "SRT traduzido nao gerado/validado: $output_srtpt"
             return 1
         fi
         update_step_state "$state_file" "translate" "success" "SRT traduzido validado"
-        log_step "Traducao gerada: ${output_pt_srt#$ROOT_DIR/}"
+        log_step "Traducao gerada: ${output_srtpt#$ROOT_DIR/}"
     fi
 
-    return 0
-}
-
-RENAMED_VIDEO_RESULT=""
-process_video_rename_phase() {
-    local video_file="$1"
-    local base_name
-    local output_srt
-    local source_lang
-    local inferred_lang_suffix
-    local normalized_video
-    local state_file
-    local video_log_file
-
-    base_name="$(basename "${video_file%.*}")"
-    output_srt="$(dirname "$video_file")/$base_name.srt"
-    state_file="$(state_file_for_video "$video_file")"
-    video_log_file="$(video_log_file_from_path "$video_file")"
-    LOG_FILE="$video_log_file"
-
-    log_section "Fase 2 - Renomeacao: ${video_file#$ROOT_DIR/}"
-    log_step "State file: ${state_file#$ROOT_DIR/}"
-    if [ "$RUN_LOG_FILE" != "$video_log_file" ]; then
-        log_step "Log do video: ${video_log_file#$ROOT_DIR/}"
-    fi
-
-    source_lang="$(infer_translation_lang_from_srt "$output_srt")"
-    if [ "$source_lang" = "auto" ]; then
-        source_lang="$(infer_translation_lang_from_name "$base_name")"
-    fi
-    inferred_lang_suffix="$(translation_lang_suffix "$source_lang")"
-
-    normalized_video="$(normalize_video_file "$video_file" "$inferred_lang_suffix" "0")"
-    if [ -z "$normalized_video" ]; then
-        log_error "Falha ao normalizar video: ${video_file#$ROOT_DIR/}"
-        return 1
-    fi
-
-    if [ "$video_file" != "$normalized_video" ]; then
-        log_step "Normalizado: ${video_file#$ROOT_DIR/} -> ${normalized_video#$ROOT_DIR/}"
-    else
-        log_step "Sem mudanca: ${video_file#$ROOT_DIR/}"
-    fi
-
-    state_set "$state_file" "rename_status" "success"
-    state_set "$state_file" "rename_updated_at" "$(date -Iseconds)"
-    state_set "$state_file" "rename_detail" "normalizacao concluida"
-
-    RENAMED_VIDEO_RESULT="$normalized_video"
     return 0
 }
 
@@ -1356,7 +1226,7 @@ process_video_audiobook_phase() {
     local selected_dir
     local base_name
     local output_srt
-    local output_pt_srt
+    local output_srtpt
     local output_pt_wav
     local source_lang
     local state_file
@@ -1366,7 +1236,7 @@ process_video_audiobook_phase() {
     selected_dir="$(dirname "$video_file")"
     base_name="$(basename "${video_file%.*}")"
     output_srt="$selected_dir/$base_name.srt"
-    output_pt_srt="$selected_dir/$base_name.pt.srt"
+    output_srtpt="$selected_dir/$base_name.srtpt"
     output_pt_wav="$selected_dir/$base_name.pt.wav"
     state_file="$(state_file_for_video "$video_file")"
     video_log_file="$(video_log_file_from_path "$video_file")"
@@ -1380,7 +1250,7 @@ process_video_audiobook_phase() {
     state_set "$state_file" "input_video" "$video_file"
     state_set "$state_file" "scope" "$DATA_SCOPE_REL"
     state_set "$state_file" "output_srt" "$output_srt"
-    state_set "$state_file" "output_pt_srt" "$output_pt_srt"
+    state_set "$state_file" "output_srtpt" "$output_srtpt"
     state_set "$state_file" "output_pt_wav" "$output_pt_wav"
     state_set "$state_file" "source_lang" "$source_lang"
     state_set "$state_file" "last_run" "$(date -Iseconds)"
@@ -1397,14 +1267,14 @@ process_video_audiobook_phase() {
     else
         log_step "Piper CUDA: OFF"
     fi
-    if [ "$RESUME_MODE" = "1" ] && validate_audio_ready "$output_pt_srt" "$output_pt_wav"; then
+    if [ "$RESUME_MODE" = "1" ] && validate_audio_ready "$output_srtpt" "$output_pt_wav"; then
         update_step_state "$state_file" "audiobook" "success" "reutilizado"
         log_step "Audiobook valido ja existente: ${output_pt_wav#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "audiobook" "running" "gerando audio"
         generate_audio_cmd=(
             "$PYTHON_BIN" -u "$ROOT_DIR/scripts/gerar-sincronizado.py"
-            --srt "$output_pt_srt"
+            --srt "$output_srtpt"
             --output "$output_pt_wav"
             --model "$MODELS_DIR/$VOICE_MODEL"
             --piper "$PIPER_BIN"
@@ -1418,7 +1288,7 @@ process_video_audiobook_phase() {
 
         "${generate_audio_cmd[@]}"
 
-        if ! validate_audio_ready "$output_pt_srt" "$output_pt_wav"; then
+        if ! validate_audio_ready "$output_srtpt" "$output_pt_wav"; then
             update_step_state "$state_file" "audiobook" "failed" "audio final nao validado"
             log_error "Audio final nao gerado/validado: $output_pt_wav"
             return 1
@@ -1447,12 +1317,8 @@ move_processed_bundle_to_done() {
         "$selected_dir/$base_name.mkv" \
         "$selected_dir/$base_name.mp4" \
         "$selected_dir/$base_name.wav" \
-        "$selected_dir/$base_name.json" \
         "$selected_dir/$base_name.srt" \
-        "$selected_dir/$base_name.tsv" \
-        "$selected_dir/$base_name.txt" \
-        "$selected_dir/$base_name.vtt" \
-        "$selected_dir/$base_name.pt.srt" \
+        "$selected_dir/$base_name.srtpt" \
         "$selected_dir/$base_name.pt.wav"
     do
         if [ -f "$source_file" ]; then
@@ -1507,9 +1373,6 @@ bootstrap_runtime
     log_step "Diretorio de remux: ${REMUX_DIR#$ROOT_DIR/}"
     log_step "Resume mode: $RESUME_MODE"
     log_step "Archive on start: $ARCHIVE_ON_START"
-    if [ "$NORMALIZE_DRY_RUN" = "1" ]; then
-        log_step "Normalize dry-run: habilitado"
-    fi
 
     log_section "Selecao de Backend de Traducao"
     if ! select_translation_backend; then
@@ -1548,27 +1411,6 @@ bootstrap_runtime
         VIDEO_LANGS+=("$inferred_source_lang")
         log_step "Video detectado: ${video#$ROOT_DIR/}"
     done
-
-    if [ "$NORMALIZE_DRY_RUN" = "1" ]; then
-        log_section "Dry-run concluido"
-        for idx in "${!VIDEO_FILES[@]}"; do
-            video="${VIDEO_FILES[$idx]}"
-            lang="${VIDEO_LANGS[$idx]:-auto}"
-            suffix="$(translation_lang_suffix "$lang")"
-            preview_video="$(normalize_video_file "$video" "$suffix" "1")"
-            if [ -z "$preview_video" ]; then
-                log_error "Falha ao prever normalizacao: ${video#$ROOT_DIR/}"
-                continue
-            fi
-            if [ "$video" != "$preview_video" ]; then
-                log_step "Preview normalizacao: ${video#$ROOT_DIR/} -> ${preview_video#$ROOT_DIR/}"
-            else
-                log_step "Preview sem mudanca: ${video#$ROOT_DIR/}"
-            fi
-        done
-        log_summary "SUCCESS" "Dry-run de normalizacao"
-        exit 0
-    fi
 
     ORDERED_VIDEO_FILES=()
     ORDERED_VIDEO_LANGS=()
@@ -1631,66 +1473,48 @@ bootstrap_runtime
     phase2_fail=0
     phase3_success=0
     phase3_fail=0
-    phase4_success=0
-    phase4_fail=0
 
     log_section "Fase 1 (lote) - Whisper + Traducao"
-    READY_FOR_RENAME_VIDEOS=()
+    READY_FOR_AUDIO_VIDEOS=()
     for selected_video in "${SELECTED_VIDEOS[@]}"; do
         selected_video_log="$(video_log_file_from_path "$selected_video")"
         LOG_FILE="$selected_video_log"
         if process_video_pre_translation "$selected_video" > >(tee -a "$selected_video_log") 2>&1; then
             phase1_success=$((phase1_success + 1))
-            READY_FOR_RENAME_VIDEOS+=("$selected_video")
+            READY_FOR_AUDIO_VIDEOS+=("$selected_video")
         else
             phase1_fail=$((phase1_fail + 1))
             fail_count=$((fail_count + 1))
         fi
     done
 
-    log_section "Fase 2 (lote) - Renomeacao"
-    READY_FOR_AUDIO_VIDEOS=()
-    for phase_video in "${READY_FOR_RENAME_VIDEOS[@]}"; do
+    log_section "Fase 2 (lote) - Geracao WAV (Piper)"
+    for phase_video in "${READY_FOR_AUDIO_VIDEOS[@]}"; do
         phase_video_log="$(video_log_file_from_path "$phase_video")"
         LOG_FILE="$phase_video_log"
-        RENAMED_VIDEO_RESULT=""
-        if process_video_rename_phase "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
+        if process_video_audiobook_phase "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
             phase2_success=$((phase2_success + 1))
-            READY_FOR_AUDIO_VIDEOS+=("$RENAMED_VIDEO_RESULT")
+            if move_processed_bundle_to_done "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
+                phase3_success=$((phase3_success + 1))
+                success_count=$((success_count + 1))
+            else
+                phase3_fail=$((phase3_fail + 1))
+                fail_count=$((fail_count + 1))
+            fi
         else
             phase2_fail=$((phase2_fail + 1))
             fail_count=$((fail_count + 1))
         fi
     done
 
-    log_section "Fase 3 (lote) - Geracao WAV (Piper)"
-    for phase_video in "${READY_FOR_AUDIO_VIDEOS[@]}"; do
-        phase_video_log="$(video_log_file_from_path "$phase_video")"
-        LOG_FILE="$phase_video_log"
-        if process_video_audiobook_phase "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
-            phase3_success=$((phase3_success + 1))
-            if move_processed_bundle_to_done "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
-                phase4_success=$((phase4_success + 1))
-                success_count=$((success_count + 1))
-            else
-                phase4_fail=$((phase4_fail + 1))
-                fail_count=$((fail_count + 1))
-            fi
-        else
-            phase3_fail=$((phase3_fail + 1))
-            fail_count=$((fail_count + 1))
-        fi
-    done
-
-    success_count="$phase4_success"
-    fail_count=$((phase1_fail + phase2_fail + phase3_fail + phase4_fail))
+    success_count="$phase3_success"
+    fail_count=$((phase1_fail + phase2_fail + phase3_fail))
 
     log_section "Resumo por Fase"
     log_step "Total selecionado: $total_selected"
     log_step "Fase 1 (Whisper + Traducao) - sucesso: $phase1_success | falha: $phase1_fail"
-    log_step "Fase 2 (Renomeacao) - sucesso: $phase2_success | falha: $phase2_fail"
-    log_step "Fase 3 (Piper) - sucesso: $phase3_success | falha: $phase3_fail"
-    log_step "Fase 4 (Mover para done) - sucesso: $phase4_success | falha: $phase4_fail"
+    log_step "Fase 2 (Piper) - sucesso: $phase2_success | falha: $phase2_fail"
+    log_step "Fase 3 (Mover para done) - sucesso: $phase3_success | falha: $phase3_fail"
 
     log_section "Resumo Final"
     log_step "Videos com sucesso: $success_count"

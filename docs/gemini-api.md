@@ -45,7 +45,7 @@ Tambem funciona direto no script Python:
 
 ```bash
 ./.venv/bin/python scripts/traduzir.py \
-    entrada.srt saida.pt.srt es \
+    entrada.srt saida.srtpt es \
     --backend gemini \
     --gemini-model gemini-1.5-flash
 ```

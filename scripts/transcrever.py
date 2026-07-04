@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -41,14 +40,6 @@ def srt_time(sec):
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 
-def vtt_time(sec):
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = int(sec % 60)
-    ms = int((sec - int(sec)) * 1000)
-    return f"{h:02}:{m:02}:{s:02}.{ms:03}"
-
-
 def main():
     args = parse_args()
 
@@ -57,12 +48,7 @@ def main():
 
     audio = args.input_audio
     output_base = Path(args.output_base).name
-    base = output_dir / output_base
-    artifact_txt = output_dir / f"{output_base}.txt"
     artifact_srt = output_dir / f"{output_base}.srt"
-    artifact_vtt = output_dir / f"{output_base}.vtt"
-    artifact_tsv = output_dir / f"{output_base}.tsv"
-    artifact_json = output_dir / f"{output_base}.json"
 
     project_root = Path(__file__).resolve().parents[1]
     models_root = Path(
@@ -140,48 +126,11 @@ def main():
     segments = collected_segments
     logging.info(f"[whisper] Transcricao concluida com {len(segments)} segmentos")
 
-    with open(artifact_txt, "w", encoding="utf-8") as f:
-        for seg in segments:
-            f.write(seg.text.strip() + "\n")
-
     with open(artifact_srt, "w", encoding="utf-8") as f:
         for n, seg in enumerate(segments, start=1):
             f.write(f"{n}\n")
             f.write(f"{srt_time(seg.start)} --> {srt_time(seg.end)}\n")
             f.write(seg.text.strip() + "\n\n")
-
-    with open(artifact_vtt, "w", encoding="utf-8") as f:
-        f.write("WEBVTT\n\n")
-        for seg in segments:
-            f.write(f"{vtt_time(seg.start)} --> {vtt_time(seg.end)}\n")
-            f.write(seg.text.strip() + "\n\n")
-
-    with open(artifact_tsv, "w", encoding="utf-8") as f:
-        f.write("start\tend\ttext\n")
-        for seg in segments:
-            texto = seg.text.replace("\n", " ")
-            f.write(f"{seg.start:.3f}\t{seg.end:.3f}\t{texto}\n")
-
-    data = {
-        "language": info.language,
-        "language_probability": info.language_probability,
-        "segments": [
-            {
-                "start": seg.start,
-                "end": seg.end,
-                "text": seg.text.strip(),
-            }
-            for seg in segments
-        ],
-    }
-    if duration:
-        data["audio_duration"] = duration
-    if segments:
-        data["transcription_end"] = segments[-1].end
-    data["artifact_base"] = str(base)
-
-    with open(artifact_json, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
     print(f"Concluido: {audio.name}", flush=True)
 

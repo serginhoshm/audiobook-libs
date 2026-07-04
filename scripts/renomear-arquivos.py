@@ -20,7 +20,7 @@ ARTIFACT_SUFFIXES = [
     ".tsv",
     ".txt",
     ".vtt",
-    ".pt.srt",
+    ".srtpt",
     ".pt.wav",
 ]
 
@@ -135,7 +135,7 @@ def apply_state_updates(state: dict[str, str], old_video: Path, new_video: Path)
     updated["input_video"] = str(new_video)
     updated["audio_wav"] = str(new_video.with_suffix(".wav"))
     updated["output_srt"] = str(new_video.with_suffix(".srt"))
-    updated["output_pt_srt"] = f"{new_video.with_suffix('').as_posix()}.pt.srt"
+    updated["output_srtpt"] = f"{new_video.with_suffix('').as_posix()}.srtpt"
     updated["output_pt_wav"] = f"{new_video.with_suffix('').as_posix()}.pt.wav"
     if old_video != new_video:
         updated["renamed_from"] = str(old_video)

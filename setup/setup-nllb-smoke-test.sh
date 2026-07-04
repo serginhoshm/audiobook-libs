@@ -56,7 +56,7 @@ source "$ROOT_DIR/scripts/log_helpers.sh"
   log_section "Smoke Test"
   TMP_DIR="$(mktemp -d)"
   INPUT_SRT="$TMP_DIR/smoke_input.srt"
-  OUTPUT_SRT="$TMP_DIR/smoke_output.pt.srt"
+  OUTPUT_SRT="$TMP_DIR/smoke_output.srtpt"
 
   if [ "$(printf '%s' "$SOURCE_LANG" | tr '[:upper:]' '[:lower:]')" = "zh-cn" ]; then
     TEST_TEXT_1="我今天终于回家了。"
