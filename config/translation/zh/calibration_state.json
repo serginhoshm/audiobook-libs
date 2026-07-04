@@ -3,12 +3,8 @@
     "a casa construída pelo patrão com palha": "o mais velho construiu uma casa de palha",
     "a chuva choveu": "choveu",
     "bata na porta com força": "bateu com força na porta",
-    "caixao": "gaveta",
-    "caixão": "gaveta",
-    "cheio de ar": "aromático",
     "ciências básicas": "ciência básica",
     "da casa de madeira da casa": "na casa de madeira",
-    "folheto": "pasta",
     "o lobo mau está se aproximando": "o lobo mau se aproximou",
     "proximo quarta-feira": "próxima quarta-feira",
     "próximo quarta-feira": "próxima quarta-feira"
@@ -2015,42 +2011,34 @@
       "target": "Comei já."
     }
   },
-  "backend": "nllb_local",
+  "backend": "google",
   "case_results": [
     {
-      "forbid_hits": [
-        "caixão"
-      ],
+      "forbid_hits": [],
       "id": "drawer_term",
-      "missing_terms": [
-        "gaveta"
-      ],
+      "missing_terms": [],
       "source": "请把蓝色文件夹放在第二个抽屉里。",
-      "translated": "Coloque o folheto azul no segundo caixão.",
-      "triggered": true
+      "translated": "Por favor, coloque a pasta azul na segunda gaveta.",
+      "triggered": false
     },
     {
-      "forbid_hits": [
-        "cheio de ar"
-      ],
+      "forbid_hits": [],
       "id": "coffee_aroma",
       "missing_terms": [],
       "source": "这家店的咖啡很香，但有点贵。",
-      "translated": "O café da loja é cheio de ar, mas um pouco caro.",
-      "triggered": true
+      "translated": "O café desta loja é delicioso, mas um pouco caro.",
+      "triggered": false
     },
     {
-      "forbid_hits": [
-        "a chuva choveu"
-      ],
+      "forbid_hits": [],
       "id": "rain_phrase",
       "missing_terms": [],
       "source": "昨晚下雨了，所以路上很滑。",
-      "translated": "A chuva choveu ontem à noite, por isso o caminho foi muito liso.",
-      "triggered": true
+      "translated": "Choveu ontem à noite, então a estrada estava escorregadia.",
+      "triggered": false
     }
   ],
-  "last_run": "2026-07-04T03:47:15.123517+00:00",
+  "last_run": "2026-07-04T19:20:13.106349+00:00",
   "watch_hits": {
     "phrase_o_que_e_que_eu_faco": 134,
     "term_patron": 9
