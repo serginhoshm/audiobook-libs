@@ -14,7 +14,9 @@ e2e/*.srt
 e2e/*.tsv
 e2e/*.txt
 e2e/*.vtt
+e2e/*.srtpt
 e2e/output_*.wav
+e2e/e2e-short*.pt.wav
 !e2e/mini_test.wav
 
 # Large generated artifacts (keep local, do not version)
