@@ -62,7 +62,7 @@ def api_runs_stop(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 def api_status(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"ok": True, "items": list_assets(present_only=True)})
+    return JsonResponse({"ok": True, "items": list_assets(present_only=True, include_active_runs=True)})
 
 
 @csrf_exempt

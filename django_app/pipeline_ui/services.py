@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsset
@@ -287,8 +288,14 @@ def serialize_asset(asset: VideoAsset) -> dict[str, Any]:
     }
 
 
-def list_assets(present_only: bool = True) -> list[dict[str, Any]]:
+def list_assets(present_only: bool = True, include_active_runs: bool = False) -> list[dict[str, Any]]:
     qs = VideoAsset.objects.all().order_by("file_name")
     if present_only:
-        qs = qs.filter(is_present=True)
+        if include_active_runs:
+            active_asset_ids = PipelineRun.objects.filter(
+                status__in=["queued", "running", "stopping"]
+            ).values_list("video_asset_id", flat=True)
+            qs = qs.filter(Q(is_present=True) | Q(id__in=active_asset_ids))
+        else:
+            qs = qs.filter(is_present=True)
     return [serialize_asset(asset) for asset in qs]
