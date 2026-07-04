@@ -264,6 +264,25 @@ validate_existing_media() {
     validator_command media-duration --input "$media_file" >/dev/null 2>&1
 }
 
+select_available_input_audio() {
+    local selected_dir="$1"
+    local base_name="$2"
+    local wav_file="$selected_dir/$base_name.wav"
+    local mp3_file="$selected_dir/$base_name.mp3"
+
+    if [ -f "$wav_file" ] && validate_existing_media "$wav_file"; then
+        printf '%s\n' "$wav_file"
+        return 0
+    fi
+
+    if [ -f "$mp3_file" ] && validate_existing_media "$mp3_file"; then
+        printf '%s\n' "$mp3_file"
+        return 0
+    fi
+
+    return 1
+}
+
 validate_transcription_ready() {
     local audio_file="$1"
     local srt_file="$2"
@@ -969,6 +988,8 @@ process_video_pre_translation() {
     local selected_dir
     local base_name
     local audio_wav
+    local audio_input
+    local reused_audio
     local output_srt
     local output_srtpt
     local output_pt_wav
@@ -985,6 +1006,7 @@ process_video_pre_translation() {
     video_log_file="$(video_log_file_from_path "$video_file")"
     LOG_FILE="$video_log_file"
     audio_wav="$selected_dir/$base_name.wav"
+    audio_input="$audio_wav"
     output_srt="$selected_dir/$base_name.srt"
     output_srtpt="$selected_dir/$base_name.srtpt"
     output_pt_wav="$selected_dir/$base_name.pt.wav"
@@ -1000,6 +1022,7 @@ process_video_pre_translation() {
     state_set "$state_file" "input_video" "$video_file"
     state_set "$state_file" "scope" "$DATA_SCOPE_REL"
     state_set "$state_file" "audio_wav" "$audio_wav"
+    state_set "$state_file" "audio_input" "$audio_input"
     state_set "$state_file" "output_srt" "$output_srt"
     state_set "$state_file" "output_srtpt" "$output_srtpt"
     state_set "$state_file" "output_pt_wav" "$output_pt_wav"
@@ -1021,11 +1044,14 @@ process_video_pre_translation() {
     fi
 
     log_section "Etapa 0 - Extracao de Audio"
-    if [ "$RESUME_MODE" = "1" ] && [ -f "$audio_wav" ] && validate_existing_media "$audio_wav"; then
+    if [ "$RESUME_MODE" = "1" ] && reused_audio="$(select_available_input_audio "$selected_dir" "$base_name")"; then
+        audio_input="$reused_audio"
+        state_set "$state_file" "audio_input" "$audio_input"
         update_step_state "$state_file" "extract" "success" "reutilizado"
         trigger_evidence_sync_worker "$video_file"
-        log_step "WAV reutilizado: ${audio_wav#$ROOT_DIR/}"
+        log_step "Audio reutilizado: ${audio_input#$ROOT_DIR/}"
     else
+        audio_input="$audio_wav"
         update_step_state "$state_file" "extract" "running" "extraindo WAV"
         if ! ffmpeg -hide_banner -loglevel error -i "$video_file" -vn "$audio_wav"; then
             update_step_state "$state_file" "extract" "failed" "ffmpeg falhou"
@@ -1037,6 +1063,7 @@ process_video_pre_translation() {
             log_error "Falha ao gerar WAV valido: $audio_wav"
             return 1
         fi
+        state_set "$state_file" "audio_input" "$audio_input"
         update_step_state "$state_file" "extract" "success" "WAV gerado"
         trigger_evidence_sync_worker "$video_file"
         log_step "WAV gerado: ${audio_wav#$ROOT_DIR/}"
@@ -1048,21 +1075,21 @@ process_video_pre_translation() {
     else
         log_step "Whisper CUDA: OFF"
     fi
-    if [ "$RESUME_MODE" = "1" ] && validate_transcription_ready "$audio_wav" "$output_srt"; then
+    if [ "$RESUME_MODE" = "1" ] && validate_transcription_ready "$audio_input" "$output_srt"; then
         update_step_state "$state_file" "transcribe" "success" "reutilizado"
         trigger_evidence_sync_worker "$video_file"
         log_step "Transcricao valida ja existente: ${output_srt#$ROOT_DIR/}"
     else
         update_step_state "$state_file" "transcribe" "running" "transcrevendo"
         "$PYTHON_BIN" -u "$ROOT_DIR/scripts/transcrever.py" \
-            "$audio_wav" \
+            "$audio_input" \
             "$selected_dir" \
             "$whisper_lang" \
             "$MODEL_SIZE" \
             "$base_name" \
             --device "$whisper_device"
 
-        if ! validate_transcription_ready "$audio_wav" "$output_srt"; then
+        if ! validate_transcription_ready "$audio_input" "$output_srt"; then
             update_step_state "$state_file" "transcribe" "failed" "SRT nao validado"
             log_error "SRT nao gerado/validado: $output_srt"
             return 1
@@ -1248,6 +1275,7 @@ move_processed_bundle_to_done() {
         "$selected_dir/$base_name.mkv" \
         "$selected_dir/$base_name.mp4" \
         "$selected_dir/$base_name.wav" \
+        "$selected_dir/$base_name.mp3" \
         "$selected_dir/$base_name.srt" \
         "$selected_dir/$base_name.srtpt" \
         "$selected_dir/$base_name.pt.wav"

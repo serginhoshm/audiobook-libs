@@ -7,6 +7,7 @@
 - Logs, archive, and `.pipeline-state/` are created under the configured scope.
 - `workflows/test-e2e.sh` logs also follow the configured scope.
 - After selection, it runs the full pipeline automatically: extract WAV, transcribe, translate, and generate `.pt.wav`.
+- With `resume_mode=1`, transcription input may reuse either `<base>.wav` or `<base>.mp3` if already valid in the same folder.
 - The pipeline keeps the original video stem (filename before extension) for all generated artifacts.
 - With `resume_mode=1`, valid artifacts are reused and failed runs can resume from the first invalid step.
 - Execution state is written to `.pipeline-state/`.

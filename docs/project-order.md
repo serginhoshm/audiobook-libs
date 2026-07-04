@@ -17,12 +17,14 @@
 - O nome do arquivo do vídeo utilizado inicialmente vai ditar o nome de todos os arquivos que serão gerados, e todos residem na mesma pasta.
 - Exemplo com vídeo de entrada "Los três cerditos.mp4":
 - Los três cerditos.wav (criado pela ferramenta de extração de áudio a partir do vídeo)
+- Los três cerditos.mp3 (opcional: áudio restaurado manualmente para retomada)
 - Los três cerditos.srt (criado pela ferramenta de transcrição whisper)
 - Los três cerditos.srtpt (criado pela ferramenta de tradução)
 - Los três cerditos.pt.wav (novo áudio criado pela ferramenta de criação de audiobook - piper)
 
 ## Etapa 0 — Extração do arquivo de áudio a partir do arquivo de vídeo
 - Dado um vídeo em formato mkv ou mp4, deve-se extrair o áudio para um arquivo wav, na mesma pasta dentro de /data.
+- Quando houver retomada (`resume_mode=1`), o fluxo pode reutilizar um arquivo `.mp3` válido com o mesmo nome-base em vez de reextrair `.wav`.
 - No fluxo unico, esta etapa e executada pelo `workflows/exec.sh`.
 
 ## Etapa 1 - Indexação de entradas

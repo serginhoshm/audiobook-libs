@@ -120,6 +120,7 @@ def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
     return {
         "video": _first_existing(video_path, done_video_path),
         "wav": _first_existing(stem_path.with_suffix(".wav"), done_stem_path.with_suffix(".wav")),
+        "mp3": _first_existing(stem_path.with_suffix(".mp3"), done_stem_path.with_suffix(".mp3")),
         "srt": _first_existing(stem_path.with_suffix(".srt"), done_stem_path.with_suffix(".srt")),
         "srtpt": _first_existing(stem_path.with_suffix(".srtpt"), done_stem_path.with_suffix(".srtpt")),
         "pt_wav": _first_existing(stem_path.with_suffix(".pt.wav"), done_stem_path.with_suffix(".pt.wav")),
@@ -130,13 +131,15 @@ def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
 def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
     artifacts = artifact_paths_for_asset(asset)
     has_wav = artifacts["wav"].exists()
+    has_mp3 = artifacts["mp3"].exists()
     has_srt = artifacts["srt"].exists()
     has_srtpt = artifacts["srtpt"].exists()
     has_pt_wav = artifacts["pt_wav"].exists()
+    has_audio_input = has_wav or has_mp3
 
     return {
-        "extract": (has_wav or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/SRT encontrado"),
-        "transcribe": (has_wav or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/SRT encontrado"),
+        "extract": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/MP3/SRT encontrado"),
+        "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/MP3/SRT encontrado"),
         "translate": (has_srtpt or has_pt_wav, "Evidencia: arquivo .srtpt encontrado"),
         "audiobook": (has_pt_wav, "Evidencia: arquivo .pt.wav encontrado"),
     }

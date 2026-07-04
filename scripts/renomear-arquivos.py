@@ -15,6 +15,7 @@ MAX_STEM_LENGTH = 120
 
 ARTIFACT_SUFFIXES = [
     ".wav",
+    ".mp3",
     ".json",
     ".srt",
     ".tsv",
@@ -132,8 +133,14 @@ def rename_logs(logs_dir: Path, old_stem: str, new_stem: str) -> None:
 
 def apply_state_updates(state: dict[str, str], old_video: Path, new_video: Path) -> dict[str, str]:
     updated = dict(state)
+    audio_input_suffix = ".wav"
+    previous_audio_input = state.get("audio_input", "")
+    if previous_audio_input.lower().endswith(".mp3"):
+        audio_input_suffix = ".mp3"
+
     updated["input_video"] = str(new_video)
     updated["audio_wav"] = str(new_video.with_suffix(".wav"))
+    updated["audio_input"] = str(new_video.with_suffix(audio_input_suffix))
     updated["output_srt"] = str(new_video.with_suffix(".srt"))
     updated["output_srtpt"] = f"{new_video.with_suffix('').as_posix()}.srtpt"
     updated["output_pt_wav"] = f"{new_video.with_suffix('').as_posix()}.pt.wav"

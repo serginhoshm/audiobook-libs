@@ -24,6 +24,7 @@ Este repositório reúne os scripts e os dados usados para transformar áudio em
 5. Na tela, selecione qual vídeo será processado pelo número, ou digite `T` para processar todos os vídeos listados.
 6. O `exec.sh` mantém o nome original do arquivo de vídeo (stem antes da extensão) durante todo o processamento.
 7. Depois disso, o `exec.sh` executa automaticamente: extração `.wav`, transcrição, tradução e geração do audiobook `.pt.wav`.
+8. Com `resume_mode=1`, a etapa de transcrição também aceita reutilizar áudio já existente em `.mp3` (além de `.wav`) para casos de restauração manual.
 
 ## Configuração de escopo e retomada
 
@@ -52,7 +53,8 @@ Também é possível sobrescrever por variável de ambiente:
 
 ## Saídas esperadas
 
-- `<work_root>/<nome_base>.wav` — áudio extraído do vídeo
+- `<work_root>/<nome_base>.wav` — áudio extraído do vídeo (padrão automático)
+- `<work_root>/<nome_base>.mp3` — áudio de entrada alternativo aceito na retomada (`resume_mode=1`), útil para restauração manual
 - `<work_root>/<nome_base>.srt` — legenda original
 - `<work_root>/<nome_base>.srtpt` — legenda traduzida para português
 - `<work_root>/<nome_base>.pt.wav` — audiobook final gerado pelo Piper
