@@ -14,10 +14,8 @@ from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsse
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
-PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook"]
-REMUX_STEP_ORDER = ["remux"]
+PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook", "remux"]
 RUN_MODE_PIPELINE = "pipeline"
-RUN_MODE_REMUX = "remux"
 
 
 def project_root() -> Path:
@@ -142,6 +140,7 @@ def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
         "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/MP3/SRT encontrado"),
         "translate": (has_srtpt or has_pt_wav, "Evidencia: arquivo .srtpt encontrado"),
         "audiobook": (has_pt_wav, "Evidencia: arquivo .pt.wav encontrado"),
+        "remux": (artifacts["done_video"].exists(), "Evidencia: video final movido para done"),
     }
 
 
@@ -174,17 +173,17 @@ def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
             step.save(update_fields=["status", "detail", "updated_at"])
             step_changed = True
 
-    found_audiobook = evidence["audiobook"][0]
+    found_remux = evidence["remux"][0]
     is_active = run.status in {"queued", "running", "stopping"}
 
-    if found_audiobook and (not is_active) and run.status != "success":
+    if found_remux and (not is_active) and run.status != "success":
         run.status = "success"
         run.exit_code = 0
         run.error_message = ""
         if not run.finished_at:
             run.finished_at = timezone.now()
         run.save(update_fields=["status", "exit_code", "error_message", "finished_at", "updated_at"])
-    elif (not found_audiobook) and (not is_active) and run.status == "success":
+    elif (not found_remux) and (not is_active) and run.status == "success":
         run.status = "discovered"
         run.exit_code = None
         run.finished_at = None
@@ -327,44 +326,6 @@ def queue_runs(video_ids: list[int]) -> dict[str, Any]:
     return {"queued": len(queued_ids), "skipped": skipped, "run_ids": queued_ids}
 
 
-def remux_is_eligible(asset: VideoAsset) -> bool:
-    artifacts = artifact_paths_for_asset(asset)
-    if artifacts["done_video"].exists() and artifacts["pt_wav"].exists():
-        return True
-
-    latest_pipeline = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
-    if not latest_pipeline:
-        return False
-
-    audiobook_ok = latest_pipeline.steps.filter(step_name="audiobook", status="success").exists()
-    return bool(audiobook_ok and artifacts["done_video"].exists())
-
-
-def queue_remux_runs(video_ids: list[int] | None = None) -> dict[str, Any]:
-    qs = VideoAsset.objects.all().order_by("file_name")
-    if video_ids:
-        qs = qs.filter(id__in=video_ids)
-
-    queued_ids = []
-    skipped = 0
-    ineligible = 0
-
-    for asset in qs:
-        if active_run_exists(asset.id, run_mode=RUN_MODE_REMUX):
-            skipped += 1
-            continue
-
-        if not remux_is_eligible(asset):
-            ineligible += 1
-            continue
-
-        run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_REMUX, status="queued")
-        PipelineStepStatus.objects.create(pipeline_run=run, step_name="remux", status="pending")
-        queued_ids.append(run.id)
-
-    return {"queued": len(queued_ids), "skipped": skipped, "ineligible": ineligible, "run_ids": queued_ids}
-
-
 def request_stop_for_runs(run_ids: list[int] | None = None, video_ids: list[int] | None = None) -> int:
     qs = PipelineRun.objects.filter(status__in=["queued", "running", "stopping"])
     if run_ids:
@@ -401,7 +362,6 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
         "nllb_max_new_tokens",
         "nllb_legacy",
         "deepl_endpoint",
-        "reset_deepl_keys_state",
     }
 
     for key in allowed:
@@ -413,7 +373,7 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
                 value = int(value)
             except Exception:
                 continue
-        elif key in {"nllb_legacy", "reset_deepl_keys_state"}:
+        elif key in {"nllb_legacy"}:
             value = parse_bool(value, default=getattr(profile, key))
         setattr(profile, key, value)
 
@@ -440,7 +400,6 @@ def serialize_profile(profile: ExecutionProfile) -> dict[str, Any]:
         "nllb_max_new_tokens": profile.nllb_max_new_tokens,
         "nllb_legacy": profile.nllb_legacy,
         "deepl_endpoint": profile.deepl_endpoint,
-        "reset_deepl_keys_state": profile.reset_deepl_keys_state,
     }
 
 
@@ -476,7 +435,6 @@ def _safe_log_tail(log_file_path: str | None) -> str:
 def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[str, Any]:
     profile = ensure_execution_profile(asset)
     latest_run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
-    latest_remux_run = latest_run_for_asset(asset, run_mode=RUN_MODE_REMUX)
 
     steps = []
     if latest_run:
@@ -490,20 +448,7 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
             for s in latest_run.steps.order_by("id")
         ]
 
-    remux_steps = []
-    if latest_remux_run:
-        remux_steps = [
-            {
-                "step_name": s.step_name,
-                "status": s.status,
-                "detail": s.detail,
-                "updated_at": s.updated_at.isoformat(),
-            }
-            for s in latest_remux_run.steps.order_by("id")
-        ]
-
     latest_log_tail = _safe_log_tail(latest_run.log_file_path) if latest_run and include_log_tail else ""
-    remux_log_tail = _safe_log_tail(latest_remux_run.log_file_path) if latest_remux_run and include_log_tail else ""
 
     return {
         "id": asset.id,
@@ -529,21 +474,6 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
             "steps": steps,
         }
         if latest_run
-        else None,
-        "latest_remux_run": {
-            "id": latest_remux_run.id,
-            "run_mode": latest_remux_run.run_mode,
-            "status": latest_remux_run.status,
-            "started_at": latest_remux_run.started_at.isoformat() if latest_remux_run.started_at else None,
-            "finished_at": latest_remux_run.finished_at.isoformat() if latest_remux_run.finished_at else None,
-            "exit_code": latest_remux_run.exit_code,
-            "error_message": latest_remux_run.error_message,
-            "log_file_path": latest_remux_run.log_file_path,
-            "log_url": f"/api/runs/{latest_remux_run.id}/log",
-            "log_tail": remux_log_tail,
-            "steps": remux_steps,
-        }
-        if latest_remux_run
         else None,
     }
 

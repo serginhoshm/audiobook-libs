@@ -11,7 +11,6 @@
     .btn { border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 700; cursor: pointer; }
     .scan { background: #d8e7ff; color: #1f3c7f; }
     .run { background: #117a62; color: #fff; }
-    .remux { background: #1f5b99; color: #fff; }
     .stop { background: #b5382b; color: #fff; }
     .worker-pill { border-radius: 999px; padding: 5px 10px; font-size: .82rem; font-weight: 700; border: 1px solid #c6dcd3; background: #e9f4ef; color: #2c584a; }
     .worker-online { background: #d9f5e8; color: #13613f; border-color: #97d7bb; }
@@ -23,12 +22,17 @@
     th { background: #edf6f3; position: sticky; top: 0; }
     .chips { display: flex; flex-wrap: wrap; gap: 5px; }
     .chip { padding: 3px 7px; border-radius: 999px; font-size: .75rem; font-weight: 700; border: 1px solid #c6dcd3; background: #e9f4ef; }
-    .opts { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 6px; }
     select { width: 100%; border: 1px solid #c1d2cc; border-radius: 7px; padding: 5px; font-size: .8rem; background: #fff; }
     .mono { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: #4a5f58; }
-    .status-running { color: #9a590c; font-weight: 700; }
-    .status-success { color: #126c43; font-weight: 700; }
-    .status-failed { color: #9b2517; font-weight: 700; }
+    .tail-link { color: #1f5b99; text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+    .overlay[hidden] { display: none; }
+    .overlay { position: fixed; inset: 0; background: rgba(10, 20, 24, 0.52); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 1000; }
+    .overlay-card { width: min(920px, 94vw); max-height: 82vh; background: #fff; border-radius: 14px; border: 1px solid #cfe0da; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22); display: flex; flex-direction: column; }
+    .overlay-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #dde9e4; }
+    .overlay-title { font-size: .95rem; font-weight: 700; color: #173026; }
+    .overlay-close { border: 0; background: #eef5f2; color: #173026; border-radius: 8px; padding: 7px 10px; cursor: pointer; font-weight: 700; }
+    .overlay-body { padding: 0; overflow: auto; }
+    .overlay-pre { margin: 0; padding: 16px; font-family: ui-monospace, Menlo, monospace; font-size: .82rem; line-height: 1.45; white-space: pre-wrap; color: #203a31; background: #fbfdfc; }
   </style>
 </head>
 <body>
@@ -36,8 +40,7 @@
     <h2>Pipeline Local Webapp</h2>
     <div class="top">
       <button class="btn scan" id="scanBtn">Refresh</button>
-      <button class="btn run" id="runBtn">Create new video</button>
-      <button class="btn remux" id="remuxBtn">Remux</button>
+      <button class="btn run" id="runBtn">Start</button>
       <button class="btn stop" id="stopBtn">Parar</button>
       <span class="worker-pill worker-unknown" id="workerStatus">Worker: desconhecido</span>
       <span class="hint" id="hint">Selecionados: 0</span>
@@ -49,17 +52,25 @@
           <tr>
             <th><input type="checkbox" id="all"></th>
             <th>Arquivo</th>
-            <th>Duracao</th>
-            <th>Idioma</th>
-            <th>Status</th>
             <th>Etapas</th>
-            <th>Opcoes</th>
-            <th>Log</th>
-            <th>Log Tail</th>
+            <th>Translate</th>
+            <th>Logs</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="overlay" id="logTailOverlay" hidden>
+    <div class="overlay-card" role="dialog" aria-modal="true" aria-labelledby="logTailTitle">
+      <div class="overlay-head">
+        <div class="overlay-title" id="logTailTitle">Log tail</div>
+        <button class="overlay-close" id="logTailClose" type="button">Fechar</button>
+      </div>
+      <div class="overlay-body">
+        <pre class="overlay-pre" id="logTailContent">Carregando...</pre>
+      </div>
     </div>
   </div>
 
@@ -68,6 +79,10 @@
     const hint = document.getElementById('hint');
     const all = document.getElementById('all');
     const workerStatusEl = document.getElementById('workerStatus');
+    const logTailOverlay = document.getElementById('logTailOverlay');
+    const logTailTitle = document.getElementById('logTailTitle');
+    const logTailContent = document.getElementById('logTailContent');
+    const logTailClose = document.getElementById('logTailClose');
 
     let items = [];
 
@@ -87,20 +102,31 @@
       return `<span class="chip">${text}</span>`;
     }
 
-    function statusClass(status) {
-      if (status === 'running' || status === 'stopping') return 'status-running';
-      if (status === 'success') return 'status-success';
-      if (status === 'failed') return 'status-failed';
-      return '';
-    }
-
-    function boolOpt(v) {
-      return v ? 'yes' : 'no';
-    }
-
     function selectField(videoId, key, value, options) {
-      const opts = options.map(o => `<option value="${o}" ${String(value) === String(o) ? 'selected' : ''}>${key}: ${o}</option>`).join('');
+      const opts = options.map((option) => {
+        const optionValue = typeof option === 'string' ? option : option.value;
+        const optionLabel = typeof option === 'string' ? option : option.label;
+        return `<option value="${optionValue}" ${String(value) === String(optionValue) ? 'selected' : ''}>${optionLabel}</option>`;
+      }).join('');
       return `<select data-id="${videoId}" data-key="${key}" class="opt">${opts}</select>`;
+    }
+
+    function translateOptionValue(profile) {
+      if (profile.backend === 'nllb_local') {
+        if (profile.nllb_profile === 'legacy') {
+          return 'nllb_legacy';
+        }
+        if (profile.nllb_profile === 'custom') {
+          return 'nllb_custom';
+        }
+        return 'nllb_fast';
+      }
+
+      if (profile.backend === 'deepl_doc') {
+        return profile.deepl_endpoint === 'pro' ? 'deepl_pro' : 'deepl_free';
+      }
+
+      return profile.backend;
     }
 
     function escapeHtml(text) {
@@ -112,44 +138,87 @@
         .replace(/'/g, '&#039;');
     }
 
+    function lastLogLines(text, count = 20) {
+      const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+      const trimmed = lines.filter((line, index, arr) => !(index === arr.length - 1 && line === ''));
+      return trimmed.slice(-count).join('\n') || 'Log vazio.';
+    }
+
+    function openLogTailOverlay(title, content) {
+      logTailTitle.textContent = title;
+      logTailContent.textContent = content;
+      logTailOverlay.hidden = false;
+    }
+
+    function closeLogTailOverlay() {
+      logTailOverlay.hidden = true;
+      logTailTitle.textContent = 'Log tail';
+      logTailContent.textContent = '';
+    }
+
+    async function showLogTail(logUrl, fileName) {
+      openLogTailOverlay(`Ultimas 20 linhas: ${fileName}`, 'Carregando...');
+
+      try {
+        const response = await fetch(logUrl);
+        if (!response.ok) {
+          throw new Error(`Falha ao carregar log (${response.status})`);
+        }
+        const text = await response.text();
+        logTailContent.textContent = lastLogLines(text, 20);
+      } catch (error) {
+        logTailContent.textContent = `Nao foi possivel carregar o log.\n${error.message}`;
+      }
+    }
+
+    function buildDisplaySteps(run) {
+      const orderedStepNames = ['extract', 'transcribe', 'translate', 'audiobook', 'remux'];
+      const stepMap = new Map();
+
+      (run?.steps || []).forEach((step) => {
+        stepMap.set(step.step_name, step.status || 'pending');
+      });
+
+      return orderedStepNames.map((stepName) => ({
+        step_name: stepName,
+        status: stepMap.get(stepName) || 'pending'
+      }));
+    }
+
     function render() {
       tbody.innerHTML = items.map(item => {
         const run = item.latest_run;
-        const remuxRun = item.latest_remux_run;
         const profile = item.profile;
-        const steps = run?.steps || [];
-        const logLink = run?.log_url ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">abrir</a>` : '-';
-        const logTail = run?.log_tail ? escapeHtml(run.log_tail) : '-';
-        const pipelineStepsHtml = steps.length ? steps.map(s => chip(`${s.step_name}: ${s.status}`)).join('') : chip('sem execucao');
-        const remuxStatusHtml = remuxRun ? chip(`remux: ${remuxRun.status}`) : '';
-        const stepsHtml = `${pipelineStepsHtml}${remuxStatusHtml}`;
+        const steps = buildDisplaySteps(run);
+        const logActions = run?.log_url
+          ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
+          : '-';
+        const stepsHtml = steps.map(s => chip(`${s.step_name}: ${s.status}`)).join('');
 
-        const optsHtml = `
-          <div class="opts">
-            ${selectField(item.id, 'backend', profile.backend, ['google','nllb_local','deepl_doc','gemini'])}
-            ${selectField(item.id, 'deepl_endpoint', profile.deepl_endpoint, ['free','pro'])}
-            ${selectField(item.id, 'reset_deepl_keys_state', boolOpt(profile.reset_deepl_keys_state), ['no','yes'])}
-            ${selectField(item.id, 'nllb_profile', profile.nllb_profile, ['fast','legacy','custom'])}
-          </div>
-        `;
+        const translateHtml = selectField(item.id, 'translate', translateOptionValue(profile), [
+          { value: 'google', label: 'Google' },
+          { value: 'nllb_fast', label: 'NLLB - Fast' },
+          { value: 'nllb_legacy', label: 'NLLB - Legacy' },
+          { value: 'nllb_custom', label: 'NLLB - Custom' },
+          { value: 'gemini', label: 'Gemini' },
+          { value: 'deepl_free', label: 'DeepL (free)' },
+          { value: 'deepl_pro', label: 'DeepL (pro)' }
+        ]);
 
         return `
           <tr>
             <td><input type="checkbox" class="row-check" data-id="${item.id}"></td>
             <td><b>${item.file_name}</b><div class="mono">${item.file_path}</div></td>
-            <td>${item.duration_hms}</td>
-            <td>${item.original_language}</td>
-            <td><span class="${statusClass(run?.status || 'discovered')}">${run?.status || 'discovered'}</span></td>
             <td><div class="chips">${stepsHtml}</div></td>
-            <td>${optsHtml}</td>
-            <td class="mono">${logLink}</td>
-            <td class="mono">${logTail}</td>
+            <td>${translateHtml}</td>
+            <td class="mono">${logActions}</td>
           </tr>
         `;
       }).join('');
 
       document.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', updateHint));
       document.querySelectorAll('.opt').forEach(el => el.addEventListener('change', onOptionChange));
+      document.querySelectorAll('.tail-link').forEach(el => el.addEventListener('click', () => showLogTail(el.dataset.logUrl, el.dataset.fileName)));
       updateHint();
     }
 
@@ -194,8 +263,34 @@
       const key = evt.target.dataset.key;
       let value = evt.target.value;
 
-      if (['reset_deepl_keys_state'].includes(key)) {
-        value = value === 'yes';
+      if (key === 'translate') {
+        const payload = {};
+
+        if (value === 'deepl_free') {
+          payload.backend = 'deepl_doc';
+          payload.deepl_endpoint = 'free';
+        } else if (value === 'deepl_pro') {
+          payload.backend = 'deepl_doc';
+          payload.deepl_endpoint = 'pro';
+        } else if (value === 'nllb_fast') {
+          payload.backend = 'nllb_local';
+          payload.nllb_profile = 'fast';
+        } else if (value === 'nllb_legacy') {
+          payload.backend = 'nllb_local';
+          payload.nllb_profile = 'legacy';
+        } else if (value === 'nllb_custom') {
+          payload.backend = 'nllb_local';
+          payload.nllb_profile = 'custom';
+        } else {
+          payload.backend = value;
+        }
+
+        await fetch(`/api/videos/${id}/options`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        return;
       }
 
       await fetch(`/api/videos/${id}/options`, {
@@ -221,16 +316,6 @@
       await loadStatus(false);
     });
 
-    document.getElementById('remuxBtn').addEventListener('click', async () => {
-      const ids = selectedIds();
-      await fetch('/api/runs/remux/start', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({video_ids: ids})
-      });
-      await loadStatus(false);
-    });
-
     document.getElementById('stopBtn').addEventListener('click', async () => {
       const ids = selectedIds();
       if (!ids.length) return;
@@ -245,6 +330,18 @@
     all.addEventListener('change', () => {
       document.querySelectorAll('.row-check').forEach(el => el.checked = all.checked);
       updateHint();
+    });
+
+    logTailClose.addEventListener('click', closeLogTailOverlay);
+    logTailOverlay.addEventListener('click', (evt) => {
+      if (evt.target === logTailOverlay) {
+        closeLogTailOverlay();
+      }
+    });
+    document.addEventListener('keydown', (evt) => {
+      if (evt.key === 'Escape' && !logTailOverlay.hidden) {
+        closeLogTailOverlay();
+      }
     });
 
     loadStatus(false);

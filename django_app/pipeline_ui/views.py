@@ -10,7 +10,6 @@ from .models import PipelineRun
 
 from .services import (
     list_assets,
-    queue_remux_runs,
     queue_runs,
     request_stop_for_runs,
     run_evidence_worker,
@@ -56,15 +55,6 @@ def api_runs_start(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "video_ids vazio"}, status=400)
 
     result = queue_runs([int(v) for v in video_ids])
-    return JsonResponse({"ok": True, "result": result})
-
-
-@csrf_exempt
-@require_POST
-def api_runs_remux_start(request: HttpRequest) -> JsonResponse:
-    payload = _json_payload(request)
-    video_ids = payload.get("video_ids") or []
-    result = queue_remux_runs([int(v) for v in video_ids] if video_ids else None)
     return JsonResponse({"ok": True, "result": result})
 
 
@@ -136,7 +126,6 @@ def api_video_options_patch(request: HttpRequest, video_id: int) -> JsonResponse
                 "nllb_max_new_tokens": profile.nllb_max_new_tokens,
                 "nllb_legacy": profile.nllb_legacy,
                 "deepl_endpoint": profile.deepl_endpoint,
-                "reset_deepl_keys_state": profile.reset_deepl_keys_state,
             },
         }
     )

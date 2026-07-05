@@ -10,11 +10,10 @@ from django.conf import settings
 from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus
-from .services import RUN_MODE_PIPELINE, RUN_MODE_REMUX, load_data_root, load_work_exec_dir
+from .services import RUN_MODE_PIPELINE, load_work_exec_dir
 
 
-PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook"]
-REMUX_STEP_ORDER = ["remux"]
+PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook", "remux"]
 
 
 def _bool_to_on_off(value: bool) -> str:
@@ -49,47 +48,20 @@ def _ordered_video_paths_pipeline() -> list[str]:
             if _display_lang_tag(lang) == group:
                 ordered.append(file_path)
     return ordered
-
-
-def _ordered_video_paths_remux() -> list[str]:
-    done_dir = load_data_root() / "done"
-    if not done_dir.exists():
-        return []
-
-    videos = []
-    for path in sorted(done_dir.iterdir()):
-        if not path.is_file() or path.suffix.lower() not in {".mp4", ".mkv"}:
-            continue
-        if " (remux)." in path.name:
-            continue
-        videos.append(str(path))
-    return videos
-
-
-def _selection_index_for_video(video_path: str, run_mode: str) -> int:
-    if run_mode == RUN_MODE_REMUX:
-        ordered = _ordered_video_paths_remux()
-    else:
-        ordered = _ordered_video_paths_pipeline()
-
+def _selection_index_for_video(video_path: str) -> int:
+    ordered = _ordered_video_paths_pipeline()
     for idx, path in enumerate(ordered, start=1):
         if path == video_path:
             return idx
-    raise ValueError(f"Video nao encontrado no indice do workflow ({run_mode}): {video_path}")
+    raise ValueError(f"Video nao encontrado no indice do workflow: {video_path}")
 
 
 def _resolve_video_path_for_run(run: PipelineRun) -> str:
-    if run.run_mode == RUN_MODE_REMUX:
-        done_video = load_data_root() / "done" / run.video_asset.file_name
-        return str(done_video)
     return run.video_asset.file_path
 
 
-def build_exec_command(profile: ExecutionProfile, run_mode: str) -> list[str]:
+def build_exec_command(profile: ExecutionProfile) -> list[str]:
     root_dir = Path(settings.WEBAPP["ROOT_DIR"])
-
-    if run_mode == RUN_MODE_REMUX:
-        return ["bash", str(root_dir / "workflows" / "remux.sh"), "--ffmpeg-mode", "normal"]
 
     command = ["bash", str(root_dir / "workflows" / "exec.sh")]
 
@@ -104,9 +76,6 @@ def build_exec_command(profile: ExecutionProfile, run_mode: str) -> list[str]:
         command.append("--no-nllb-legacy")
 
     command.extend(["--deepl-endpoint", profile.deepl_endpoint])
-
-    if profile.reset_deepl_keys_state:
-        command.append("--reset-deepl-keys-state")
 
     return command
 
@@ -131,8 +100,7 @@ def request_stop(run: PipelineRun) -> None:
 
 
 def _ensure_step_rows(run: PipelineRun) -> None:
-    step_order = REMUX_STEP_ORDER if run.run_mode == RUN_MODE_REMUX else PIPELINE_STEP_ORDER
-    for step_name in step_order:
+    for step_name in PIPELINE_STEP_ORDER:
         PipelineStepStatus.objects.get_or_create(
             pipeline_run=run,
             step_name=step_name,
@@ -141,8 +109,7 @@ def _ensure_step_rows(run: PipelineRun) -> None:
 
 
 def _reset_step_rows_for_attempt(run: PipelineRun) -> None:
-    step_order = REMUX_STEP_ORDER if run.run_mode == RUN_MODE_REMUX else PIPELINE_STEP_ORDER
-    PipelineStepStatus.objects.filter(pipeline_run=run, step_name__in=step_order).update(
+    PipelineStepStatus.objects.filter(pipeline_run=run, step_name__in=PIPELINE_STEP_ORDER).update(
         status="pending",
         detail="",
         updated_at=timezone.now(),
@@ -225,8 +192,8 @@ def execute_run(run: PipelineRun) -> None:
     _reset_step_rows_for_attempt(run)
 
     selected_video_path = _resolve_video_path_for_run(run)
-    command = build_exec_command(profile, run.run_mode)
-    selection_index = _selection_index_for_video(selected_video_path, run.run_mode)
+    command = build_exec_command(profile)
+    selection_index = _selection_index_for_video(selected_video_path)
 
     log_dir = ensure_webapp_log_dir()
     stamp = timezone.now().strftime("%Y%m%d_%H%M%S")

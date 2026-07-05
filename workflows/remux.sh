@@ -27,6 +27,7 @@ REMUX_SUFFIX=" (remux)"
 REMUX_TOLERANCE="${REMUX_TOLERANCE:-0.5}"
 FFMPEG_MODE="${FFMPEG_MODE:-normal}"
 CLI_FFMPEG_MODE=""
+CLI_INPUT_VIDEO=""
 
 read_ini_value() {
     local file="$1"
@@ -164,6 +165,8 @@ Uso: workflows/remux.sh [opcoes]
 Opcoes:
     --ffmpeg-mode <normal|cuda>    Define o modo do FFmpeg sem prompt interativo.
     --ffmpeg-mode=normal|cuda      Forma abreviada da opcao acima.
+    --input-video <arquivo>        Processa um video especifico sem menu interativo.
+    --input-video=/caminho/video   Forma abreviada da opcao acima.
     --help                         Exibe esta ajuda.
 EOF
 }
@@ -182,6 +185,18 @@ parse_cli_args() {
                 ;;
             --ffmpeg-mode=*)
                 CLI_FFMPEG_MODE="${1#*=}"
+                ;;
+            --input-video)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    log_error "Parametro --input-video exige um caminho de arquivo."
+                    print_usage
+                    return 1
+                fi
+                CLI_INPUT_VIDEO="$1"
+                ;;
+            --input-video=*)
+                CLI_INPUT_VIDEO="${1#*=}"
                 ;;
             --help|-h)
                 print_usage
@@ -242,7 +257,7 @@ PY
 }
 
 list_video_files() {
-    find "$DONE_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
+    find "$WORK_EXEC_DIR" -maxdepth 1 -type f \( -iname '*.mkv' -o -iname '*.mp4' \) \
         ! -name '* (remux).*' | sort
 }
 
@@ -251,7 +266,51 @@ build_remux_dest_path() {
     local output_file
 
     output_file="$(build_remux_path "$video_file")"
-    printf '%s/%s' "$REMUX_DIR" "$(basename "$output_file")"
+    printf '%s/%s' "$DONE_DIR" "$(basename "$output_file")"
+}
+
+move_processed_bundle_to_done() {
+    local video_file="$1"
+    local remux_done_file="$2"
+    local selected_dir
+    local base_name
+    local source_file
+    local target_file
+    local moved=0
+
+    selected_dir="$(dirname "$video_file")"
+    base_name="$(basename "${video_file%.*}")"
+
+    if [ -f "$remux_done_file" ]; then
+        log_step "Remux final em done: ${remux_done_file#$ROOT_DIR/}"
+    else
+        log_error "Remux final nao encontrado em done: ${remux_done_file#$ROOT_DIR/}"
+        return 1
+    fi
+
+    for source_file in \
+        "$selected_dir/$base_name.mkv" \
+        "$selected_dir/$base_name.mp4" \
+        "$selected_dir/$base_name.wav" \
+        "$selected_dir/$base_name.mp3" \
+        "$selected_dir/$base_name.srt" \
+        "$selected_dir/$base_name.srtpt" \
+        "$selected_dir/$base_name.pt.wav"
+    do
+        if [ -f "$source_file" ]; then
+            target_file="$DONE_DIR/$(basename "$source_file")"
+            mv -f "$source_file" "$target_file"
+            moved=$((moved + 1))
+            log_step "Movido para done: ${target_file#$ROOT_DIR/}"
+        fi
+    done
+
+    if [ "$moved" -eq 0 ]; then
+        log_error "Nenhum arquivo base encontrado para mover para done: $base_name"
+        return 1
+    fi
+
+    return 0
 }
 
 build_remux_path() {
@@ -407,6 +466,9 @@ process_video() {
     if [ -f "$remux_dest_file" ]; then
         if existing_duration="$(remux_output_duration "$remux_dest_file")" && duration_matches "$original_duration" "$existing_duration"; then
             log_step "Remux valido ja existente: ${remux_dest_file#$ROOT_DIR/}"
+            if ! move_processed_bundle_to_done "$video_file" "$remux_dest_file"; then
+                return 1
+            fi
             return 0
         fi
 
@@ -470,6 +532,9 @@ process_video() {
     fi
 
     mv -f "$output_file" "$remux_dest_file"
+    if ! move_processed_bundle_to_done "$video_file" "$remux_dest_file"; then
+        return 1
+    fi
     trigger_evidence_sync_worker "$video_file"
     log_step "Remux gerado com sucesso: ${remux_dest_file#$ROOT_DIR/}"
     return 0
@@ -499,8 +564,8 @@ bootstrap_runtime
 
     log_step "Config: ${CONFIG_FILE#$ROOT_DIR/}"
     log_step "Escopo de dados: ${DATA_DIR#$ROOT_DIR/}"
-    log_step "Entrada de remux (done): ${DONE_DIR#$ROOT_DIR/}"
-    log_step "Saida de remux: ${REMUX_DIR#$ROOT_DIR/}"
+    log_step "Entrada de remux (exec): ${WORK_EXEC_DIR#$ROOT_DIR/}"
+    log_step "Saida de remux (done): ${DONE_DIR#$ROOT_DIR/}"
     log_step "Remux tolerance: $REMUX_TOLERANCE s"
 
     if ! select_ffmpeg_mode; then
@@ -509,39 +574,50 @@ bootstrap_runtime
     fi
 
     log_section "Selecao de Video"
-    mapfile -t VIDEO_FILES < <(list_video_files)
-
-    if [ "${#VIDEO_FILES[@]}" -eq 0 ]; then
-        log_error "Nenhum arquivo .mkv/.mp4 encontrado em ${DONE_DIR#$ROOT_DIR/}"
-        log_summary "FALHA" "Sem videos"
-        exit 1
-    fi
-
-    echo ""
-    echo "Videos disponiveis para remux:"
-    i=1
-    for video in "${VIDEO_FILES[@]}"; do
-        rel="${video#$ROOT_DIR/}"
-        echo "  $i) $rel"
-        i=$((i + 1))
-    done
-    echo ""
-    echo "  T) Processar TODOS os videos listados"
-    echo ""
-
-    read -r -p "Selecione o numero do video (ou T para TODOS): " choice
-
     SELECTED_VIDEOS=()
-    if [[ "$choice" =~ ^[Tt]$ ]]; then
-        SELECTED_VIDEOS=("${VIDEO_FILES[@]}")
-        log_step "Modo selecionado: TODOS (${#SELECTED_VIDEOS[@]} videos)"
-    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#VIDEO_FILES[@]}" ]; then
-        SELECTED_VIDEOS=("${VIDEO_FILES[$((choice - 1))]}")
-        log_step "Modo selecionado: video unico"
+    if [ -n "$CLI_INPUT_VIDEO" ]; then
+        selected_input="$(realpath -m "$CLI_INPUT_VIDEO")"
+        if [ ! -f "$selected_input" ]; then
+            log_error "Video informado em --input-video nao encontrado: $CLI_INPUT_VIDEO"
+            log_summary "FALHA" "Video inexistente"
+            exit 1
+        fi
+        SELECTED_VIDEOS=("$selected_input")
+        log_step "Modo selecionado: --input-video"
     else
-        log_error "Selecao invalida: $choice"
-        log_summary "FALHA" "Selecao invalida"
-        exit 1
+        mapfile -t VIDEO_FILES < <(list_video_files)
+
+        if [ "${#VIDEO_FILES[@]}" -eq 0 ]; then
+            log_error "Nenhum arquivo .mkv/.mp4 encontrado em ${WORK_EXEC_DIR#$ROOT_DIR/}"
+            log_summary "FALHA" "Sem videos"
+            exit 1
+        fi
+
+        echo ""
+        echo "Videos disponiveis para remux:"
+        i=1
+        for video in "${VIDEO_FILES[@]}"; do
+            rel="${video#$ROOT_DIR/}"
+            echo "  $i) $rel"
+            i=$((i + 1))
+        done
+        echo ""
+        echo "  T) Processar TODOS os videos listados"
+        echo ""
+
+        read -r -p "Selecione o numero do video (ou T para TODOS): " choice
+
+        if [[ "$choice" =~ ^[Tt]$ ]]; then
+            SELECTED_VIDEOS=("${VIDEO_FILES[@]}")
+            log_step "Modo selecionado: TODOS (${#SELECTED_VIDEOS[@]} videos)"
+        elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#VIDEO_FILES[@]}" ]; then
+            SELECTED_VIDEOS=("${VIDEO_FILES[$((choice - 1))]}")
+            log_step "Modo selecionado: video unico"
+        else
+            log_error "Selecao invalida: $choice"
+            log_summary "FALHA" "Selecao invalida"
+            exit 1
+        fi
     fi
 
     success_count=0

@@ -31,6 +31,7 @@ NLLB_USE_GPU="${NLLB_USE_GPU:-0}"
 NLLB_LEGACY_GENERATION="${NLLB_LEGACY_GENERATION:-0}"
 WHISPER_USE_CUDA="${WHISPER_USE_CUDA:-0}"
 PIPER_USE_CUDA="${PIPER_USE_CUDA:-0}"
+REMUX_FFMPEG_MODE="${REMUX_FFMPEG_MODE:-normal}"
 CLI_TRANSLATION_BACKEND=""
 CLI_NLLB_PROFILE=""
 CLI_NLLB_MAX_INPUT_LENGTH=""
@@ -1258,44 +1259,6 @@ process_video_audiobook_phase() {
     return 0
 }
 
-move_processed_bundle_to_done() {
-    local video_file="$1"
-    local selected_dir
-    local base_name
-    local source_file
-    local target_file
-    local moved=0
-
-    selected_dir="$(dirname "$video_file")"
-    base_name="$(basename "${video_file%.*}")"
-
-    log_section "Fase 4 - Movimentacao para done"
-
-    for source_file in \
-        "$selected_dir/$base_name.mkv" \
-        "$selected_dir/$base_name.mp4" \
-        "$selected_dir/$base_name.wav" \
-        "$selected_dir/$base_name.mp3" \
-        "$selected_dir/$base_name.srt" \
-        "$selected_dir/$base_name.srtpt" \
-        "$selected_dir/$base_name.pt.wav"
-    do
-        if [ -f "$source_file" ]; then
-            target_file="$DONE_DIR/$(basename "$source_file")"
-            mv -f "$source_file" "$target_file"
-            moved=$((moved + 1))
-            log_step "Movido para done: ${target_file#$ROOT_DIR/}"
-        fi
-    done
-
-    if [ "$moved" -eq 0 ]; then
-        log_error "Nenhum arquivo encontrado para mover para done: $base_name"
-        return 1
-    fi
-
-    return 0
-}
-
 if ! parse_cli_args "$@"; then
     exit 1
 fi
@@ -1330,6 +1293,7 @@ bootstrap_runtime
     log_step "Diretorio de concluidos (done): ${DONE_DIR#$ROOT_DIR/}"
     log_step "Diretorio de publicados (published): ${PUBLISHED_DIR#$ROOT_DIR/}"
     log_step "Diretorio de remux: ${REMUX_DIR#$ROOT_DIR/}"
+    log_step "Remux FFmpeg mode: $REMUX_FFMPEG_MODE"
     log_step "Resume mode: $RESUME_MODE"
     log_step "Archive on start: $ARCHIVE_ON_START"
 
@@ -1453,7 +1417,7 @@ bootstrap_runtime
         LOG_FILE="$phase_video_log"
         if process_video_audiobook_phase "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
             phase2_success=$((phase2_success + 1))
-            if move_processed_bundle_to_done "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
+            if "$ROOT_DIR/workflows/remux.sh" --ffmpeg-mode "$REMUX_FFMPEG_MODE" --input-video "$phase_video" > >(tee -a "$phase_video_log") 2>&1; then
                 trigger_evidence_sync_worker
                 phase3_success=$((phase3_success + 1))
                 success_count=$((success_count + 1))
@@ -1474,7 +1438,7 @@ bootstrap_runtime
     log_step "Total selecionado: $total_selected"
     log_step "Fase 1 (Whisper + Traducao) - sucesso: $phase1_success | falha: $phase1_fail"
     log_step "Fase 2 (Piper) - sucesso: $phase2_success | falha: $phase2_fail"
-    log_step "Fase 3 (Mover para done) - sucesso: $phase3_success | falha: $phase3_fail"
+    log_step "Fase 3 (Remux + mover para done) - sucesso: $phase3_success | falha: $phase3_fail"
 
     log_section "Resumo Final"
     log_step "Videos com sucesso: $success_count"
