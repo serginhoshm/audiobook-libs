@@ -30,11 +30,14 @@
       border: 1px solid transparent;
       white-space: nowrap;
     }
-    .status-not-started { background: #f5f6f8; border-color: #d4d8de; color: #44505d; }
-    .status-running { background: #fff5c7; border-color: #f3de80; color: #7b6500; }
-    .status-completed { background: #dff5e6; border-color: #a7d8b8; color: #1f5a34; }
-    .status-error { background: #ffe4e4; border-color: #f1b3b3; color: #8a1f1f; }
-    .status-unknown { background: #ff8a1f; border-color: #d46808; color: #ffffff; }
+    .status-not-started { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
+    .status-queued { background: #eaf2ff; border-color: #bfd7ff; color: #1d4e89; }
+    .status-running { background: #fff4db; border-color: #f8d9a0; color: #7c4a03; }
+    .status-completed { background: #e7f8ee; border-color: #b7e4c7; color: #166534; }
+    .status-error { background: #fdecec; border-color: #f5b8b8; color: #991b1b; }
+    .status-stopped { background: #f3e8ff; border-color: #d8b4fe; color: #6b21a8; }
+    .status-skipped { background: #eef2f7; border-color: #d3dae6; color: #475569; }
+    .status-unknown { background: #ff8a1f; border-color: #d66a00; color: #ffffff; }
     select { width: 100%; border: 1px solid #c1d2cc; border-radius: 7px; padding: 5px; font-size: .8rem; background: #fff; }
     .mono { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: #4a5f58; }
     .tail-link { color: #1f5b99; text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
@@ -199,10 +202,15 @@
       return Object.fromEntries(orderedStepNames.map((stepName) => [stepName, stepMap.get(stepName) || 'pending']));
     }
 
-    function mapStepStatus(rawStatus) {
+    function mapStepStatus(rawStatus, runStatus = '') {
       const normalized = String(rawStatus || '').trim().toLowerCase();
+      const normalizedRunStatus = String(runStatus || '').trim().toLowerCase();
 
-      if (!normalized || normalized === 'pending' || normalized === 'queued' || normalized === 'discovered') {
+      if (normalized === 'queued' || (normalized === 'pending' && normalizedRunStatus === 'queued')) {
+        return { label: 'Queued', className: 'status-queued' };
+      }
+
+      if (!normalized || normalized === 'pending' || normalized === 'discovered') {
         return { label: 'Not started', className: 'status-not-started' };
       }
 
@@ -218,6 +226,14 @@
         return { label: 'Error', className: 'status-error' };
       }
 
+      if (normalized === 'stopped') {
+        return { label: 'Stopped', className: 'status-stopped' };
+      }
+
+      if (normalized === 'skipped') {
+        return { label: 'Skipped', className: 'status-skipped' };
+      }
+
       return { label: 'Unknown', className: 'status-unknown' };
     }
 
@@ -225,12 +241,13 @@
       tbody.innerHTML = items.map(item => {
         const run = item.latest_run;
         const profile = item.profile;
+        const runStatus = run?.status || '';
         const stepMap = buildDisplayStepMap(run);
-        const extractStatus = mapStepStatus(stepMap.extract);
-        const transcribeStatus = mapStepStatus(stepMap.transcribe);
-        const translateStatus = mapStepStatus(stepMap.translate);
-        const audiobookStatus = mapStepStatus(stepMap.audiobook);
-        const remuxStatus = mapStepStatus(stepMap.remux);
+        const extractStatus = mapStepStatus(stepMap.extract, runStatus);
+        const transcribeStatus = mapStepStatus(stepMap.transcribe, runStatus);
+        const translateStatus = mapStepStatus(stepMap.translate, runStatus);
+        const audiobookStatus = mapStepStatus(stepMap.audiobook, runStatus);
+        const remuxStatus = mapStepStatus(stepMap.remux, runStatus);
         const logActions = run?.log_url
           ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
           : '-';
