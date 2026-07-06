@@ -9,16 +9,16 @@ status_by_pidfile() {
   local name="$1"
   local pid_file="$2"
   if [ ! -f "$pid_file" ]; then
-    echo "[status_webapp] $name: parado (sem pid file)"
+    echo "[status_webapp] $name: stopped (no pid file)"
     return 0
   fi
 
   local pid
   pid="$(cat "$pid_file")"
   if kill -0 "$pid" 2>/dev/null; then
-    echo "[status_webapp] $name: ativo pid=$pid"
+    echo "[status_webapp] $name: running pid=$pid"
   else
-    echo "[status_webapp] $name: pid file obsoleto ($pid)"
+    echo "[status_webapp] $name: stale pid file ($pid)"
   fi
 }
 

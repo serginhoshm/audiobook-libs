@@ -16,8 +16,55 @@ LOG_FILE="$ROOT_DIR/logs/install_all-${TIMESTAMP}.log"
 SCRIPT_NAME="install_all"
 SCRIPT_START_TIME=$(date +%s)
 
-# Source logging functions
-source "$ROOT_DIR/scripts/log_helpers.sh"
+LOG_HELPER="$ROOT_DIR/scripts/pipeline_logging.py"
+if [ -x "$VENV_PYTHON" ]; then
+  LOG_PYTHON="$VENV_PYTHON"
+else
+  LOG_PYTHON="$(command -v python3 || true)"
+fi
+
+log_header() {
+  if [ -n "$LOG_PYTHON" ] && [ -f "$LOG_HELPER" ]; then
+    "$LOG_PYTHON" "$LOG_HELPER" header --script-name "$SCRIPT_NAME" --log-file "$LOG_FILE"
+  fi
+}
+
+log_section() {
+  local section="$1"
+  if [ -n "$LOG_PYTHON" ] && [ -f "$LOG_HELPER" ]; then
+    "$LOG_PYTHON" "$LOG_HELPER" section --title "$section"
+  fi
+}
+
+log_step() {
+  local step="$1"
+  if [ -n "$LOG_PYTHON" ] && [ -f "$LOG_HELPER" ]; then
+    "$LOG_PYTHON" "$LOG_HELPER" step --message "$step"
+  else
+    echo "  ✓ $step"
+  fi
+}
+
+log_error() {
+  local error="$1"
+  if [ -n "$LOG_PYTHON" ] && [ -f "$LOG_HELPER" ]; then
+    "$LOG_PYTHON" "$LOG_HELPER" error --message "$error"
+  else
+    echo "  ✗ ERROR: $error" >&2
+  fi
+}
+
+log_summary() {
+  local status="$1"
+  local error_msg="${2:-}"
+  if [ -n "$LOG_PYTHON" ] && [ -f "$LOG_HELPER" ]; then
+    "$LOG_PYTHON" "$LOG_HELPER" summary \
+      --script-name "$SCRIPT_NAME" \
+      --status "$status" \
+      --start-time "$SCRIPT_START_TIME" \
+      --error-message "$error_msg"
+  fi
+}
 
 {
 

@@ -54,7 +54,7 @@ def read_srt_stats(srt_path: Path):
 
 def media_duration_seconds(media_path: Path):
     if not media_path.exists():
-        raise FileNotFoundError(f"Arquivo nao encontrado: {media_path}")
+        raise FileNotFoundError(f"File not found: {media_path}")
 
     ffprobe_cmd = [
         "ffprobe",
@@ -79,10 +79,10 @@ def media_duration_seconds(media_path: Path):
             frames = wav.getnframes()
             rate = wav.getframerate()
             if rate <= 0:
-                raise RuntimeError("WAV com framerate invalido")
+                raise RuntimeError("WAV has invalid frame rate")
             return frames / float(rate)
 
-    raise RuntimeError(f"Nao foi possivel calcular duracao de: {media_path}")
+    raise RuntimeError(f"Could not determine duration for: {media_path}")
 
 
 def print_json(payload):
@@ -99,7 +99,7 @@ def cmd_media_duration(args):
     try:
         duration = media_duration_seconds(args.input)
     except Exception as exc:
-        print(f"ERRO: {exc}")
+        print(f"ERROR: {exc}")
         return 1
     print(f"{duration:.3f}")
     return 0
@@ -108,21 +108,21 @@ def cmd_media_duration(args):
 def cmd_validate_transcription(args):
     stats = read_srt_stats(args.srt)
     if not stats["exists"]:
-        print("INVALID: SRT inexistente")
+        print("INVALID: SRT does not exist")
         return 1
     if stats["segments"] < args.min_segments:
-        print(f"INVALID: segmentos insuficientes ({stats['segments']})")
+        print(f"INVALID: insufficient segments ({stats['segments']})")
         return 1
 
     try:
         audio_duration = media_duration_seconds(args.audio)
     except Exception as exc:
-        print(f"INVALID: duracao de audio indisponivel ({exc})")
+        print(f"INVALID: audio duration unavailable ({exc})")
         return 1
 
     if stats["end"] > audio_duration + args.tolerance:
         print(
-            "INVALID: fim da transcricao ultrapassa o audio "
+            "INVALID: transcription end exceeds audio duration "
             f"(audio={audio_duration:.3f}s, srt_end={stats['end']:.3f}s, tolerance={args.tolerance:.3f}s)"
         )
         return 1
@@ -132,7 +132,7 @@ def cmd_validate_transcription(args):
         coverage = stats["end"] / audio_duration
     if coverage < args.min_coverage:
         print(
-            "INVALID: cobertura da transcricao abaixo do minimo "
+            "INVALID: transcription coverage below minimum "
             f"(coverage={coverage:.3f}, min_coverage={args.min_coverage:.3f}, "
             f"audio={audio_duration:.3f}s, srt_end={stats['end']:.3f}s)"
         )
@@ -151,16 +151,16 @@ def cmd_validate_translation(args):
     target = read_srt_stats(args.target_srt)
 
     if not source["exists"] or source["segments"] < args.min_segments:
-        print("INVALID: SRT de origem invalido")
+        print("INVALID: source SRT is invalid")
         return 1
     if not target["exists"] or target["segments"] < args.min_segments:
-        print("INVALID: SRT traduzido invalido")
+        print("INVALID: translated SRT is invalid")
         return 1
 
     delta = abs(source["end"] - target["end"])
     if delta > args.tolerance:
         print(
-            "INVALID: SRT traduzido com timeline divergente "
+            "INVALID: translated SRT has divergent timeline "
             f"(source_end={source['end']:.3f}s, target_end={target['end']:.3f}s, delta={delta:.3f}s)"
         )
         return 1
@@ -175,18 +175,18 @@ def cmd_validate_translation(args):
 def cmd_validate_generated_audio(args):
     stats = read_srt_stats(args.srt)
     if not stats["exists"] or stats["segments"] < args.min_segments:
-        print("INVALID: SRT de referencia invalido")
+        print("INVALID: reference SRT is invalid")
         return 1
 
     try:
         audio_duration = media_duration_seconds(args.audio)
     except Exception as exc:
-        print(f"INVALID: audio final invalido ({exc})")
+        print(f"INVALID: final audio is invalid ({exc})")
         return 1
 
     if audio_duration + args.tolerance < stats["end"]:
         print(
-            "INVALID: audio final menor que timeline do SRT "
+            "INVALID: final audio is shorter than SRT timeline "
             f"(audio={audio_duration:.3f}s, srt_end={stats['end']:.3f}s)"
         )
         return 1
@@ -199,7 +199,7 @@ def cmd_validate_generated_audio(args):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Validadores do pipeline de audiobook")
+    parser = argparse.ArgumentParser(description="Audiobook pipeline validators")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_srt = sub.add_parser("srt-stats")

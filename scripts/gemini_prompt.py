@@ -8,29 +8,29 @@ from pathlib import Path
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Executa um prompt geral usando Google Gemini API."
+        description="Run a general prompt using the Google Gemini API."
     )
     parser.add_argument(
         "prompt",
         nargs="?",
         default="",
-        help="Prompt em linha unica. Se vazio, le de stdin.",
+        help="Single-line prompt. If empty, reads from stdin.",
     )
     parser.add_argument(
         "--model",
         default=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-        help="Modelo Gemini a ser utilizado.",
+        help="Gemini model to use.",
     )
     parser.add_argument(
         "--env-file",
         type=Path,
         default=Path("config/translation/gemini.env"),
-        help="Arquivo local com GEMINI_API_KEY.",
+        help="Local file containing GEMINI_API_KEY.",
     )
     parser.add_argument(
         "--system",
         default="",
-        help="Instrucao de sistema opcional para guiar o modelo.",
+        help="Optional system instruction to guide the model.",
     )
     return parser.parse_args()
 
@@ -69,21 +69,21 @@ def main():
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         print(
-            "Erro: GEMINI_API_KEY nao definida. Configure em config/translation/gemini.env",
+            "Error: GEMINI_API_KEY is not set. Configure it in config/translation/gemini.env",
             file=sys.stderr,
         )
         sys.exit(1)
 
     prompt = read_prompt(args)
     if not prompt:
-        print("Erro: informe um prompt ou envie via stdin.", file=sys.stderr)
+        print("Error: provide a prompt or pipe one via stdin.", file=sys.stderr)
         sys.exit(1)
 
     try:
         import google.generativeai as genai
     except Exception as exc:
-        print("Erro: dependencia google-generativeai ausente.", file=sys.stderr)
-        print("Dica: rode setup/install_all.sh", file=sys.stderr)
+        print("Error: missing dependency google-generativeai.", file=sys.stderr)
+        print("Tip: run setup/install_all.sh", file=sys.stderr)
         raise SystemExit(1) from exc
 
     genai.configure(api_key=api_key)
@@ -96,7 +96,7 @@ def main():
     response = model.generate_content(final_prompt)
     output = getattr(response, "text", "").strip()
     if not output:
-        print("Erro: resposta vazia do Gemini.", file=sys.stderr)
+        print("Error: empty response from Gemini.", file=sys.stderr)
         sys.exit(2)
 
     print(output)

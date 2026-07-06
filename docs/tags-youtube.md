@@ -1,8 +1,8 @@
-#Prompt para Gemini
-Com o arquivo em anexo, vamos produzir os seguintes artefatos (outputs):
-1 - Forneça um título em texto para a história
-2 - Forneça uma sinopse em texto da história
-3 - Depois de processar os itens 1 e 2, com base neles, crie uma imagem thumbnail miniatura para ser usado na capa de um vídeo do Youtube. Ela deve ter um estilo de desenho chinês manhua, e ser chamativa, remetendo a história (crie a imagem). Evite usar caracteres asiáticos, mas escreva na imagem usando informações do título de da sinopse. Os textos devem ser em português.
+# Gemini Prompt
+Using the attached file, generate the following outputs:
+1. Provide a text title for the story.
+2. Provide a text synopsis of the story.
+3. After completing items 1 and 2, create a YouTube thumbnail image based on them. It should use a Chinese manhua drawing style, be eye-catching, and reflect the story. Avoid Asian characters in the image text. Use title/synopsis information for the text and keep all image text in Portuguese.
 
 
 
@@ -11,32 +11,32 @@ Com o arquivo em anexo, vamos produzir os seguintes artefatos (outputs):
 #3d, 
 #donghua,
 #animes,
-#recomendacaodeanime,
+#animerecommendation,
 #manga,
 #otaku,
-#animacao,
+#animation,
 #AI,
 #IA,
-#animesdeIA,
+#aianime,
 #fantasia,
 #shonen,
-#cultivacao,
+#cultivation,
 #romance,
 #magia,
-#comedia,
-#acao,
+#comedy,
+#action,
 #fofo,
-#comunidadeanime,
+#animecommunity,
 #animefan,
 #CinderellaStory,
 #Cinderela,
-#reencarnacao,
+#reincarnation,
 #isekai,
 #isetan,
-#posapocaliptico,
-#protagonistaforte,
-#superacao,
-#casamentoporconveniencia,
-#construcaodemundo,
-#dicasdelivros,
-#dicasdemanga
+#postapocalyptic,
+#strongprotagonist,
+#overcoming,
+#marriageofconvenience,
+#worldbuilding,
+#booktips,
+#mangatips

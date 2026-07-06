@@ -66,7 +66,7 @@ def infer_language_from_srt(video_path: Path) -> str:
     han_count = len(re.findall(r"[\u3400-\u9fff\uf900-\ufaff]", text))
     es_hint_count = len(
         re.findall(
-            r"\b(el|la|los|las|de|que|por|para|con|una|uno|como|pero|est[aá]|est[aá]n|hoy)\b|[¿¡ñáéíóúü]",
+            r"\b(el|la|los|las|de|que|por|para|con|una|uno|como|pero|est(?:a|\u00e1)|est(?:a|\u00e1)n|hoy)\b|[\u00bf\u00a1\u00f1\u00e1\u00e9\u00ed\u00f3\u00fa\u00fc]",
             text.lower(),
         )
     )
@@ -136,11 +136,11 @@ def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
     has_audio_input = has_wav or has_mp3
 
     return {
-        "extract": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/MP3/SRT encontrado"),
-        "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidencia: artefato WAV/MP3/SRT encontrado"),
-        "translate": (has_srtpt or has_pt_wav, "Evidencia: arquivo .srtpt encontrado"),
-        "audiobook": (has_pt_wav, "Evidencia: arquivo .pt.wav encontrado"),
-        "remux": (artifacts["done_video"].exists(), "Evidencia: video final movido para done"),
+        "extract": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
+        "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
+        "translate": (has_srtpt or has_pt_wav, "Evidence: .srtpt file found"),
+        "audiobook": (has_pt_wav, "Evidence: .pt.wav file found"),
+        "remux": (artifacts["done_video"].exists(), "Evidence: final video moved to done"),
     }
 
 
@@ -167,7 +167,7 @@ def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
             step.detail = detail
             step.save(update_fields=["status", "detail", "updated_at"])
             step_changed = True
-        elif (not found) and step.status == "success" and step.detail.startswith("Evidencia:"):
+        elif (not found) and step.status == "success" and step.detail.startswith("Evidence:"):
             step.status = "pending"
             step.detail = ""
             step.save(update_fields=["status", "detail", "updated_at"])

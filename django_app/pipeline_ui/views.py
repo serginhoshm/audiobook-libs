@@ -52,7 +52,7 @@ def api_runs_start(request: HttpRequest) -> JsonResponse:
     payload = _json_payload(request)
     video_ids = payload.get("video_ids") or []
     if not isinstance(video_ids, list) or not video_ids:
-        return JsonResponse({"ok": False, "error": "video_ids vazio"}, status=400)
+        return JsonResponse({"ok": False, "error": "video_ids is empty"}, status=400)
 
     result = queue_runs([int(v) for v in video_ids])
     return JsonResponse({"ok": True, "result": result})
@@ -91,15 +91,15 @@ def api_status(request: HttpRequest) -> JsonResponse:
 def api_run_log(request: HttpRequest, run_id: int) -> HttpResponse:
     run = PipelineRun.objects.filter(id=run_id).first()
     if run is None:
-        return HttpResponse("Run nao encontrada\n", status=404, content_type="text/plain; charset=utf-8")
+        return HttpResponse("Run not found\n", status=404, content_type="text/plain; charset=utf-8")
 
     log_file_path = run.log_file_path
     if not log_file_path:
-        return HttpResponse("Log indisponivel para esta run\n", status=404, content_type="text/plain; charset=utf-8")
+        return HttpResponse("Log is unavailable for this run\n", status=404, content_type="text/plain; charset=utf-8")
 
     path = Path(log_file_path)
     if not path.exists() or (not path.is_file()):
-        return HttpResponse("Arquivo de log nao encontrado\n", status=404, content_type="text/plain; charset=utf-8")
+        return HttpResponse("Log file not found\n", status=404, content_type="text/plain; charset=utf-8")
 
     text = path.read_text(encoding="utf-8", errors="replace")
     return HttpResponse(text, content_type="text/plain; charset=utf-8")

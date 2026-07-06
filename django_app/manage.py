@@ -9,7 +9,7 @@ def main():
         from django.core.management import execute_from_command_line
     except ImportError as exc:
         raise ImportError(
-            "Django nao encontrado. Rode scripts/webapp/setup_webapp.sh"
+            "Django not found. Run scripts/webapp/setup_webapp.sh"
         ) from exc
     execute_from_command_line(sys.argv)
 

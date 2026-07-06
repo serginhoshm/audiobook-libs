@@ -4,7 +4,7 @@ from pipeline_ui.services import run_evidence_worker
 
 
 class Command(BaseCommand):
-    help = "Reconcilia evidencia de artefatos em disco com os passos gravados no banco"
+    help = "Reconcile on-disk artifact evidence with step records stored in the database"
 
     def add_arguments(self, parser):
         parser.add_argument("--video-id", dest="video_ids", action="append", type=int)
@@ -19,7 +19,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             self.style.SUCCESS(
-                "[sync_evidence] concluido synced=%s missing=%s"
+                "[sync_evidence] completed synced=%s missing=%s"
                 % (result.get("synced", 0), result.get("missing", 0))
             )
         )

@@ -1,447 +1,191 @@
-# Django Local Webapp - Plano de Implementacao Detalhado
+# Django Local Webapp - Detailed Implementation Plan
 
-## 1. Visao Geral
+## 1. Overview
 
-Este documento detalha a implementacao de uma interface web local em Django para operar o pipeline atual de transcricao, traducao e geracao de audio.
+This document defines the implementation plan for a local Django web UI that manages media processing runs.
 
-Objetivo principal:
+Primary goals:
 
-- permitir scan, execucao, parada e monitoramento de processamento por arquivo via web.
-- configurar todas as opcoes atuais do exec por arquivo, via UI, sem prompts interativos.
-- oferecer bootstrap completo por bash para setup e subida local do sistema.
+- scan assets and manage run lifecycle from the browser
+- configure per-file execution options in the UI
+- run all operations without interactive terminal prompts
+- provide shell bootstrap scripts for setup and operations
 
-## 2. Estrutura Sugerida de Projeto
+## 2. Recommended Project Layout
 
-Opcao A (recomendada): manter no mesmo repositorio.
+- keep executable Django code in `django_app/`
+- keep planning docs in `docs/django-local-webapp/`
 
-- django_app/
-  - manage.py
-  - core/
-  - pipeline_ui/
+## 3. Data Model
 
-Opcao B: subprojeto na pasta docs nao e recomendada para codigo executavel.
+### 3.1 `VideoAsset`
 
-Decisao recomendada:
+- `id`
+- `file_path` (unique)
+- `file_name`
+- `extension`
+- `size_bytes`
+- `duration_seconds`
+- `original_language`
+- `discovered_at`
+- `last_seen_at`
+- `is_present`
 
-- criar codigo Django na raiz do repositorio em pasta dedicada.
-- manter documentacao em docs/django-local-webapp.
+### 3.2 `PipelineRun`
 
-## 3. Modelagem de Dados
+- `id`
+- `video_asset` (FK)
+- `status` (`discovered`, `queued`, `running`, `stopping`, `stopped`, `success`, `failed`, `skipped`)
+- `started_at`
+- `finished_at`
+- `exit_code`
+- `error_message`
+- `log_file_path`
+- `pid`
+- `process_group_id`
 
-## 3.1 VideoAsset
+### 3.3 `PipelineStepStatus`
 
-Campos:
+- `id`
+- `pipeline_run` (FK)
+- `step_name` (`extract`, `transcribe`, `translate`, `audiobook`, `remux`)
+- `status` (`pending`, `running`, `success`, `failed`, `skipped`)
+- `detail`
+- `updated_at`
 
-- id
-- file_path (unico)
-- file_name
-- extension
-- size_bytes
-- duration_seconds
-- original_language
-- discovered_at
-- last_seen_at
-- is_present
+### 3.4 `ExecutionProfile`
 
-## 3.2 PipelineRun
+Per-file runtime options, including:
 
-Campos:
+- backend options
+- NLLB profile/tokens settings
+- endpoint and compatibility switches
 
-- id
-- video_asset (FK)
-- requested_by (opcional)
-- status (discovered, queued, running, stopping, stopped, success, failed, skipped)
-- started_at
-- finished_at
-- exit_code
-- error_message
-- log_file_path
-- pid
-- process_group_id
+## 4. Domain Services
 
-## 3.3 PipelineStepStatus
+### 4.1 Scan Service
 
-Campos:
+- read configured data scope from `config/pipeline.ini`
+- list candidate videos
+- extract metadata (`ffprobe`)
+- upsert `VideoAsset`
+- mark missing files as `is_present=false` without deleting history
 
-- id
-- pipeline_run (FK)
-- step_name (extract, transcribe, translate, audiobook)
-- status (pending, running, success, failed, skipped)
-- detail
-- updated_at
+### 4.2 Queue Service
 
-## 3.4 SystemSetting
+- enqueue selected runs
+- prevent duplicate active runs per file
 
-Campos:
+### 4.3 Runner Service
 
-- key
-- value
+- launch subprocesses per file
+- track pid/process group
+- stream logs
+- update step states
+- map row options into execution arguments
 
-Uso:
+### 4.4 Stop Service
 
-- armazenar configuracoes operacionais sem hardcode.
+- request graceful stop (`SIGTERM`)
+- enforce timeout and fallback kill (`SIGKILL`) when needed
 
-## 3.5 ExecutionProfile
+### 4.5 Reconciliation Service
 
-Campos (config por arquivo na UI):
+- reconcile stale in-flight states when worker restarts
+- refresh run state from evidence/log files
 
-- id
-- video_asset (FK)
-- backend
-- nllb_profile
-- nllb_max_input_length
-- nllb_max_new_tokens
-- nllb_gpu
-- nllb_legacy
-- deepl_endpoint
-- reset_deepl_keys_state
-- normalize_dry_run
-- cuda_enabled (unico para whisper e piper)
-- updated_at
+## 5. Worker
 
-Observacao:
+MVP strategy:
 
-- cada VideoAsset deve manter sua configuracao atual de execucao na tela.
-
-## 4. Servicos de Dominio
-
-## 4.1 ScanService
-
-Responsabilidades:
-
-- ler caminho configurado em config/pipeline.ini.
-- listar videos no diretorio alvo.
-- extrair metadados com ffprobe.
-- inferir idioma original.
-- upsert em VideoAsset.
-- marcar ausentes com is_present=false sem excluir historico.
-
-## 4.2 QueueService
-
-Responsabilidades:
-
-- enfileirar runs para ids selecionados.
-- impedir duplicidade de run ativa por arquivo.
-- registrar transicao de estado queued -> running -> final.
-
-## 4.3 RunnerService
-
-Responsabilidades:
-
-- iniciar subprocesso de pipeline por arquivo.
-- salvar pid e process_group_id.
-- stream de log para arquivo dedicado.
-- atualizar estados por etapa com parser de log.
-- montar comando nao interativo com base no ExecutionProfile da linha.
-- mapear CUDA unico da UI para whisper e piper simultaneamente.
-
-## 4.4 StopService
-
-Responsabilidades:
-
-- receber solicitacao de stop por runs selecionadas.
-- enviar SIGTERM para grupo de processos.
-- aguardar timeout.
-- enviar SIGKILL se necessario.
-- concluir estado em stopped.
-
-## 4.5 ReconciliationService
-
-Responsabilidades:
-
-- ao subir sistema, reconciliar runs em running sem processo vivo.
-- checar arquivos .state e logs para corrigir status.
-
-## 5. Worker em Background
-
-MVP sem dependencias externas:
-
-- criar management command run_worker.
-- loop simples com sleep curto.
-- lock de concorrencia para evitar dois workers simultaneos.
-
-Evolucao:
-
-- migrar para Celery + Redis quando necessario.
+- local Django management command (`run_worker`)
+- polling loop with short sleep
+- single worker process semantics
 
 ## 6. API Endpoints
 
-## 6.1 GET /api/videos
+- `GET /api/videos`
+- `POST /api/scan`
+- `POST /api/runs/start`
+- `POST /api/runs/stop`
+- `GET /api/status`
+- `PATCH /api/videos/{id}/options`
 
-Retorna lista de videos e ultimo status conhecido.
+## 7. UI Requirements
 
-Parametros:
+Single main page with:
 
-- present_only=true|false
-- status
-- search
+- toolbar (`Refresh`, `Start`, `Stop`)
+- table with selectable rows
+- per-row metadata, status chips, and option dropdowns
 
-## 6.2 POST /api/scan
+Behavior:
 
-Executa scan manual e retorna resumo:
+- start/stop acts only on selected rows
+- buttons respect selection state
+- status updates through polling
+- option changes persist immediately
 
-- discovered
-- updated
-- missing
+## 8. Log Parsing and Step Mapping
 
-## 6.3 POST /api/runs/start
+- parse log lines and map to step state transitions
+- preserve compatibility with existing evidence/state files
 
-Body:
+## 9. Security and Reliability
 
-- video_ids: [int]
+- local-only bind by default
+- validate file paths before execution
+- sanitize API inputs
+- persist command audit details in run logs
 
-Acao:
+## 10. Testing Strategy
 
-- cria runs queued para os ids selecionados.
-- executa com parametros persistidos do ExecutionProfile de cada id.
+### Unit Tests
 
-## 6.4 POST /api/runs/stop
+- scan service
+- queue/stop behavior
+- log parser
 
-Body:
+### Integration Tests
 
-- run_ids ou video_ids
+- `scan -> start -> status -> stop`
+- worker restart reconciliation
 
-Acao:
+## 11. Delivery Roadmap
 
-- marca runs em stopping e aciona StopService.
+### Sprint 1
 
-## 6.5 GET /api/status
+- models + scan + basic list view
 
-Retorna snapshot para polling:
+### Sprint 2
 
-- videos
-- runs ativas
-- progresso por etapa
-- ultimos eventos
+- queue/worker + start/stop
 
-## 6.6 PATCH /api/videos/{id}/options
+### Sprint 3
 
-Body (parcial):
+- step-level status + reconciliation
 
-- backend
-- nllb_profile
-- nllb_max_input_length
-- nllb_max_new_tokens
-- nllb_gpu
-- nllb_legacy
-- deepl_endpoint
-- reset_deepl_keys_state
-- normalize_dry_run
-- cuda_enabled
+### Sprint 4
 
-Acao:
+- UX refinements + filters/search + log export
 
-- atualiza configuracao da linha na lista.
+## 12. Operational Bootstrap Scripts
 
-## 7. Interface Web
+Expected scripts:
 
-Pagina principal unica com:
+- `scripts/webapp/setup_webapp.sh`
+- `scripts/webapp/start_webapp.sh`
+- `scripts/webapp/stop_webapp.sh`
+- `scripts/webapp/status_webapp.sh`
 
-- toolbar: Scan, Run, Stop
-- tabela de videos com checkbox por linha
-- colunas:
-  - selecao
-  - nome
-  - duracao
-  - idioma
-  - opcoes (dropdowns da linha)
-  - status geral
-  - etapas
-  - ultima atualizacao
+Recommended conventions:
 
-Comportamentos:
+- pid files in `.run/webapp/`
+- logs in `logs/webapp/`
 
-- Run/Stop agem somente nos itens selecionados.
-- botoes desabilitados quando nada selecionado.
-- polling automatico atualiza linhas afetadas.
-- mudanca de dropdown persiste automaticamente no ExecutionProfile.
-- execucao via Run nunca depende de prompt no terminal.
+## 13. Next Actions
 
-## 7.1 Catalogo de Opcoes na Linha
-
-Todas as opcoes atualmente disponiveis no exec devem estar presentes na UI.
-
-- backend: google | nllb_local | deepl_doc | gemini
-- nllb_profile: fast | legacy | custom
-- nllb_max_input_length: presets em dropdown + opcao custom
-- nllb_max_new_tokens: presets em dropdown + opcao custom
-- nllb_gpu: on | off
-- nllb_legacy: on | off
-- deepl_endpoint: free | pro
-- reset_deepl_keys_state: yes | no
-- normalize_dry_run: yes | no
-- cuda_enabled: yes | no (unico)
-
-Mapeamento de cuda_enabled para flags atuais:
-
-- yes -> --whisper-cuda on + --piper-cuda on
-- no -> --whisper-cuda off + --piper-cuda off
-
-## 8. Parsing de Logs e Etapas
-
-Fonte primaria:
-
-- logs por execucao no data root.
-
-Estrategia:
-
-- parser por padroes de texto ja existentes:
-  - Etapa 0 - Extracao de Audio
-  - Etapa 1 - Transcricao
-  - Etapa 2 - Traducao
-  - Etapa 3 - Sintese
-- atualizar PipelineStepStatus conforme eventos.
-
-## 9. Execucao do Pipeline por Arquivo
-
-Opcoes:
-
-- usar exec.sh com argumentos nao interativos para item unico.
-- ou invocar scripts por etapa em sequencia no RunnerService.
-
-Recomendacao inicial:
-
-- encapsular invocacao existente para minimizar risco.
-
-Comando alvo por arquivo (exemplo):
-
-```bash
-bash workflows/exec.sh \
-  --backend deepl_doc \
-  --nllb-profile fast \
-  --nllb-max-input-length 768 \
-  --nllb-max-new-tokens 192 \
-  --nllb-gpu on \
-  --no-nllb-legacy \
-  --deepl-endpoint free \
-  --reset-deepl-keys-state \
-  --whisper-cuda on \
-  --piper-cuda on
-```
-
-Nota:
-
-- os scripts bash permanecem inalterados.
-- a camada Django apenas decide e injeta flags.
-
-## 10. Seguranca e Confiabilidade
-
-- bind apenas em localhost.
-- validar caminhos antes de executar subprocessos.
-- sanitizar entradas de API.
-- registrar auditoria de comandos disparados.
-
-## 11. Testes
-
-## 11.1 Unitarios
-
-- ScanService
-- QueueService
-- StopService
-- parser de logs
-
-## 11.2 Integracao
-
-- fluxo scan -> run -> status -> stop
-- reconciliacao apos restart
-
-## 11.3 E2E local
-
-- com conjunto reduzido de videos de teste.
-
-## 12. Roadmap de Entrega
-
-## Sprint 1
-
-- estrutura Django
-- modelos
-- scan
-- listagem basica
-
-## Sprint 2
-
-- fila e worker
-- run/stop
-- status geral
-
-## Sprint 3
-
-- status por etapa
-- parser de logs
-- reconciliacao
-
-## Sprint 4
-
-- melhorias de UX
-- filtros e busca
-- export de logs por run
-
-## 13. Definicoes de Pronto
-
-- scan manual funcional
-- run/stop funcional por selecao
-- atualizacao de status via polling
-- sem travar interface durante processamento
-- persistencia de historico no SQLite
-- opcoes por arquivo persistidas na lista e respeitadas no run.
-- fluxo de execucao web sem qualquer prompt interativo.
-
-## 14. Dependencias Tecnicas
-
-- Python 3.12
-- Django 5.x
-- ffmpeg/ffprobe instalados
-- acesso aos scripts e diretorios do pipeline atual
-
-## 14.1 Requisito de Bootstrap Operacional (Bash)
-
-Para reduzir friccao de operacao, o projeto deve incluir scripts bash dedicados.
-
-Scripts minimos:
-
-- scripts/webapp/setup_webapp.sh
-- scripts/webapp/start_webapp.sh
-- scripts/webapp/stop_webapp.sh
-- scripts/webapp/status_webapp.sh
-
-Responsabilidades por script:
-
-- setup_webapp.sh
-  - criar/ativar venv
-  - instalar dependencias
-  - executar migrate
-  - validar pre-requisitos basicos
-- start_webapp.sh
-  - iniciar Django server em localhost
-  - iniciar worker em segundo plano
-  - registrar PID files e logs de inicializacao
-  - imprimir URL final para acesso via navegador
-- stop_webapp.sh
-  - encerrar processos web/worker por PID file
-  - fallback de encerramento seguro se PID file estiver inconsistente
-- status_webapp.sh
-  - informar se web/worker estao ativos
-  - mostrar caminhos de log e PID
-
-Convencoes recomendadas:
-
-- PID files em .run/webapp/
-- logs em logs/webapp/
-- sem dependencias externas de supervisor no MVP
-
-Fluxo esperado para operador:
-
-1. bash scripts/webapp/setup_webapp.sh
-2. bash scripts/webapp/start_webapp.sh
-3. abrir URL localhost impressa pelo script
-4. bash scripts/webapp/status_webapp.sh (quando necessario)
-5. bash scripts/webapp/stop_webapp.sh
-
-## 15. Proximos Passos Recomendados
-
-1. Criar esqueleto Django e modelos.
-2. Implementar ExecutionProfile e endpoint de persistencia das opcoes da linha.
-3. Implementar endpoint de scan e tela de listagem com dropdowns por arquivo.
-4. Implementar worker e start/stop para um unico arquivo sem prompts.
-5. Expandir para selecao multipla e monitoramento por etapa.
-6. Implementar e validar scripts de bootstrap operacional em bash.
+1. Keep model and API contracts stable.
+2. Finish worker robustness and reconciliation.
+3. Improve list UX and option persistence feedback.
+4. Expand test coverage for failure/restart scenarios.

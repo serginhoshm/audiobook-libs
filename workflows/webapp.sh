@@ -28,7 +28,7 @@ run_privileged() {
     return
   fi
 
-  echo "[webapp] operacao exige privilegio de administrador e 'sudo' nao foi encontrado"
+  echo "[webapp] operation requires admin privileges and 'sudo' was not found"
   return 1
 }
 
@@ -68,7 +68,7 @@ install_system_packages() {
       run_privileged dnf install -y "$@"
       ;;
     *)
-      echo "[webapp] nao foi possivel instalar pacotes automaticamente neste SO"
+      echo "[webapp] could not install packages automatically on this OS"
       return 1
       ;;
   esac
@@ -88,22 +88,22 @@ ensure_lan_prereqs() {
   os_family="$(detect_os_family)"
 
   if ! has_cmd ip; then
-    echo "[webapp] instalando dependencia: iproute2"
+    echo "[webapp] installing dependency: iproute2"
     install_system_packages "$os_family" iproute2 || true
   fi
 
   if ! has_cmd ufw && ! has_cmd firewall-cmd; then
     case "$os_family" in
       debian)
-        echo "[webapp] instalando firewall utilitario: ufw"
+        echo "[webapp] installing firewall utility: ufw"
         install_system_packages "$os_family" ufw || true
         ;;
       fedora)
-        echo "[webapp] instalando firewall utilitario: firewalld"
+        echo "[webapp] installing firewall utility: firewalld"
         install_system_packages "$os_family" firewalld || true
         ;;
       *)
-        echo "[webapp] nenhum utilitario de firewall detectado (ufw/firewalld)"
+        echo "[webapp] no firewall utility detected (ufw/firewalld)"
         ;;
     esac
   fi
@@ -120,13 +120,13 @@ open_firewall_port_if_possible() {
 
     if printf '%s' "$ufw_status" | grep -qi "Status: active"; then
       if printf '%s' "$ufw_status" | grep -Eq "${PORT}/tcp[[:space:]].*ALLOW"; then
-        echo "[webapp] porta ${PORT}/tcp ja liberada no ufw"
+        echo "[webapp] port ${PORT}/tcp is already open in ufw"
       else
-        echo "[webapp] abrindo porta no ufw: ${PORT}/tcp"
+        echo "[webapp] opening ufw port: ${PORT}/tcp"
         run_privileged ufw allow "${PORT}/tcp" >/dev/null
       fi
     else
-      echo "[webapp] ufw detectado, mas inativo; sem alteracao de firewall"
+      echo "[webapp] ufw detected but inactive; no firewall changes applied"
     fi
     return 0
   fi
@@ -134,19 +134,19 @@ open_firewall_port_if_possible() {
   if has_cmd firewall-cmd; then
     if has_cmd systemctl && systemctl is-active --quiet firewalld; then
       if firewall-cmd --quiet --query-port="${PORT}/tcp" >/dev/null 2>&1; then
-        echo "[webapp] porta ${PORT}/tcp ja liberada no firewalld"
+        echo "[webapp] port ${PORT}/tcp is already open in firewalld"
       else
-        echo "[webapp] abrindo porta no firewalld: ${PORT}/tcp"
+        echo "[webapp] opening firewalld port: ${PORT}/tcp"
         run_privileged firewall-cmd --quiet --add-port="${PORT}/tcp"
         run_privileged firewall-cmd --quiet --runtime-to-permanent || true
       fi
     else
-      echo "[webapp] firewalld detectado, mas inativo; sem alteracao de firewall"
+      echo "[webapp] firewalld detected but inactive; no firewall changes applied"
     fi
     return 0
   fi
 
-  echo "[webapp] nenhum firewall compativel detectado (ufw/firewalld); abra a porta ${PORT}/tcp manualmente, se necessario"
+  echo "[webapp] no compatible firewall detected (ufw/firewalld); open port ${PORT}/tcp manually if needed"
 }
 
 configure_lan_mode() {
@@ -155,7 +155,7 @@ configure_lan_mode() {
   LAN_IP="$(resolve_lan_ip)"
 
   if [ -z "$LAN_IP" ]; then
-    echo "[webapp] nao foi possivel detectar IP LAN automaticamente"
+    echo "[webapp] could not detect LAN IP automatically"
     LAN_IP="127.0.0.1"
   fi
 
@@ -171,31 +171,31 @@ configure_lan_mode() {
 
 run_django_migrate() {
   if [ ! -x "$VENV_PY" ]; then
-    echo "[webapp] venv nao encontrada em $VENV_PY"
-    echo "[webapp] execute antes: bash workflows/webapp.sh setup"
+    echo "[webapp] virtual environment not found at $VENV_PY"
+    echo "[webapp] run first: bash workflows/webapp.sh setup"
     exit 1
   fi
 
-  echo "[webapp] aplicando migracoes do Django..."
+  echo "[webapp] applying Django migrations..."
   "$VENV_PY" "$MANAGE_PY" migrate
 }
 
 usage() {
   cat <<'EOF'
-Uso: bash workflows/webapp.sh <comando>
+Usage: bash workflows/webapp.sh <command>
 
-Comandos:
-  setup        Instala dependencias Python e aplica migracoes
-  start        Sobe web + worker em background (modo LAN)
-  start-lan    Sobe web + worker para LAN (0.0.0.0) e tenta abrir porta no firewall
-  stop         Para web + worker
-  status       Mostra status dos processos
-  restart      Reinicia web + worker (modo LAN)
-  restart-lan  Reinicia web + worker para LAN (0.0.0.0)
-  help         Mostra esta ajuda
+Commands:
+  setup        Install Python dependencies and apply migrations
+  start        Start web + worker in background (LAN mode)
+  start-lan    Start web + worker for LAN (0.0.0.0) and try opening firewall port
+  stop         Stop web + worker
+  status       Show process status
+  restart      Restart web + worker (LAN mode)
+  restart-lan  Restart web + worker for LAN (0.0.0.0)
+  help         Show this help
 
-Atalho:
-  Se nenhum comando for informado, usa "start".
+Shortcut:
+  If no command is provided, defaults to "start".
 EOF
 }
 
@@ -211,7 +211,7 @@ case "$cmd" in
     open_firewall_port_if_possible
     run_django_migrate
     bash scripts/webapp/start_webapp.sh
-    echo "[webapp] LAN habilitada. Abra no navegador: $URL"
+    echo "[webapp] LAN enabled. Open in browser: $URL"
     ;;
   start-lan)
     ensure_lan_prereqs
@@ -219,14 +219,14 @@ case "$cmd" in
     open_firewall_port_if_possible
     run_django_migrate
     bash scripts/webapp/start_webapp.sh
-    echo "[webapp] LAN habilitada. Abra no navegador: $URL"
+    echo "[webapp] LAN enabled. Open in browser: $URL"
     ;;
   stop)
     bash scripts/webapp/stop_webapp.sh
     ;;
   status)
     bash scripts/webapp/status_webapp.sh
-    echo "[webapp] URL configurada: $URL"
+    echo "[webapp] configured URL: $URL"
     ;;
   restart)
     ensure_lan_prereqs
@@ -235,7 +235,7 @@ case "$cmd" in
     bash scripts/webapp/stop_webapp.sh || true
     run_django_migrate
     bash scripts/webapp/start_webapp.sh
-    echo "[webapp] LAN habilitada. Abra no navegador: $URL"
+    echo "[webapp] LAN enabled. Open in browser: $URL"
     ;;
   restart-lan)
     ensure_lan_prereqs
@@ -244,13 +244,13 @@ case "$cmd" in
     bash scripts/webapp/stop_webapp.sh || true
     run_django_migrate
     bash scripts/webapp/start_webapp.sh
-    echo "[webapp] LAN habilitada. Abra no navegador: $URL"
+    echo "[webapp] LAN enabled. Open in browser: $URL"
     ;;
   help|-h|--help)
     usage
     ;;
   *)
-    echo "[webapp] comando invalido: $cmd"
+    echo "[webapp] invalid command: $cmd"
     usage
     exit 1
     ;;

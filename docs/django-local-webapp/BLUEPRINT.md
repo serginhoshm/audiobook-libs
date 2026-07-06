@@ -1,214 +1,139 @@
 # Django Local Webapp Blueprint
 
-## Objetivo
+## Goal
 
-Transformar o pipeline atual em uma aplicacao web local com Django, mantendo os scripts existentes como motor de execucao e adicionando camada de orquestracao, monitoramento e controle por interface.
+Provide a local Django web interface for scanning media assets, configuring per-file execution options, starting/stopping runs, and tracking status.
 
-## Escopo Funcional
+## Functional Scope
 
-- Listar videos disponiveis para processamento.
-- Exibir metadados por video: nome, duracao, idioma original inferido.
-- Exibir status de execucao por arquivo e por etapa.
-- Acionar scan manual para atualizar a lista.
-- Selecionar arquivos por checkbox.
-- Configurar opcoes de execucao por arquivo diretamente na linha da lista (dropdowns).
-- Iniciar execucao em background para itens selecionados.
-- Parar execucao em background para itens selecionados.
-- Atualizar interface periodicamente sem recarregar pagina inteira.
+- List available video files.
+- Display metadata per video (name, duration, inferred language).
+- Display run status and step status.
+- Trigger manual scan/refresh.
+- Select multiple files using checkboxes.
+- Configure per-file execution options directly in each row.
+- Start runs in the background for selected items.
+- Request stop for selected running items.
+- Refresh status without full page reload.
 
-## Principios de Implementacao
+## Implementation Principles
 
-- Reusar scripts e workflows atuais sempre que possivel.
-- Evitar reescrever logica de pipeline consolidada.
-- Manter scripts bash como estao; a web apenas orquestra parametros.
-- Eliminar interacoes de terminal no fluxo web (execucao 100% nao interativa).
-- Incluir bootstrap operacional via scripts bash para setup e execucao local simplificados.
-- Priorizar operacao local e simplicidade de deploy.
-- Separar claramente:
-  - camada web (Django)
-  - camada de fila/worker
-  - camada de execucao (scripts shell/python existentes)
+- Keep local-first operation and simple deployment.
+- Reuse stable Python processing scripts where possible.
+- Keep the web flow non-interactive.
+- Separate concerns clearly:
+  - web layer (Django views/API)
+  - queue/worker layer
+  - execution adapter layer
 
-## Arquitetura de Alto Nivel
+## Current Repository Alignment
+
+- Legacy workflow shell wrappers were removed from `workflows/`.
+- `workflows/webapp.sh` is kept for setup/start/stop/status lifecycle.
+- The UI/worker should rely on maintained execution entrypoints only.
+
+## High-Level Architecture
 
 ```mermaid
 flowchart LR
-    UI[Browser Local] --> DJ[Django Web App]
+    UI[Local Browser] --> DJ[Django App]
     DJ --> DB[(SQLite)]
     DJ --> API[REST Endpoints]
-    API --> Q[Job Queue in DB]
+    API --> Q[Queue in DB]
     Q --> WK[Worker Process]
-    WK --> SH[workflows/exec.sh and scripts/*]
-    SH --> FS[(Artifacts, logs, .state)]
+    WK --> EX[Execution Adapter]
+    EX --> FS[(Artifacts, logs, state)]
     FS --> DJ
 ```
 
-## Componentes
+## Core Components
 
 ### 1) Django Web App
 
-Responsavel por:
+- Render the main file list page.
+- Render per-row option controls.
+- Expose scan/start/stop/status endpoints.
+- Persist runtime state in local DB.
 
-- Renderizar a pagina principal com lista de videos.
-- Renderizar controles de opcoes por arquivo (dropdowns) na lista.
-- Expor endpoints para scan, run e stop.
-- Expor endpoint de status para polling.
-- Persistir estado em banco local.
+### 2) Background Worker
 
-### 2) Worker de Background
+- Consume queued runs.
+- Start subprocesses for per-file execution.
+- Update run/step state.
+- Handle stop requests safely.
 
-Responsavel por:
+### 3) Execution Adapter
 
-- Consumir jobs pendentes em fila.
-- Iniciar subprocessos do pipeline por arquivo.
-- Atualizar status de execucao durante processamento.
-- Encerrar processos quando houver solicitacao de stop.
+- Build non-interactive command invocation.
+- Map UI options to execution parameters.
+- Parse logs for progress mapping.
+- Reconcile stale states after app restarts.
 
-### 3) Adaptador de Pipeline
+### 4) Bootstrap Shell Scripts
 
-Responsavel por:
+- `scripts/webapp/setup_webapp.sh`
+- `scripts/webapp/start_webapp.sh`
+- `scripts/webapp/stop_webapp.sh`
+- `scripts/webapp/status_webapp.sh`
 
-- Invocar fluxo existente em modo nao interativo.
-- Mapear opcoes selecionadas na UI para flags do workflows/exec.sh.
-- Aplicar regra de CUDA unica da UI para whisper e piper simultaneamente.
-- Ler logs e estados para refletir progresso por etapa.
-- Fazer reconciliacao de status em caso de restart da aplicacao.
+## UI Option Mapping
 
-### 4) Bootstrap Scripts (Bash)
+Target per-row options:
 
-Responsavel por:
+- `backend`
+- `nllb_profile`
+- `nllb_max_input_length`
+- `nllb_max_new_tokens`
+- `nllb_legacy`
+- `deepl_endpoint`
+- unified CUDA switch (maps to the underlying execution mode settings)
 
-- preparar ambiente local sem exigir conhecimento profundo de Django.
-- executar setup inicial (venv, dependencias, migrate).
-- iniciar servidor web e worker com comandos consistentes.
+## Row UX
 
-Scripts previstos:
+Each table row should include:
 
-- setup_webapp.sh
-- start_webapp.sh
-- stop_webapp.sh
+- selection checkbox
+- metadata (name, duration, language)
+- global status + step chips
+- execution options panel (dropdowns)
 
-## Mapeamento de Opcoes da UI para o Exec
+## Run States
 
-Todas as opcoes disponiveis hoje no exec devem ser configuraveis pela UI.
+Recommended run statuses:
 
-Opcoes alvo:
+- `discovered`
+- `queued`
+- `running`
+- `stopping`
+- `stopped`
+- `success`
+- `failed`
+- `skipped`
 
-- backend
-- nllb-profile
-- nllb-max-input-length
-- nllb-max-new-tokens
-- nllb-gpu
-- nllb-legacy
-- deepl-endpoint
-- reset-deepl-keys-state
-- normalize-dry-run
-- cuda (unico na UI, mapeando para whisper-cuda e piper-cuda)
+Recommended step statuses:
 
-Regra de CUDA unificado:
+- `pending`
+- `running`
+- `success`
+- `failed`
+- `skipped`
 
-- CUDA = Sim: enviar --whisper-cuda on e --piper-cuda on
-- CUDA = Nao: enviar --whisper-cuda off e --piper-cuda off
+## UI Refresh Strategy
 
-## UX da Lista (Linha por Arquivo)
+- MVP: short-interval HTTP polling.
+- Future: optional Server-Sent Events.
 
-Cada linha da tabela deve ter:
+## Safe Stop Strategy
 
-- checkbox de selecao
-- metadados (nome, duracao, idioma)
-- status geral e por etapa
-- painel de configuracao com dropdowns
+- Run execution in process groups.
+- Send `SIGTERM`, wait for grace period.
+- Escalate to `SIGKILL` only when required.
+- Persist stop reason and final state.
 
-Exemplo de dropdowns por linha:
+## MVP Acceptance Criteria
 
-- Backend: google | nllb_local | deepl_doc | gemini
-- NLLB Profile: fast | legacy | custom
-- NLLB GPU: on | off
-- NLLB Legacy: on | off
-- DeepL Endpoint: free | pro
-- Reset DeepL Keys State: yes | no
-- Normalize Dry Run: yes | no
-- CUDA: yes | no (unificado)
-
-## Fluxo de Uso
-
-1. Usuario abre a pagina principal.
-2. Clica em Scan.
-3. Sistema varre diretorio configurado e atualiza tabela.
-4. Usuario ajusta opcoes desejadas nos dropdowns de cada linha.
-5. Usuario marca checkboxes.
-6. Clica em Run para iniciar jobs em background, sem prompts interativos.
-6. UI atualiza status com polling curto.
-7. Usuario pode marcar itens em execucao e clicar Stop.
-8. Worker encerra processos e atualiza estado final.
-
-## Estados de Execucao
-
-Estados recomendados para run por arquivo:
-
-- discovered
-- queued
-- running
-- stopping
-- stopped
-- success
-- failed
-- skipped
-
-Etapas monitoradas:
-
-- extract
-- transcribe
-- translate
-- audiobook
-
-Status por etapa:
-
-- pending
-- running
-- success
-- failed
-- skipped
-
-## Estrategia de Atualizacao da UI
-
-MVP:
-
-- Polling HTTP a cada 2-3 segundos.
-- Atualizacao incremental da tabela com JSON.
-
-Evolucao:
-
-- Server-Sent Events para reduzir polling.
-
-## Stop/Cancel Seguro
-
-- Worker executa pipeline em grupo de processos.
-- Stop envia SIGTERM para grupo.
-- Aguarda grace period configuravel.
-- Se ainda ativo, aplica SIGKILL.
-- Marca run como stopped e registra motivo.
-
-## Integracoes com Artefatos Atuais
-
-- Configuracao de escopo: config/pipeline.ini
-- Orquestrador principal: workflows/exec.sh
-- Traducao DeepL com rotacao e fallback: workflows/translate_srt.sh
-- Estados locais por video: .pipeline-state no data root
-- Logs de execucao: logs sob data root
-
-## Nao Objetivos no MVP
-
-- Multiusuario e autenticacao.
-- Deploy em nuvem.
-- Escalonamento horizontal.
-- Reescrita do pipeline para Celery distribuido.
-
-## Criterios de Aceite do MVP
-
-- Scan popula lista de videos com metadados basicos.
-- Run inicia processamento em segundo plano para itens selecionados.
-- Stop interrompe processamento de itens selecionados.
-- Status geral e por etapa atualizam na interface sem reload completo.
-- Reiniciar servidor web nao perde historico de runs no banco.
-- Operacao local pode ser iniciada com scripts bash de bootstrap, sem passos manuais complexos de Django.
+- Scan populates the list with basic metadata.
+- Start enqueues selected items and worker consumes them.
+- Stop requests are applied to selected active runs.
+- Status updates on the UI without full reload.
+- Restarting the web app does not lose DB run history.

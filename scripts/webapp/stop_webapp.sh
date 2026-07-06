@@ -12,7 +12,7 @@ stop_by_pidfile() {
   local pid_file="$2"
 
   if [ ! -f "$pid_file" ]; then
-    echo "[stop_webapp] $name sem pid file"
+    echo "[stop_webapp] $name has no pid file"
     return 0
   fi
 
@@ -24,21 +24,21 @@ stop_by_pidfile() {
     if kill -0 "$pid" 2>/dev/null; then
       kill -9 "$pid" || true
     fi
-    echo "[stop_webapp] $name encerrado ($pid)"
+    echo "[stop_webapp] $name stopped ($pid)"
   else
-    echo "[stop_webapp] $name nao estava ativo"
+    echo "[stop_webapp] $name was not running"
   fi
 
   rm -f "$pid_file"
 }
 
 if [ -x "$VENV_PY" ] && [ -f "$MANAGE_PY" ]; then
-  "$VENV_PY" "$MANAGE_PY" stop_active_runs || echo "[stop_webapp] aviso: falha ao sincronizar stop_active_runs"
+  "$VENV_PY" "$MANAGE_PY" stop_active_runs || echo "[stop_webapp] warning: failed to synchronize stop_active_runs"
 else
-  echo "[stop_webapp] aviso: ambiente Django indisponivel para stop_active_runs"
+  echo "[stop_webapp] warning: Django environment unavailable for stop_active_runs"
 fi
 
 stop_by_pidfile "web" "$RUN_DIR/web.pid"
 stop_by_pidfile "worker" "$RUN_DIR/worker.pid"
 
-echo "[stop_webapp] concluido"
+echo "[stop_webapp] completed"

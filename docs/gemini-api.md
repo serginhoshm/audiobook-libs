@@ -1,91 +1,84 @@
-## Gemini API no projeto
+## Gemini API in This Project
 
-Este projeto agora suporta Google Gemini para:
+This project supports Google Gemini for:
 
-1. Traducao de SRT no pipeline (backend `gemini`)
-2. Prompt geral para outras tarefas (script utilitario)
+1. SRT translation through the Python translation script (`gemini` backend).
+2. General-purpose prompting via a utility script.
 
-## Arquivo local de chave (nao versionado)
+## Local Key File (Not Versioned)
 
-Template versionado:
+Versioned template:
 
 - `config/translation/gemini.env.template`
 
-Arquivo real local (ignorado pelo Git):
+Local runtime file (gitignored):
 
 - `config/translation/gemini.env`
 
-Passos:
+Steps:
 
-1. Copie o template:
+1. Copy the template:
 
 ```bash
 cp config/translation/gemini.env.template config/translation/gemini.env
 ```
 
-2. Edite e preencha sua chave:
+2. Edit and provide your key:
 
 ```bash
-GEMINI_API_KEY=sua_chave_aqui
+GEMINI_API_KEY=your_key_here
 GEMINI_MODEL=gemini-1.5-flash
 ```
 
-Observacao: `config/translation/gemini.env` esta no `.gitignore` e nao sera enviado ao repositório.
+Note: `config/translation/gemini.env` is ignored by git and is never committed.
 
-## Traducao SRT com backend Gemini
+## SRT Translation with Gemini Backend
 
-No fluxo principal (`workflows/exec.sh`), escolha backend `gemini` no prompt interativo
-ou passe via CLI:
-
-```bash
-bash workflows/exec.sh --backend gemini
-```
-
-Tambem funciona direto no script Python:
+Use the Python script directly:
 
 ```bash
 ./.venv/bin/python scripts/traduzir.py \
-    entrada.srt saida.srtpt es \
+    input.srt output.srtpt es \
     --backend gemini \
     --gemini-model gemini-1.5-flash
 ```
 
-## Prompt geral (outras tarefas)
+## General Prompting
 
-Script utilitario:
+Utility script:
 
 - `scripts/gemini_prompt.py`
 
-Exemplos:
+Examples:
 
 ```bash
-# Prompt direto
-./.venv/bin/python scripts/gemini_prompt.py "Resuma este texto em 5 bullets"
+# Direct prompt
+./.venv/bin/python scripts/gemini_prompt.py "Summarize this text in 5 bullets"
 
-# Prompt via stdin
+# Prompt from stdin
 cat docs/project-order.md | ./.venv/bin/python scripts/gemini_prompt.py
 
-# Com instrucao de sistema
+# With system instruction
 ./.venv/bin/python scripts/gemini_prompt.py \
-    --system "Voce e um revisor tecnico objetivo" \
-    "Revise este paragrafo"
+    --system "You are an objective technical reviewer" \
+    "Review this paragraph"
 ```
 
-Opcionalmente, pode apontar outro arquivo de ambiente:
+Optional custom env file:
 
 ```bash
 ./.venv/bin/python scripts/gemini_prompt.py \
-    --env-file /caminho/custom/gemini.env \
-    "Seu prompt"
+    --env-file /path/to/custom/gemini.env \
+    "Your prompt"
 ```
 
-## Dependencia
+## Dependency
 
-O setup ja instala o pacote necessario:
+Required package:
 
 - `google-generativeai`
 
-Para atualizar o ambiente:
+To refresh the environment:
 
 ```bash
 bash setup/install_all.sh

@@ -18,20 +18,20 @@ mkdir -p "$RUN_DIR" "$LOG_DIR"
 source "$VENV_DIR/bin/activate"
 
 if [ ! -x "$VENV_PY" ]; then
-  echo "[start_webapp] python da venv nao encontrado: $VENV_PY"
-  echo "[start_webapp] execute primeiro: bash scripts/webapp/setup_webapp.sh"
+  echo "[start_webapp] venv Python not found: $VENV_PY"
+  echo "[start_webapp] run first: bash scripts/webapp/setup_webapp.sh"
   exit 1
 fi
 
 if [ -f "$RUN_DIR/web.pid" ] && kill -0 "$(cat "$RUN_DIR/web.pid")" 2>/dev/null; then
-  echo "[start_webapp] web ja em execucao"
+  echo "[start_webapp] web is already running"
 else
   nohup "$VENV_PY" "$MANAGE_PY" runserver "$HOST:$PORT" > "$LOG_DIR/web.log" 2>&1 &
   echo $! > "$RUN_DIR/web.pid"
 fi
 
 if [ -f "$RUN_DIR/worker.pid" ] && kill -0 "$(cat "$RUN_DIR/worker.pid")" 2>/dev/null; then
-  echo "[start_webapp] worker ja em execucao"
+  echo "[start_webapp] worker is already running"
 else
   nohup "$VENV_PY" "$MANAGE_PY" run_worker > "$LOG_DIR/worker.log" 2>&1 &
   echo $! > "$RUN_DIR/worker.pid"

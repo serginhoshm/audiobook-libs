@@ -30,7 +30,7 @@ def parse_args():
     return parser.parse_args()
 
 def ms_to_bytes(ms, params):
-    # Garante que o número de bytes seja par (importante para 16-bit)
+    # Ensure the number of bytes is aligned for 16-bit samples.
     num_bytes = int((params.nchannels * params.sampwidth * params.framerate * ms) / 1000)
     return num_bytes - (num_bytes % (params.nchannels * params.sampwidth))
 
@@ -84,7 +84,7 @@ def normalize_output_duration_with_ffmpeg(output_wav, target_ms, current_ms, thr
 
     if not shutil.which("ffmpeg"):
         logging.warning(
-            "ffmpeg indisponivel; nao foi possivel normalizar duracao (ratio=%.4f)",
+            "ffmpeg is unavailable; could not normalize duration (ratio=%.4f)",
             ratio,
         )
         return current_ms
@@ -120,7 +120,7 @@ def normalize_output_duration_with_ffmpeg(output_wav, target_ms, current_ms, thr
 
     if proc.returncode != 0 or (not tmp_out.exists()):
         logging.warning(
-            "Falha ao normalizar duracao com ffmpeg: %s",
+            "Failed to normalize duration with ffmpeg: %s",
             (proc.stderr or "").strip()[:300],
         )
         if tmp_out.exists():
@@ -146,13 +146,13 @@ def main():
     length_scale = args.zh_length_scale if is_chinese else 1.0
 
     if not args.srt.exists():
-        logging.error("SRT de entrada nao encontrado: %s", args.srt)
+        logging.error("Input SRT not found: %s", args.srt)
         return 1
     if not args.model.exists():
-        logging.error("Modelo de voz nao encontrado: %s", args.model)
+        logging.error("Voice model not found: %s", args.model)
         return 1
     if not args.piper.exists():
-        logging.error("Executavel do Piper nao encontrado: %s", args.piper)
+        logging.error("Piper executable not found: %s", args.piper)
         return 1
     
     try:
@@ -161,28 +161,28 @@ def main():
         legendas = pysrt.open(str(args.srt), encoding='iso-8859-1')
 
     if len(legendas) == 0:
-        logging.error("SRT de entrada nao possui legendas: %s", args.srt)
+        logging.error("Input SRT has no subtitles: %s", args.srt)
         return 1
         
     audio_frames = []
     final_params = None
-    current_clock_ms = 0 # O tempo exato onde o áudio "está"
+    current_clock_ms = 0  # Exact timeline position currently covered by audio.
     total_legendas = len(legendas)
     
-    logging.info(f"Processando {total_legendas} entradas do SRT...")
+    logging.info(f"Processing {total_legendas} SRT entries...")
     if use_piper_cuda:
-        logging.info("Piper CUDA habilitado para esta execucao.")
+        logging.info("Piper CUDA enabled for this run.")
 
     try:
         for i, leg in enumerate(
-            tqdm(legendas, total=total_legendas, desc="[piper]", unit="legenda", leave=False, disable=not sys.stderr.isatty()),
+            tqdm(legendas, total=total_legendas, desc="[piper]", unit="subtitle", leave=False, disable=not sys.stderr.isatty()),
             start=1,
         ):
             texto = leg.text.replace('\r', '').replace('\n', ' ').strip()
             if not texto:
                 continue
 
-            # Tempo de inicio desejado para esta fala.
+            # Desired subtitle start time on the target timeline.
             target_start_ms = to_ms(leg.start)
             target_end_ms = to_ms(leg.end)
             subtitle_duration_ms = max(0, target_end_ms - target_start_ms)
@@ -204,7 +204,7 @@ def main():
 
             if piper_result.returncode != 0 and use_piper_cuda:
                 logging.warning(
-                    "[%s/%s] Piper com CUDA falhou; alternando para CPU para o restante da execucao. stderr=%s",
+                    "[%s/%s] Piper with CUDA failed; switching to CPU for the remainder of the run. stderr=%s",
                     i + 1,
                     total_legendas,
                     (piper_result.stderr or "").strip()[:300],
@@ -225,7 +225,7 @@ def main():
                 sanitized = sanitize_tts_text(texto)
                 if sanitized and sanitized != texto:
                     logging.warning(
-                        "[%s/%s] Piper falhou, tentando texto sanitizado.",
+                        "[%s/%s] Piper failed, trying sanitized text.",
                         i + 1,
                         total_legendas,
                     )
@@ -239,7 +239,7 @@ def main():
 
             if piper_result.returncode != 0 or (not temp_wav.exists()) or temp_wav.stat().st_size == 0:
                 logging.error(
-                    "[%s/%s] Piper falhou; inserindo silencio para manter sincronismo. stderr=%s",
+                    "[%s/%s] Piper failed; inserting silence to keep sync. stderr=%s",
                     i + 1,
                     total_legendas,
                     (piper_result.stderr or "").strip()[:300],
@@ -259,7 +259,7 @@ def main():
                         current_clock_ms += p_ms
                 else:
                     logging.warning(
-                        "[%s/%s] Primeira sintese falhou e parametros de audio ainda indisponiveis; legenda ignorada.",
+                        "[%s/%s] First synthesis failed and audio parameters are still unavailable; subtitle skipped.",
                         i + 1,
                         total_legendas,
                     )
@@ -281,8 +281,8 @@ def main():
 
                 audio_frames.append(frames)
 
-                duracao_fala_ms = (len(frames) / (params.nchannels * params.sampwidth * params.framerate)) * 1000
-                current_clock_ms += duracao_fala_ms
+                speech_duration_ms = (len(frames) / (params.nchannels * params.sampwidth * params.framerate)) * 1000
+                current_clock_ms += speech_duration_ms
 
                 if args.pause_duration > 0:
                     p_ms = int(args.pause_duration * 1000 * pause_scale)
@@ -293,7 +293,7 @@ def main():
                 os.remove(temp_wav)
 
         if final_params is None:
-            logging.error("Nenhum audio util foi gerado a partir do SRT: %s", args.srt)
+            logging.error("No usable audio was generated from SRT: %s", args.srt)
             return 1
 
         target_end_ms = to_ms(legendas[-1].end)
@@ -319,7 +319,7 @@ def main():
         if temp_wav.exists():
             os.remove(temp_wav)
 
-    logging.info(f"✅ Finalizado. Duração calculada: {current_clock_ms/1000:.2f}s")
+    logging.info(f"Completed. Computed duration: {current_clock_ms/1000:.2f}s")
     return 0
 
 if __name__ == "__main__":

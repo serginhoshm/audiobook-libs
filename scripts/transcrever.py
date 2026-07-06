@@ -15,19 +15,19 @@ logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Gera arquivos de transcrição e SRT a partir de áudio." 
+        description="Generate transcription and SRT files from audio."
     )
-    parser.add_argument("input_audio", type=Path, help="Arquivo de áudio de entrada.")
-    parser.add_argument("output_dir", type=Path, help="Pasta de saída para os arquivos gerados.")
-    parser.add_argument("language", type=str, help="Código do idioma (ex: es, zh) ou auto.")
-    parser.add_argument("model_size", type=str, help="Tamanho do modelo Whisper (ex: tiny, base).")
-    parser.add_argument("output_base", type=str, help="Nome base para os arquivos gerados.")
+    parser.add_argument("input_audio", type=Path, help="Input audio file.")
+    parser.add_argument("output_dir", type=Path, help="Output directory for generated files.")
+    parser.add_argument("language", type=str, help="Language code (for example: es, zh) or auto.")
+    parser.add_argument("model_size", type=str, help="Whisper model size (for example: tiny, base).")
+    parser.add_argument("output_base", type=str, help="Base filename for generated outputs.")
     parser.add_argument(
         "--device",
         type=str,
         choices=["cpu", "cuda"],
         default="cpu",
-        help="Device do faster-whisper (cpu ou cuda).",
+        help="faster-whisper device (cpu or cuda).",
     )
     return parser.parse_args()
 
@@ -61,8 +61,8 @@ def main():
     if not model_dir.is_dir():
         print(
             (
-                f"Erro: modelo Whisper local não encontrado em {model_dir}. "
-                "Execute setup/install_all.sh para preparar os artefatos."
+                f"Error: local Whisper model not found at {model_dir}. "
+                "Run setup/install_all.sh to prepare local artifacts."
             ),
             flush=True,
         )
@@ -81,7 +81,7 @@ def main():
     except Exception as exc:
         if selected_device == "cuda":
             logging.warning(
-                "[whisper] Falha ao iniciar em CUDA (%s). Recuando para CPU.",
+                "[whisper] Failed to start on CUDA (%s). Falling back to CPU.",
                 exc,
             )
             selected_device = "cpu"
@@ -96,12 +96,12 @@ def main():
             raise
 
     logging.info(
-        f"[whisper] Modelo carregado: {args.model_size} | device={selected_device} | compute_type={compute_type}"
+        f"[whisper] Model loaded: {args.model_size} | device={selected_device} | compute_type={compute_type}"
     )
 
     language = (args.language or "").strip().lower()
     if language not in {"es", "zh", "auto"}:
-        print("Erro: idioma inválido. Use apenas 'es', 'zh' ou 'auto'.", flush=True)
+        print("Error: invalid language. Use only 'es', 'zh', or 'auto'.", flush=True)
         sys.exit(1)
 
     transcribe_kwargs = {
@@ -115,16 +115,16 @@ def main():
 
     duration = getattr(info, "duration", None)
     if duration:
-        logging.info(f"[whisper] Iniciando transcricao de {audio.name} ({duration:.1f}s)")
+        logging.info(f"[whisper] Starting transcription for {audio.name} ({duration:.1f}s)")
     else:
-        logging.info(f"[whisper] Iniciando transcricao de {audio.name}")
+        logging.info(f"[whisper] Starting transcription for {audio.name}")
 
     collected_segments = []
     for seg in tqdm(segments, desc="[whisper]", unit="seg", leave=False, disable=not sys.stderr.isatty()):
         collected_segments.append(seg)
 
     segments = collected_segments
-    logging.info(f"[whisper] Transcricao concluida com {len(segments)} segmentos")
+    logging.info(f"[whisper] Transcription completed with {len(segments)} segments")
 
     with open(artifact_srt, "w", encoding="utf-8") as f:
         for n, seg in enumerate(segments, start=1):
@@ -132,7 +132,7 @@ def main():
             f.write(f"{srt_time(seg.start)} --> {srt_time(seg.end)}\n")
             f.write(seg.text.strip() + "\n\n")
 
-    print(f"Concluido: {audio.name}", flush=True)
+    print(f"Completed: {audio.name}", flush=True)
 
 
 if __name__ == "__main__":

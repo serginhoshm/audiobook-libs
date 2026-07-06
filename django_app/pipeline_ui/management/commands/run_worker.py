@@ -10,11 +10,11 @@ from pipeline_ui.runner import execute_run, request_stop
 
 
 class Command(BaseCommand):
-    help = "Executa worker local para consumir runs em fila"
+    help = "Run local worker to consume queued runs"
 
     def handle(self, *args, **options):
         poll_seconds = int(settings.WEBAPP["WORKER_POLL_SECONDS"])
-        self.stdout.write(self.style.SUCCESS("[worker] iniciado"))
+        self.stdout.write(self.style.SUCCESS("[worker] started"))
         self._reconcile_inflight_runs()
 
         try:
@@ -27,17 +27,17 @@ class Command(BaseCommand):
                     continue
 
                 self.stdout.write(
-                    f"[worker] processando run id={run.id} mode={run.run_mode} video={run.video_asset.file_name}"
+                    f"[worker] processing run id={run.id} mode={run.run_mode} video={run.video_asset.file_name}"
                 )
                 try:
                     execute_run(run)
                 except Exception as exc:
                     run.refresh_from_db()
                     run.status = "failed"
-                    run.error_message = f"Erro interno do worker: {exc}"
+                    run.error_message = f"Worker internal error: {exc}"
                     run.save(update_fields=["status", "error_message", "updated_at"])
         except KeyboardInterrupt:
-            self.stdout.write("[worker] encerrando...")
+            self.stdout.write("[worker] shutting down...")
 
     def _reconcile_inflight_runs(self):
         running_like = PipelineRun.objects.filter(status__in=["running", "stopping"])
@@ -47,7 +47,7 @@ class Command(BaseCommand):
             run.status = "failed"
             run.finished_at = timezone.now()
             if not run.error_message:
-                run.error_message = "Run reconciliada apos reinicio do worker"
+                run.error_message = "Run reconciled after worker restart"
             run.pid = None
             run.process_group_id = None
             run.exit_code = run.exit_code if run.exit_code is not None else -100

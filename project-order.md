@@ -1,24 +1,18 @@
 # Project Order
 
 ## Main Entry
-- Use `bash workflows/exec.sh`.
-- The script lists available videos in the configured scope from `config/pipeline.ini` (`data_root_relative`) and lets you choose one by number or all by typing `T`.
+- Legacy workflow wrappers were removed.
+- Use `bash workflows/webapp.sh` for webapp lifecycle operations.
 - `data_root_relative` accepts absolute paths (for external disks) or project-relative paths.
 - Logs, archive, and `.pipeline-state/` are created under the configured scope.
-- `workflows/test-e2e.sh` logs also follow the configured scope.
-- After selection, it runs the full pipeline automatically: extract WAV, transcribe, translate, and generate `.pt.wav`.
-- With `resume_mode=1`, transcription input may reuse either `<base>.wav` or `<base>.mp3` if already valid in the same folder.
-- The pipeline keeps the original video stem (filename before extension) for all generated artifacts.
-- With `resume_mode=1`, valid artifacts are reused and failed runs can resume from the first invalid step.
-- Execution state is written to `.pipeline-state/`.
+- Execution state and evidence are written under the configured scope.
 
 ## E2E test assets
 - E2E fixtures are stored under `e2e/`.
-- The dedicated E2E path is used by `workflows/test-e2e.sh`.
 - Internal workspace files should not be processed except for the E2E fixtures in `e2e/`.
 
 ## Notes
-- All normal pipeline execution is now orchestrated by `workflows/exec.sh`.
+- Legacy shell orchestration scripts were intentionally removed from `workflows/`.
 - `e2e/` is a dedicated folder for test assets and should be saved to git.
 - Logs include timestamp and selected video context in log filenames.
 - Voice synthesis is Faber-only (`pt_BR-faber-medium.onnx`).

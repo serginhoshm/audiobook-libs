@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -41,9 +41,9 @@
     <div class="top">
       <button class="btn scan" id="scanBtn">Refresh</button>
       <button class="btn run" id="runBtn">Start</button>
-      <button class="btn stop" id="stopBtn">Parar</button>
-      <span class="worker-pill worker-unknown" id="workerStatus">Worker: desconhecido</span>
-      <span class="hint" id="hint">Selecionados: 0</span>
+      <button class="btn stop" id="stopBtn">Stop</button>
+      <span class="worker-pill worker-unknown" id="workerStatus">Worker: unknown</span>
+      <span class="hint" id="hint">Selected: 0</span>
     </div>
 
     <div style="overflow:auto; max-height: 78vh; border:1px solid #d6e2dd;">
@@ -51,8 +51,8 @@
         <thead>
           <tr>
             <th><input type="checkbox" id="all"></th>
-            <th>Arquivo</th>
-            <th>Etapas</th>
+            <th>File</th>
+            <th>Steps</th>
             <th>Translate</th>
             <th>Logs</th>
           </tr>
@@ -66,10 +66,10 @@
     <div class="overlay-card" role="dialog" aria-modal="true" aria-labelledby="logTailTitle">
       <div class="overlay-head">
         <div class="overlay-title" id="logTailTitle">Log tail</div>
-        <button class="overlay-close" id="logTailClose" type="button">Fechar</button>
+        <button class="overlay-close" id="logTailClose" type="button">Close</button>
       </div>
       <div class="overlay-body">
-        <pre class="overlay-pre" id="logTailContent">Carregando...</pre>
+        <pre class="overlay-pre" id="logTailContent">Loading...</pre>
       </div>
     </div>
   </div>
@@ -92,7 +92,7 @@
 
     function updateHint() {
       const sel = selectedIds();
-      hint.textContent = `Selecionados: ${sel.length}`;
+      hint.textContent = `Selected: ${sel.length}`;
       const total = document.querySelectorAll('.row-check').length;
       all.checked = total > 0 && sel.length === total;
       all.indeterminate = sel.length > 0 && sel.length < total;
@@ -141,7 +141,7 @@
     function lastLogLines(text, count = 20) {
       const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
       const trimmed = lines.filter((line, index, arr) => !(index === arr.length - 1 && line === ''));
-      return trimmed.slice(-count).join('\n') || 'Log vazio.';
+      return trimmed.slice(-count).join('\n') || 'Log is empty.';
     }
 
     function openLogTailOverlay(title, content) {
@@ -157,17 +157,17 @@
     }
 
     async function showLogTail(logUrl, fileName) {
-      openLogTailOverlay(`Ultimas 20 linhas: ${fileName}`, 'Carregando...');
+      openLogTailOverlay(`Last 20 lines: ${fileName}`, 'Loading...');
 
       try {
         const response = await fetch(logUrl);
         if (!response.ok) {
-          throw new Error(`Falha ao carregar log (${response.status})`);
+          throw new Error(`Failed to load log (${response.status})`);
         }
         const text = await response.text();
         logTailContent.textContent = lastLogLines(text, 20);
       } catch (error) {
-        logTailContent.textContent = `Nao foi possivel carregar o log.\n${error.message}`;
+        logTailContent.textContent = `Could not load the log.\n${error.message}`;
       }
     }
 
@@ -227,14 +227,14 @@
 
       if (!worker || typeof worker.running !== 'boolean') {
         workerStatusEl.classList.add('worker-unknown');
-        workerStatusEl.textContent = 'Worker: desconhecido';
+        workerStatusEl.textContent = 'Worker: unknown';
         return;
       }
 
       const queue = worker.queue || {};
       const queued = Number(queue.queued || 0);
       const running = Number(queue.running || 0);
-      const suffix = ` | fila: ${queued} | em execucao: ${running}`;
+      const suffix = ` | queue: ${queued} | running: ${running}`;
 
       if (worker.running) {
         workerStatusEl.classList.add('worker-online');

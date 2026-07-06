@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SPEC - Lista de Execucao do Pipeline</title>
+  <title>SPEC - Pipeline Execution List</title>
   <style>
     :root {
       --bg-1: #f6f2ea;
@@ -226,17 +226,17 @@
   <div class="wrap">
     <section class="hero">
       <div>
-        <h1>Pipeline Runner Local - SPEC de Lista</h1>
-        <div class="subtitle">Preview visual para validacao de UX: selecao por arquivo, opcoes na linha, run/stop em background e status vivo.</div>
+        <h1>Local Pipeline Runner - List Spec</h1>
+        <div class="subtitle">Visual UX preview: file selection, per-row options, background run/stop, and live status.</div>
       </div>
-      <div class="stamp">Django UI SPEC • Sem backend real</div>
+      <div class="stamp">Django UI SPEC • No real backend</div>
     </section>
 
     <section class="toolbar">
       <button class="btn scan" id="scanBtn">Scan</button>
-      <button class="btn run" id="runBtn">Executar</button>
-      <button class="btn stop" id="stopBtn">Parar</button>
-      <div class="selection" id="selectionInfo">Selecionados: 0</div>
+      <button class="btn run" id="runBtn">Run</button>
+      <button class="btn stop" id="stopBtn">Stop</button>
+      <div class="selection" id="selectionInfo">Selected: 0</div>
     </section>
 
     <section class="table-card">
@@ -245,13 +245,13 @@
           <thead>
             <tr>
               <th><input type="checkbox" id="toggleAll"></th>
-              <th>Arquivo</th>
-              <th>Duracao</th>
-              <th>Idioma</th>
+              <th>File</th>
+              <th>Duration</th>
+              <th>Language</th>
               <th>Status</th>
-              <th>Etapas</th>
-              <th>Opcoes (linha)</th>
-              <th>Ultima atualizacao</th>
+              <th>Steps</th>
+              <th>Options (row)</th>
+              <th>Last updated</th>
             </tr>
           </thead>
           <tbody id="rows">
@@ -279,7 +279,7 @@
                   <select><option>normalize-dry-run: no</option><option>normalize-dry-run: yes</option></select>
                 </div>
               </td>
-              <td>agora</td>
+              <td>now</td>
             </tr>
 
             <tr>
@@ -306,7 +306,7 @@
                   <select><option>normalize-dry-run: no</option><option>normalize-dry-run: yes</option></select>
                 </div>
               </td>
-              <td>2 min atras</td>
+              <td>2 min ago</td>
             </tr>
 
             <tr>
@@ -333,14 +333,14 @@
                   <select><option>normalize-dry-run: no</option><option>normalize-dry-run: yes</option></select>
                 </div>
               </td>
-              <td>5 min atras</td>
+              <td>5 min ago</td>
             </tr>
           </tbody>
         </table>
       </div>
       <div class="footer">
-        <div>SPEC: dropdowns por linha + selecao por checkbox + run/stop em lote.</div>
-        <div id="ticker">ultima acao: nenhuma</div>
+        <div>SPEC: per-row dropdowns + checkbox selection + batch run/stop.</div>
+        <div id="ticker">last action: none</div>
       </div>
     </section>
   </div>
@@ -356,7 +356,7 @@
 
     function updateSelection() {
       const count = checks.filter(c => c.checked).length;
-      selectionInfo.textContent = `Selecionados: ${count}`;
+      selectionInfo.textContent = `Selected: ${count}`;
       toggleAll.checked = count === checks.length;
       toggleAll.indeterminate = count > 0 && count < checks.length;
     }
@@ -369,21 +369,21 @@
     });
 
     scanBtn.addEventListener('click', () => {
-      ticker.textContent = 'ultima acao: scan manual executado (simulado)';
+      ticker.textContent = 'last action: manual scan executed (simulated)';
       scanBtn.textContent = 'Scan ✓';
       setTimeout(() => scanBtn.textContent = 'Scan', 900);
     });
 
     runBtn.addEventListener('click', () => {
-      ticker.textContent = 'ultima acao: run em itens selecionados (simulado)';
-      runBtn.textContent = 'Executando...';
-      setTimeout(() => runBtn.textContent = 'Executar', 900);
+      ticker.textContent = 'last action: run on selected items (simulated)';
+      runBtn.textContent = 'Running...';
+      setTimeout(() => runBtn.textContent = 'Run', 900);
     });
 
     stopBtn.addEventListener('click', () => {
-      ticker.textContent = 'ultima acao: stop em itens selecionados (simulado)';
-      stopBtn.textContent = 'Parando...';
-      setTimeout(() => stopBtn.textContent = 'Parar', 900);
+      ticker.textContent = 'last action: stop on selected items (simulated)';
+      stopBtn.textContent = 'Stopping...';
+      setTimeout(() => stopBtn.textContent = 'Stop', 900);
     });
 
     updateSelection();

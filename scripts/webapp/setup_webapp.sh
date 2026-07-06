@@ -22,4 +22,4 @@ source "$VENV_DIR/bin/activate"
 "$VENV_PY" "$MANAGE_PY" makemigrations pipeline_ui
 "$VENV_PY" "$MANAGE_PY" migrate
 
-echo "[setup_webapp] concluido"
+echo "[setup_webapp] completed"

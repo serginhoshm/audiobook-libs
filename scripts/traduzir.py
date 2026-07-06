@@ -34,80 +34,80 @@ LOCAL_KNOWLEDGE_FILE = "local_knowledge.json"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Traduz um arquivo SRT para português brasileiro."
+        description="Translate an SRT file to Brazilian Portuguese."
     )
-    parser.add_argument("input_srt", type=Path, help="Arquivo SRT de entrada.")
-    parser.add_argument("output_srt", type=Path, help="Arquivo SRT de saída traduzido.")
+    parser.add_argument("input_srt", type=Path, help="Input SRT file.")
+    parser.add_argument("output_srt", type=Path, help="Translated output SRT file.")
     parser.add_argument(
         "source_lang",
         nargs="?",
         default="auto",
-        help="Idioma de origem (ex: es, zh-CN, auto).",
+        help="Source language (for example: es, zh-CN, auto).",
     )
     parser.add_argument(
         "--block-max-lines",
         type=int,
         default=DEFAULT_BLOCK_MAX_LINES,
-        help="Quantidade máxima de legendas por bloco contextual.",
+        help="Maximum number of subtitles per context block.",
     )
     parser.add_argument(
         "--block-max-chars",
         type=int,
         default=DEFAULT_BLOCK_MAX_CHARS,
-        help="Quantidade máxima aproximada de caracteres por bloco contextual.",
+        help="Approximate maximum number of characters per context block.",
     )
     parser.add_argument(
         "--backend",
         choices=["google", "nllb_local", "gemini"],
         default=os.getenv("TRANSLATION_BACKEND", DEFAULT_BACKEND),
-        help="Backend de tradução: google (atual), nllb_local (offline) ou gemini (API Google).",
+        help="Translation backend: google (default), nllb_local (offline), or gemini (Google API).",
     )
     parser.add_argument(
         "--gemini-model",
         default=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
-        help="Modelo Gemini usado no backend gemini.",
+        help="Gemini model name used by the gemini backend.",
     )
     parser.add_argument(
         "--nllb-model-dir",
         type=Path,
         default=Path(os.getenv("NLLB_MODEL_DIR", DEFAULT_NLLB_MODEL_DIR)),
-        help="Diretório local do modelo NLLB offline.",
+        help="Local directory for the offline NLLB model.",
     )
     parser.add_argument(
         "--nllb-max-input-length",
         type=int,
         default=int(os.getenv("NLLB_MAX_INPUT_LENGTH", str(DEFAULT_NLLB_MAX_INPUT_LENGTH))),
-        help="Tamanho máximo de entrada para NLLB local.",
+        help="Maximum input length for local NLLB.",
     )
     parser.add_argument(
         "--nllb-max-new-tokens",
         type=int,
         default=int(os.getenv("NLLB_MAX_NEW_TOKENS", str(DEFAULT_NLLB_MAX_NEW_TOKENS))),
-        help="Máximo de novos tokens por geração no NLLB local.",
+        help="Maximum new tokens per generation for local NLLB.",
     )
     parser.add_argument(
         "--nllb-use-gpu",
         action="store_true",
         default=DEFAULT_NLLB_USE_GPU,
-        help="Tenta usar GPU para acelerar o NLLB local (quando disponível).",
+        help="Try using GPU to accelerate local NLLB (when available).",
     )
     parser.add_argument(
         "--nllb-legacy-generation",
         action="store_true",
         default=DEFAULT_NLLB_LEGACY_GENERATION,
-        help="Usa a geração antiga do NLLB (fallback).",
+        help="Use legacy NLLB generation mode (fallback).",
     )
     parser.add_argument(
         "--zh-calibration-dir",
         type=Path,
         default=Path(os.getenv("ZH_CALIBRATION_DIR", DEFAULT_ZH_CALIBRATION_DIR)),
-        help="Diretório com perfil/glossário de calibração para chinês.",
+        help="Directory with Chinese calibration profile/glossary.",
     )
     parser.add_argument(
         "--zh-glossary-limit",
         type=int,
         default=int(os.getenv("ZH_GLOSSARY_LIMIT", str(DEFAULT_ZH_GLOSSARY_LIMIT))),
-        help="Limite de entradas de glossário/contexto autoajustável para chinês.",
+        help="Limit for Chinese adaptive glossary/context entries.",
     )
     return parser.parse_args()
 
@@ -138,13 +138,13 @@ class GoogleBackendTranslator(BaseTranslator):
 class GeminiBackendTranslator(BaseTranslator):
     def __init__(self, api_key, model_name, source_lang):
         if not normalize_text(api_key):
-            raise ValueError("GEMINI_API_KEY nao definida para backend gemini.")
+            raise ValueError("GEMINI_API_KEY is not set for gemini backend.")
 
         try:
             import google.generativeai as genai
         except Exception as exc:
             raise RuntimeError(
-                "Dependencia ausente para gemini. Rode setup/install_all.sh"
+                "Missing dependency for gemini. Run setup/install_all.sh"
             ) from exc
 
         self._genai = genai
@@ -162,17 +162,17 @@ class GeminiBackendTranslator(BaseTranslator):
             return ""
 
         prompt = (
-            "Traduza do idioma de origem para portugues brasileiro. "
-            "Responda apenas com a traducao, sem explicacoes. "
-            "Preserve exatamente quaisquer marcadores no formato [[SRT-0001]], "
-            "sem alterar indice, colchetes ou ordem. "
-            f"Idioma de origem esperado: {self.source_lang}.\n\n"
-            f"Texto:\n{normalized}"
+            "Translate from the source language to Brazilian Portuguese. "
+            "Return only the translation, with no explanations. "
+            "Preserve markers in the format [[SRT-0001]] exactly as provided, "
+            "without changing index, brackets, or order. "
+            f"Expected source language: {self.source_lang}.\n\n"
+            f"Text:\n{normalized}"
         )
         response = self.model.generate_content(prompt)
         translated = normalize_text(getattr(response, "text", ""))
         if not translated:
-            raise RuntimeError("Resposta vazia do backend Gemini.")
+            raise RuntimeError("Empty response from Gemini backend.")
         return translated
 
 
@@ -193,11 +193,11 @@ class NLLBLocalTranslator(BaseTranslator):
     ):
         if source_lang_key not in self.SOURCE_LANG_MAP:
             raise ValueError(
-                "Backend nllb_local suporta apenas source_lang es ou zh-CN."
+                "nllb_local backend only supports source_lang es or zh-CN."
             )
         if not model_dir.exists():
             raise FileNotFoundError(
-                f"Diretorio de modelo NLLB nao encontrado: {model_dir}"
+                f"NLLB model directory not found: {model_dir}"
             )
 
         try:
@@ -205,7 +205,7 @@ class NLLBLocalTranslator(BaseTranslator):
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
         except Exception as exc:
             raise RuntimeError(
-                "Dependencias ausentes para nllb_local. Rode setup/setup-nllb-local.sh"
+                "Missing dependencies for nllb_local. Run setup/setup-nllb-local.sh"
             ) from exc
 
         self._torch = torch
@@ -232,7 +232,7 @@ class NLLBLocalTranslator(BaseTranslator):
         self.tokenizer.src_lang = self.source_lang
         self.forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(self.target_lang)
         if self.forced_bos_token_id is None or self.forced_bos_token_id < 0:
-            raise RuntimeError("Nao foi possivel resolver token de destino por_Latn")
+            raise RuntimeError("Could not resolve target token por_Latn")
 
         mode = "legacy" if self.legacy_generation else "fast"
         print(
@@ -292,7 +292,7 @@ def build_translator(args, source_lang_key, source_lang_normalized):
 
     if backend == "nllb_local":
         if source_lang_key == "auto":
-            print("Aviso: source_lang=auto nao e suportado em nllb_local. Usando backend google.")
+            print("Warning: source_lang=auto is not supported in nllb_local. Falling back to google backend.")
             return GoogleBackendTranslator(source_lang_normalized), "google"
         translator = NLLBLocalTranslator(
             args.nllb_model_dir,
@@ -664,7 +664,7 @@ def translate_chinese_srt(
     total_blocks = len(blocks)
 
     for block_index, block in enumerate(
-        tqdm(blocks, desc="[traducao]", unit="bloco", leave=False, disable=not sys.stderr.isatty()),
+        tqdm(blocks, desc="[translation]", unit="block", leave=False, disable=not sys.stderr.isatty()),
         start=1,
     ):
         block_texts = [normalize_text(subtitle.text) for subtitle in block]
@@ -704,7 +704,7 @@ def translate_chinese_srt(
         save_translation_memory(memory_path, source_memory)
 
 def translate_simple_srt(subtitles, tradutor):
-    for subtitle in tqdm(subtitles, desc="[traducao]", unit="item", leave=False, disable=not sys.stderr.isatty()):
+    for subtitle in tqdm(subtitles, desc="[translation]", unit="item", leave=False, disable=not sys.stderr.isatty()):
         texto = normalize_text(subtitle.text)
         if not texto:
             continue
@@ -723,7 +723,7 @@ def main():
     source_lang = (args.source_lang or "").strip()
     source_lang_key = source_lang.lower()
     if source_lang_key not in {"es", "zh-cn", "auto"}:
-        print("Erro: idioma de origem inválido. Use 'es', 'zh-CN' ou 'auto'.")
+        print("Error: invalid source language. Use 'es', 'zh-CN', or 'auto'.")
         sys.exit(1)
 
     if source_lang_key == "es":
@@ -734,7 +734,7 @@ def main():
         source_lang_normalized = "auto"
 
     if not input_path.exists():
-        print(f"Erro: arquivo de entrada não encontrado: {input_path}")
+        print(f"Error: input file not found: {input_path}")
         sys.exit(1)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -745,7 +745,7 @@ def main():
         subtitles = pysrt.open(str(input_path), encoding="iso-8859-1")
 
     if len(subtitles) == 0:
-        print(f"Erro: arquivo de entrada não possui legendas: {input_path}")
+        print(f"Error: input file has no subtitles: {input_path}")
         sys.exit(1)
 
     tradutor, selected_backend = build_translator(args, source_lang_key, source_lang_normalized)
@@ -773,7 +773,7 @@ def main():
 
     subtitles.save(str(output_path), encoding="utf-8")
 
-    print(f"Concluído. Arquivo gerado em: {output_path}")
+    print(f"Completed. Output file generated at: {output_path}")
 
 
 if __name__ == "__main__":

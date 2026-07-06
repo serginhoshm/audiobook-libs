@@ -189,7 +189,7 @@ def resolve_unique_stem(video_path: Path, data_root: Path, archive_root: Path, c
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Normaliza nomes de vídeo e artefatos para português")
+    parser = argparse.ArgumentParser(description="Normalize video and artifact names for Portuguese output")
     parser.add_argument("--root-dir", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--archive-root", type=Path, required=True)
@@ -203,7 +203,7 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Sufixo opcional de idioma original para anexar ao nome final.",
     )
-    parser.add_argument("--preview", action="store_true", help="Apenas calcula o nome final, sem renomear arquivos")
+    parser.add_argument("--preview", action="store_true", help="Only compute the final name without renaming files")
     return parser.parse_args()
 
 
@@ -212,7 +212,7 @@ def main() -> int:
     video_path = args.video
 
     if not video_path.exists():
-        print(f"ERRO: arquivo de vídeo não encontrado: {video_path}", file=sys.stderr)
+        print(f"ERROR: video file not found: {video_path}", file=sys.stderr)
         return 1
 
     old_stem = video_path.stem
@@ -232,7 +232,7 @@ def main() -> int:
         return 0
 
     new_video_path = video_path.with_name(f"{unique_stem}{video_path.suffix}")
-    print(f"NORMALIZANDO: {video_path.name} -> {new_video_path.name}", file=sys.stderr)
+    print(f"NORMALIZING: {video_path.name} -> {new_video_path.name}", file=sys.stderr)
 
     rename_if_exists(video_path, new_video_path)
 
