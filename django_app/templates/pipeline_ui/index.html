@@ -20,8 +20,21 @@
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d6e2dd; }
     th, td { border-bottom: 1px solid #e2ece8; padding: 8px 9px; text-align: left; vertical-align: top; font-size: .88rem; }
     th { background: #edf6f3; position: sticky; top: 0; }
-    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
-    .chip { padding: 3px 7px; border-radius: 999px; font-size: .75rem; font-weight: 700; border: 1px solid #c6dcd3; background: #e9f4ef; }
+    .step-col { min-width: 108px; }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: .74rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .status-not-started { background: #f5f6f8; border-color: #d4d8de; color: #44505d; }
+    .status-running { background: #fff5c7; border-color: #f3de80; color: #7b6500; }
+    .status-completed { background: #dff5e6; border-color: #a7d8b8; color: #1f5a34; }
+    .status-error { background: #ffe4e4; border-color: #f1b3b3; color: #8a1f1f; }
+    .status-unknown { background: #ff8a1f; border-color: #d46808; color: #ffffff; }
     select { width: 100%; border: 1px solid #c1d2cc; border-radius: 7px; padding: 5px; font-size: .8rem; background: #fff; }
     .mono { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: #4a5f58; }
     .tail-link { color: #1f5b99; text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
@@ -52,7 +65,11 @@
           <tr>
             <th><input type="checkbox" id="all"></th>
             <th>File</th>
-            <th>Steps</th>
+            <th class="step-col">Extract</th>
+            <th class="step-col">Transcribe</th>
+            <th class="step-col">Translate</th>
+            <th class="step-col">Audiobook</th>
+            <th class="step-col">Remux</th>
             <th>Translate</th>
             <th>Logs</th>
           </tr>
@@ -98,8 +115,8 @@
       all.indeterminate = sel.length > 0 && sel.length < total;
     }
 
-    function chip(text) {
-      return `<span class="chip">${text}</span>`;
+    function statusBadge(label, className) {
+      return `<span class="status-badge ${className}">${label}</span>`;
     }
 
     function selectField(videoId, key, value, options) {
@@ -171,7 +188,7 @@
       }
     }
 
-    function buildDisplaySteps(run) {
+    function buildDisplayStepMap(run) {
       const orderedStepNames = ['extract', 'transcribe', 'translate', 'audiobook', 'remux'];
       const stepMap = new Map();
 
@@ -179,21 +196,44 @@
         stepMap.set(step.step_name, step.status || 'pending');
       });
 
-      return orderedStepNames.map((stepName) => ({
-        step_name: stepName,
-        status: stepMap.get(stepName) || 'pending'
-      }));
+      return Object.fromEntries(orderedStepNames.map((stepName) => [stepName, stepMap.get(stepName) || 'pending']));
+    }
+
+    function mapStepStatus(rawStatus) {
+      const normalized = String(rawStatus || '').trim().toLowerCase();
+
+      if (!normalized || normalized === 'pending' || normalized === 'queued' || normalized === 'discovered') {
+        return { label: 'Not started', className: 'status-not-started' };
+      }
+
+      if (normalized === 'running' || normalized === 'stopping') {
+        return { label: 'Running', className: 'status-running' };
+      }
+
+      if (normalized === 'success' || normalized === 'completed' || normalized === 'done') {
+        return { label: 'Completed', className: 'status-completed' };
+      }
+
+      if (normalized === 'failed' || normalized === 'error') {
+        return { label: 'Error', className: 'status-error' };
+      }
+
+      return { label: 'Unknown', className: 'status-unknown' };
     }
 
     function render() {
       tbody.innerHTML = items.map(item => {
         const run = item.latest_run;
         const profile = item.profile;
-        const steps = buildDisplaySteps(run);
+        const stepMap = buildDisplayStepMap(run);
+        const extractStatus = mapStepStatus(stepMap.extract);
+        const transcribeStatus = mapStepStatus(stepMap.transcribe);
+        const translateStatus = mapStepStatus(stepMap.translate);
+        const audiobookStatus = mapStepStatus(stepMap.audiobook);
+        const remuxStatus = mapStepStatus(stepMap.remux);
         const logActions = run?.log_url
           ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
           : '-';
-        const stepsHtml = steps.map(s => chip(`${s.step_name}: ${s.status}`)).join('');
 
         const translateHtml = selectField(item.id, 'translate', translateOptionValue(profile), [
           { value: 'google', label: 'Google' },
@@ -209,7 +249,11 @@
           <tr>
             <td><input type="checkbox" class="row-check" data-id="${item.id}"></td>
             <td><b>${item.file_name}</b><div class="mono">${item.file_path}</div></td>
-            <td><div class="chips">${stepsHtml}</div></td>
+            <td>${statusBadge(extractStatus.label, extractStatus.className)}</td>
+            <td>${statusBadge(transcribeStatus.label, transcribeStatus.className)}</td>
+            <td>${statusBadge(translateStatus.label, translateStatus.className)}</td>
+            <td>${statusBadge(audiobookStatus.label, audiobookStatus.className)}</td>
+            <td>${statusBadge(remuxStatus.label, remuxStatus.className)}</td>
             <td>${translateHtml}</td>
             <td class="mono">${logActions}</td>
           </tr>
