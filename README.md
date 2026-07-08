@@ -61,9 +61,13 @@ Gemini local key file:
 - Versioned template: `config/translation/gemini.env.template`
 - Local runtime file (gitignored): `config/translation/gemini.env`
 
-DeepL key template (legacy reference data/config only):
+DeepL key template and runtime key rotation:
 
 - Versioned template: `config/translation/deepl_keys_template.ini`
+- Local runtime keys (gitignored): `config/translation/deepl_keys.ini`
+- Runtime blocked-key state (gitignored): `config/translation/deepl_keys_state.ini`
+
+When `deepl_doc` is selected, the pipeline rotates DeepL keys and falls back to Google only if all keys are exhausted/blocked.
 
 ## Notes
 

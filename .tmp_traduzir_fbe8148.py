@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
-import configparser
 from datetime import datetime, timezone
 import json
 import os
 import re
 import sys
 from pathlib import Path
-from urllib import error as urlerror
-from urllib import parse as urlparse
-from urllib import request as urlrequest
 
 from deep_translator import GoogleTranslator
 import pysrt
@@ -26,12 +22,6 @@ DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
 DEFAULT_NLLB_MODEL_DIR = "models/nllb/facebook-nllb-200-distilled-600M"
 DEFAULT_ZH_CALIBRATION_DIR = "config/translation/zh"
 DEFAULT_ZH_GLOSSARY_LIMIT = 500
-DEFAULT_DEEPL_KEYS_INI = "config/translation/deepl_keys.ini"
-DEFAULT_DEEPL_KEYS_STATE_INI = "config/translation/deepl_keys_state.ini"
-DEFAULT_DEEPL_ENDPOINT = "free"
-DEFAULT_DEEPL_USAGE_TIMEOUT_SECONDS = 12
-DEEPL_FREE_BASE_URL = "https://api-free.deepl.com/v2"
-DEEPL_PRO_BASE_URL = "https://api.deepl.com/v2"
 DEFAULT_NLLB_MAX_INPUT_LENGTH = 768
 DEFAULT_NLLB_MAX_NEW_TOKENS = 192
 DEFAULT_NLLB_USE_GPU = os.getenv("NLLB_USE_GPU", "1") == "1"
@@ -44,108 +34,80 @@ LOCAL_KNOWLEDGE_FILE = "local_knowledge.json"
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Translate an SRT file to Brazilian Portuguese."
+        description="Traduz um arquivo SRT para português brasileiro."
     )
-    parser.add_argument("input_srt", type=Path, help="Input SRT file.")
-    parser.add_argument("output_srt", type=Path, help="Translated output SRT file.")
+    parser.add_argument("input_srt", type=Path, help="Arquivo SRT de entrada.")
+    parser.add_argument("output_srt", type=Path, help="Arquivo SRT de saída traduzido.")
     parser.add_argument(
         "source_lang",
         nargs="?",
         default="auto",
-        help="Source language (for example: es, zh-CN, auto).",
+        help="Idioma de origem (ex: es, zh-CN, auto).",
     )
     parser.add_argument(
         "--block-max-lines",
         type=int,
         default=DEFAULT_BLOCK_MAX_LINES,
-        help="Maximum number of subtitles per context block.",
+        help="Quantidade máxima de legendas por bloco contextual.",
     )
     parser.add_argument(
         "--block-max-chars",
         type=int,
         default=DEFAULT_BLOCK_MAX_CHARS,
-        help="Approximate maximum number of characters per context block.",
+        help="Quantidade máxima aproximada de caracteres por bloco contextual.",
     )
     parser.add_argument(
         "--backend",
-        choices=["google", "nllb_local", "gemini", "deepl_doc"],
+        choices=["google", "nllb_local", "gemini"],
         default=os.getenv("TRANSLATION_BACKEND", DEFAULT_BACKEND),
-        help="Translation backend: google (default), nllb_local (offline), gemini (Google API), or deepl_doc.",
-    )
-    parser.add_argument(
-        "--deepl-endpoint",
-        default=os.getenv("DEEPL_ENDPOINT", DEFAULT_DEEPL_ENDPOINT),
-        help="DeepL endpoint profile: free, pro, or a custom base URL.",
-    )
-    parser.add_argument(
-        "--deepl-keys-ini",
-        type=Path,
-        default=Path(os.getenv("DEEPL_KEYS_INI", DEFAULT_DEEPL_KEYS_INI)),
-        help="INI file with DeepL API keys.",
-    )
-    parser.add_argument(
-        "--deepl-keys-state-ini",
-        type=Path,
-        default=Path(os.getenv("DEEPL_KEYS_STATE_INI", DEFAULT_DEEPL_KEYS_STATE_INI)),
-        help="INI file with blocked/exhausted DeepL key state.",
-    )
-    parser.add_argument(
-        "--deepl-reset-keys-state",
-        action="store_true",
-        help="Reset blocked DeepL key state before starting translation.",
-    )
-    parser.add_argument(
-        "--deepl-usage-timeout-seconds",
-        type=int,
-        default=int(os.getenv("DEEPL_USAGE_TIMEOUT_SECONDS", str(DEFAULT_DEEPL_USAGE_TIMEOUT_SECONDS))),
-        help="Timeout in seconds for DeepL /usage precheck.",
+        help="Backend de tradução: google (atual), nllb_local (offline) ou gemini (API Google).",
     )
     parser.add_argument(
         "--gemini-model",
         default=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
-        help="Gemini model name used by the gemini backend.",
+        help="Modelo Gemini usado no backend gemini.",
     )
     parser.add_argument(
         "--nllb-model-dir",
         type=Path,
         default=Path(os.getenv("NLLB_MODEL_DIR", DEFAULT_NLLB_MODEL_DIR)),
-        help="Local directory for the offline NLLB model.",
+        help="Diretório local do modelo NLLB offline.",
     )
     parser.add_argument(
         "--nllb-max-input-length",
         type=int,
         default=int(os.getenv("NLLB_MAX_INPUT_LENGTH", str(DEFAULT_NLLB_MAX_INPUT_LENGTH))),
-        help="Maximum input length for local NLLB.",
+        help="Tamanho máximo de entrada para NLLB local.",
     )
     parser.add_argument(
         "--nllb-max-new-tokens",
         type=int,
         default=int(os.getenv("NLLB_MAX_NEW_TOKENS", str(DEFAULT_NLLB_MAX_NEW_TOKENS))),
-        help="Maximum new tokens per generation for local NLLB.",
+        help="Máximo de novos tokens por geração no NLLB local.",
     )
     parser.add_argument(
         "--nllb-use-gpu",
         action="store_true",
         default=DEFAULT_NLLB_USE_GPU,
-        help="Try using GPU to accelerate local NLLB (when available).",
+        help="Tenta usar GPU para acelerar o NLLB local (quando disponível).",
     )
     parser.add_argument(
         "--nllb-legacy-generation",
         action="store_true",
         default=DEFAULT_NLLB_LEGACY_GENERATION,
-        help="Use legacy NLLB generation mode (fallback).",
+        help="Usa a geração antiga do NLLB (fallback).",
     )
     parser.add_argument(
         "--zh-calibration-dir",
         type=Path,
         default=Path(os.getenv("ZH_CALIBRATION_DIR", DEFAULT_ZH_CALIBRATION_DIR)),
-        help="Directory with Chinese calibration profile/glossary.",
+        help="Diretório com perfil/glossário de calibração para chinês.",
     )
     parser.add_argument(
         "--zh-glossary-limit",
         type=int,
         default=int(os.getenv("ZH_GLOSSARY_LIMIT", str(DEFAULT_ZH_GLOSSARY_LIMIT))),
-        help="Limit for Chinese adaptive glossary/context entries.",
+        help="Limite de entradas de glossário/contexto autoajustável para chinês.",
     )
     return parser.parse_args()
 
@@ -173,284 +135,16 @@ class GoogleBackendTranslator(BaseTranslator):
         return self.translator.translate(text)
 
 
-class DeepLKeyExhaustedError(RuntimeError):
-    pass
-
-
-class DeepLKeyInvalidError(RuntimeError):
-    pass
-
-
-def deepl_base_url(endpoint_raw):
-    endpoint = normalize_text(endpoint_raw).lower()
-    if endpoint in {"", "free"}:
-        return DEEPL_FREE_BASE_URL
-    if endpoint == "pro":
-        return DEEPL_PRO_BASE_URL
-
-    custom = normalize_text(endpoint_raw).rstrip("/")
-    if custom.startswith("http://") or custom.startswith("https://"):
-        if custom.endswith("/v2"):
-            return custom
-        return f"{custom}/v2"
-
-    return DEEPL_FREE_BASE_URL
-
-
-def key_prefix8(api_key):
-    return normalize_text(api_key).lower()[:8]
-
-
-def load_deepl_keys_from_ini(path):
-    if not path.exists():
-        raise FileNotFoundError(f"DeepL keys file not found: {path}")
-
-    cfg = configparser.ConfigParser(interpolation=None)
-    cfg.optionxform = str
-    loaded = cfg.read(path, encoding="utf-8")
-    if not loaded:
-        raise RuntimeError(f"Could not read DeepL keys file: {path}")
-
-    keys = []
-
-    def add_key(raw):
-        value = normalize_text(raw).strip('"').strip("'")
-        if value and value not in keys:
-            keys.append(value)
-
-    for section in ("deepl_keys", "keys"):
-        if cfg.has_section(section):
-            for _, raw_value in cfg.items(section):
-                add_key(raw_value)
-
-    if cfg.has_section("deepl"):
-        for raw_name, raw_value in cfg.items("deepl"):
-            key_name = normalize_text(raw_name).lower()
-            if key_name in {"api_key", "deepl_api_key", "key"}:
-                add_key(raw_value)
-            elif key_name == "api_keys":
-                for part in re.split(r"[,\n;]+", raw_value or ""):
-                    add_key(part)
-
-    if not keys:
-        raise RuntimeError(f"No valid DeepL API key found in: {path}")
-
-    return keys
-
-
-def load_blocked_key_prefixes(state_path):
-    if not state_path.exists():
-        return set()
-
-    cfg = configparser.ConfigParser(interpolation=None)
-    cfg.optionxform = str
-    cfg.read(state_path, encoding="utf-8")
-
-    blocked = set()
-    if cfg.has_section("blocked_keys"):
-        for raw_prefix in cfg.options("blocked_keys"):
-            prefix = normalize_text(raw_prefix).lower()
-            if re.fullmatch(r"[0-9a-f]{8}", prefix):
-                blocked.add(prefix)
-    return blocked
-
-
-def persist_blocked_key_prefix(state_path, prefix, reason):
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-
-    cfg = configparser.ConfigParser(interpolation=None)
-    cfg.optionxform = str
-    cfg.read(state_path, encoding="utf-8")
-    if not cfg.has_section("blocked_keys"):
-        cfg.add_section("blocked_keys")
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-    cfg.set("blocked_keys", prefix.lower(), f"{timestamp}|{reason}")
-
-    with state_path.open("w", encoding="utf-8") as fh:
-        cfg.write(fh)
-
-
-class DeepLRotatingTranslator(BaseTranslator):
-    def __init__(
-        self,
-        source_lang,
-        endpoint,
-        keys_ini,
-        keys_state_ini,
-        usage_timeout_seconds,
-        reset_keys_state=False,
-    ):
-        source_lang_map = {
-            "es": "ES",
-            "zh-cn": "ZH",
-            "auto": None,
-        }
-        self.source_lang = source_lang_map.get((source_lang or "auto").lower(), None)
-        self.base_url = deepl_base_url(endpoint)
-        self.keys_ini = Path(keys_ini)
-        self.state_path = Path(keys_state_ini)
-        self.usage_timeout_seconds = max(3, int(usage_timeout_seconds))
-        self.google_fallback = GoogleBackendTranslator(source_lang)
-
-        if reset_keys_state and self.state_path.exists():
-            self.state_path.unlink()
-
-        self._all_keys = load_deepl_keys_from_ini(self.keys_ini)
-        self._blocked_prefixes = load_blocked_key_prefixes(self.state_path)
-        self._available_keys = []
-        self._next_key_index = 0
-        self._build_available_key_pool()
-        print(
-            "[DEEPL_ROTATION_MODE] backend=deepl_doc endpoint=%s total_keys=%s available_keys=%s"
-            % (self.base_url, len(self._all_keys), len(self._available_keys)),
-            flush=True,
-        )
-
-    def _headers(self, api_key):
-        return {
-            "Authorization": f"DeepL-Auth-Key {api_key}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        }
-
-    def _mark_key_blocked(self, api_key, reason):
-        prefix = key_prefix8(api_key)
-        if not prefix or prefix in self._blocked_prefixes:
-            return
-        self._blocked_prefixes.add(prefix)
-        persist_blocked_key_prefix(self.state_path, prefix, reason)
-        print(f"[deepl_doc] key blocked ({prefix}...): {reason}", flush=True)
-
-    def _post_form(self, path, form_data, api_key, timeout):
-        encoded = urlparse.urlencode(form_data, doseq=True).encode("utf-8")
-        req = urlrequest.Request(
-            f"{self.base_url}{path}",
-            data=encoded,
-            headers=self._headers(api_key),
-            method="POST",
-        )
-        with urlrequest.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-            return resp.status, body
-
-    def _get_usage(self, api_key):
-        req = urlrequest.Request(
-            f"{self.base_url}/usage",
-            headers={"Authorization": f"DeepL-Auth-Key {api_key}"},
-            method="GET",
-        )
-
-        try:
-            with urlrequest.urlopen(req, timeout=self.usage_timeout_seconds) as resp:
-                body = resp.read().decode("utf-8", errors="replace")
-                payload = json.loads(body)
-                count = int(payload.get("character_count", -1))
-                limit = int(payload.get("character_limit", -1))
-                if limit > 0 and count >= limit:
-                    return "exhausted", f"usage_exhausted:{count}/{limit}"
-                return "available", f"usage:{count}/{limit}"
-        except urlerror.HTTPError as exc:
-            if exc.code == 456:
-                return "exhausted", "http_456"
-            if exc.code in {401, 403}:
-                return "invalid", f"http_{exc.code}"
-            return "unknown", f"http_{exc.code}"
-        except Exception:
-            # Keep the key if usage endpoint is temporarily unavailable.
-            return "unknown", "usage_unknown"
-
-    def _build_available_key_pool(self):
-        self._available_keys = []
-        for index, api_key in enumerate(self._all_keys, start=1):
-            prefix = key_prefix8(api_key)
-            if not prefix:
-                continue
-            if prefix in self._blocked_prefixes:
-                print(f"[deepl_doc] skipping blocked key ({index}): {prefix}...", flush=True)
-                continue
-
-            status, detail = self._get_usage(api_key)
-            if status in {"exhausted", "invalid"}:
-                self._mark_key_blocked(api_key, detail)
-                continue
-
-            print(f"[deepl_doc] key ready ({index}): {prefix}... [{detail}]", flush=True)
-            self._available_keys.append(api_key)
-
-    def _translate_with_key(self, text, api_key):
-        form_data = {
-            "text": text,
-            "target_lang": "PT-BR",
-            "preserve_formatting": "1",
-            "split_sentences": "nonewlines",
-        }
-        if self.source_lang and self.source_lang != "AUTO":
-            form_data["source_lang"] = self.source_lang
-
-        try:
-            _, body = self._post_form("/translate", form_data, api_key, timeout=45)
-        except urlerror.HTTPError as exc:
-            if exc.code == 456:
-                raise DeepLKeyExhaustedError("http_456") from exc
-            if exc.code in {401, 403}:
-                raise DeepLKeyInvalidError(f"http_{exc.code}") from exc
-            raise RuntimeError(f"DeepL translate request failed with HTTP {exc.code}") from exc
-
-        payload = json.loads(body)
-        translations = payload.get("translations") or []
-        if not translations:
-            raise RuntimeError("DeepL returned no translations")
-
-        translated = normalize_text(translations[0].get("text", ""))
-        if not translated:
-            raise RuntimeError("DeepL returned an empty translation")
-        return translated
-
-    def _google_fallback_translate(self, text, reason):
-        print(f"[DEEPL_FALLBACK_EXHAUSTED_KEYS] fallback=google reason={reason}", flush=True)
-        return self.google_fallback.translate(text)
-
-    def translate(self, text):
-        normalized = normalize_text(text)
-        if not normalized:
-            return ""
-
-        while self._available_keys:
-            if self._next_key_index >= len(self._available_keys):
-                self._next_key_index = 0
-
-            api_key = self._available_keys[self._next_key_index]
-            prefix = key_prefix8(api_key)
-
-            try:
-                translated = self._translate_with_key(normalized, api_key)
-                self._next_key_index = (self._next_key_index + 1) % max(1, len(self._available_keys))
-                return translated
-            except DeepLKeyExhaustedError as exc:
-                self._mark_key_blocked(api_key, str(exc))
-            except DeepLKeyInvalidError as exc:
-                self._mark_key_blocked(api_key, str(exc))
-            except Exception:
-                # Non-quota transient errors should not permanently block the key.
-                self._next_key_index = (self._next_key_index + 1) % max(1, len(self._available_keys))
-                raise
-
-            # Remove blocked key from active pool and continue rotating.
-            self._available_keys.pop(self._next_key_index)
-
-        return self._google_fallback_translate(normalized, "all DeepL keys exhausted or blocked")
-
-
 class GeminiBackendTranslator(BaseTranslator):
     def __init__(self, api_key, model_name, source_lang):
         if not normalize_text(api_key):
-            raise ValueError("GEMINI_API_KEY is not set for gemini backend.")
+            raise ValueError("GEMINI_API_KEY nao definida para backend gemini.")
 
         try:
             import google.generativeai as genai
         except Exception as exc:
             raise RuntimeError(
-                "Missing dependency for gemini. Run setup/install_all.sh"
+                "Dependencia ausente para gemini. Rode setup/install_all.sh"
             ) from exc
 
         self._genai = genai
@@ -468,17 +162,17 @@ class GeminiBackendTranslator(BaseTranslator):
             return ""
 
         prompt = (
-            "Translate from the source language to Brazilian Portuguese. "
-            "Return only the translation, with no explanations. "
-            "Preserve markers in the format [[SRT-0001]] exactly as provided, "
-            "without changing index, brackets, or order. "
-            f"Expected source language: {self.source_lang}.\n\n"
-            f"Text:\n{normalized}"
+            "Traduza do idioma de origem para portugues brasileiro. "
+            "Responda apenas com a traducao, sem explicacoes. "
+            "Preserve exatamente quaisquer marcadores no formato [[SRT-0001]], "
+            "sem alterar indice, colchetes ou ordem. "
+            f"Idioma de origem esperado: {self.source_lang}.\n\n"
+            f"Texto:\n{normalized}"
         )
         response = self.model.generate_content(prompt)
         translated = normalize_text(getattr(response, "text", ""))
         if not translated:
-            raise RuntimeError("Empty response from Gemini backend.")
+            raise RuntimeError("Resposta vazia do backend Gemini.")
         return translated
 
 
@@ -499,11 +193,11 @@ class NLLBLocalTranslator(BaseTranslator):
     ):
         if source_lang_key not in self.SOURCE_LANG_MAP:
             raise ValueError(
-                "nllb_local backend only supports source_lang es or zh-CN."
+                "Backend nllb_local suporta apenas source_lang es ou zh-CN."
             )
         if not model_dir.exists():
             raise FileNotFoundError(
-                f"NLLB model directory not found: {model_dir}"
+                f"Diretorio de modelo NLLB nao encontrado: {model_dir}"
             )
 
         try:
@@ -511,7 +205,7 @@ class NLLBLocalTranslator(BaseTranslator):
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
         except Exception as exc:
             raise RuntimeError(
-                "Missing dependencies for nllb_local. Run setup/setup-nllb-local.sh"
+                "Dependencias ausentes para nllb_local. Rode setup/setup-nllb-local.sh"
             ) from exc
 
         self._torch = torch
@@ -538,7 +232,7 @@ class NLLBLocalTranslator(BaseTranslator):
         self.tokenizer.src_lang = self.source_lang
         self.forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(self.target_lang)
         if self.forced_bos_token_id is None or self.forced_bos_token_id < 0:
-            raise RuntimeError("Could not resolve target token por_Latn")
+            raise RuntimeError("Nao foi possivel resolver token de destino por_Latn")
 
         mode = "legacy" if self.legacy_generation else "fast"
         print(
@@ -596,20 +290,9 @@ class NLLBLocalTranslator(BaseTranslator):
 def build_translator(args, source_lang_key, source_lang_normalized):
     backend = args.backend
 
-    if backend == "deepl_doc":
-        translator = DeepLRotatingTranslator(
-            source_lang=source_lang_normalized,
-            endpoint=args.deepl_endpoint,
-            keys_ini=args.deepl_keys_ini,
-            keys_state_ini=args.deepl_keys_state_ini,
-            usage_timeout_seconds=args.deepl_usage_timeout_seconds,
-            reset_keys_state=args.deepl_reset_keys_state,
-        )
-        return translator, "deepl_doc"
-
     if backend == "nllb_local":
         if source_lang_key == "auto":
-            print("Warning: source_lang=auto is not supported in nllb_local. Falling back to google backend.")
+            print("Aviso: source_lang=auto nao e suportado em nllb_local. Usando backend google.")
             return GoogleBackendTranslator(source_lang_normalized), "google"
         translator = NLLBLocalTranslator(
             args.nllb_model_dir,
@@ -981,7 +664,7 @@ def translate_chinese_srt(
     total_blocks = len(blocks)
 
     for block_index, block in enumerate(
-        tqdm(blocks, desc="[translation]", unit="block", leave=False, disable=not sys.stderr.isatty()),
+        tqdm(blocks, desc="[traducao]", unit="bloco", leave=False, disable=not sys.stderr.isatty()),
         start=1,
     ):
         block_texts = [normalize_text(subtitle.text) for subtitle in block]
@@ -1021,7 +704,7 @@ def translate_chinese_srt(
         save_translation_memory(memory_path, source_memory)
 
 def translate_simple_srt(subtitles, tradutor):
-    for subtitle in tqdm(subtitles, desc="[translation]", unit="item", leave=False, disable=not sys.stderr.isatty()):
+    for subtitle in tqdm(subtitles, desc="[traducao]", unit="item", leave=False, disable=not sys.stderr.isatty()):
         texto = normalize_text(subtitle.text)
         if not texto:
             continue
@@ -1040,7 +723,7 @@ def main():
     source_lang = (args.source_lang or "").strip()
     source_lang_key = source_lang.lower()
     if source_lang_key not in {"es", "zh-cn", "auto"}:
-        print("Error: invalid source language. Use 'es', 'zh-CN', or 'auto'.")
+        print("Erro: idioma de origem inválido. Use 'es', 'zh-CN' ou 'auto'.")
         sys.exit(1)
 
     if source_lang_key == "es":
@@ -1051,7 +734,7 @@ def main():
         source_lang_normalized = "auto"
 
     if not input_path.exists():
-        print(f"Error: input file not found: {input_path}")
+        print(f"Erro: arquivo de entrada não encontrado: {input_path}")
         sys.exit(1)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1062,7 +745,7 @@ def main():
         subtitles = pysrt.open(str(input_path), encoding="iso-8859-1")
 
     if len(subtitles) == 0:
-        print(f"Error: input file has no subtitles: {input_path}")
+        print(f"Erro: arquivo de entrada não possui legendas: {input_path}")
         sys.exit(1)
 
     tradutor, selected_backend = build_translator(args, source_lang_key, source_lang_normalized)
@@ -1090,7 +773,7 @@ def main():
 
     subtitles.save(str(output_path), encoding="utf-8")
 
-    print(f"Completed. Output file generated at: {output_path}")
+    print(f"Concluído. Arquivo gerado em: {output_path}")
 
 
 if __name__ == "__main__":

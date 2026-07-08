@@ -40,6 +40,23 @@
     .status-unknown { background: #ff8a1f; border-color: #d66a00; color: #ffffff; }
     select { width: 100%; border: 1px solid #c1d2cc; border-radius: 7px; padding: 5px; font-size: .8rem; background: #fff; }
     .mono { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: #4a5f58; }
+    .translate-mode-note {
+      margin-top: 6px;
+      display: inline-block;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-size: .7rem;
+      font-weight: 700;
+      border: 1px solid #cfe0da;
+      background: #eef7f3;
+      color: #1f4f40;
+      white-space: nowrap;
+    }
+    .translate-mode-note.warn {
+      border-color: #f1c27c;
+      background: #fff5e8;
+      color: #8c4c09;
+    }
     .tail-link { color: #1f5b99; text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
     .overlay[hidden] { display: none; }
     .overlay { position: fixed; inset: 0; background: rgba(10, 20, 24, 0.52); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 1000; }
@@ -149,6 +166,23 @@
       return profile.backend;
     }
 
+    function translateModeNote(profile, run) {
+      const backend = String(profile?.backend || '').toLowerCase();
+      const endpoint = String(profile?.deepl_endpoint || 'free').toLowerCase();
+      const logTail = String(run?.log_tail || '').toLowerCase();
+
+      if (backend !== 'deepl_doc') {
+        return '';
+      }
+
+      if (logTail.includes('[deepl_fallback_exhausted_keys]')) {
+        return '<div class="translate-mode-note warn">DeepL exhausted: Google fallback active</div>';
+      }
+
+      const endpointLabel = endpoint === 'pro' ? 'pro' : 'free';
+      return `<div class="translate-mode-note">DeepL (${endpointLabel}) with key rotation</div>`;
+    }
+
     function escapeHtml(text) {
       return String(text || '')
         .replace(/&/g, '&amp;')
@@ -241,6 +275,7 @@
       tbody.innerHTML = items.map(item => {
         const run = item.latest_run;
         const profile = item.profile;
+        const translateNoteHtml = translateModeNote(profile, run);
         const runStatus = run?.status || '';
         const stepMap = buildDisplayStepMap(run);
         const extractStatus = mapStepStatus(stepMap.extract, runStatus);
@@ -271,7 +306,7 @@
             <td>${statusBadge(translateStatus.label, translateStatus.className)}</td>
             <td>${statusBadge(audiobookStatus.label, audiobookStatus.className)}</td>
             <td>${statusBadge(remuxStatus.label, remuxStatus.className)}</td>
-            <td>${translateHtml}</td>
+            <td>${translateHtml}${translateNoteHtml}</td>
             <td class="mono">${logActions}</td>
           </tr>
         `;

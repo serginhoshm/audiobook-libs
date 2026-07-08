@@ -217,8 +217,6 @@ def _execute_pipeline_steps(
     out_wav_path = work_dir / f"{base_name}.pt.wav"
 
     backend = profile.backend
-    if backend == "deepl_doc":
-        return 2, "Backend deepl_doc is no longer supported by the current script pipeline. Use google, nllb_local, or gemini."
 
     reuse_transcript, transcript_detail = _can_reuse_transcript(video_path, srt_path)
     if reuse_transcript:
@@ -277,6 +275,11 @@ def _execute_pipeline_steps(
     else:
         log_fh.write(f"{translation_detail}\n")
         log_fh.write("step 2 - translate\n")
+        if backend == "deepl_doc":
+            log_fh.write(
+                f"[DEEPL_ROTATION_MODE] profile_backend=deepl_doc endpoint={profile.deepl_endpoint} "
+                "fallback=google_on_exhausted_keys\n"
+            )
         log_fh.flush()
         _set_step_status(run.id, "translate", "running", "step 2 - translate")
         translate_cmd = [
@@ -287,6 +290,12 @@ def _execute_pipeline_steps(
             source_lang,
             "--backend",
             backend,
+            "--deepl-endpoint",
+            profile.deepl_endpoint,
+            "--deepl-keys-ini",
+            str(root_dir / "config" / "translation" / "deepl_keys.ini"),
+            "--deepl-keys-state-ini",
+            str(root_dir / "config" / "translation" / "deepl_keys_state.ini"),
             "--nllb-max-input-length",
             str(profile.nllb_max_input_length),
             "--nllb-max-new-tokens",
