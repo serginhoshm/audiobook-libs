@@ -105,9 +105,36 @@ def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
 
 def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
     video_path = Path(asset.file_path)
-    done_video_path = load_done_dir() / asset.file_name
+    done_dir = load_done_dir()
+    remux_dir = load_data_root() / "remux"
+    done_video_path = done_dir / asset.file_name
     stem_path = video_path.with_suffix("")
     done_stem_path = done_video_path.with_suffix("")
+
+    def _find_remux_evidence_path() -> Path:
+        # Exact original filename in done/ remains the highest-confidence signal.
+        if done_video_path.exists():
+            return done_video_path
+
+        source_stem = video_path.stem.lower()
+        source_ext = video_path.suffix.lower()
+
+        for folder in (done_dir, remux_dir):
+            if not folder.exists():
+                continue
+            try:
+                for candidate in folder.iterdir():
+                    if not candidate.is_file():
+                        continue
+                    name_lower = candidate.name.lower()
+                    if candidate.suffix.lower() != source_ext:
+                        continue
+                    if source_stem in name_lower and "remux" in name_lower:
+                        return candidate
+            except Exception:
+                continue
+
+        return done_video_path
 
     def _first_existing(*paths: Path) -> Path:
         for path in paths:
@@ -122,7 +149,7 @@ def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
         "srt": _first_existing(stem_path.with_suffix(".srt"), done_stem_path.with_suffix(".srt")),
         "srtpt": _first_existing(stem_path.with_suffix(".srtpt"), done_stem_path.with_suffix(".srtpt")),
         "pt_wav": _first_existing(stem_path.with_suffix(".pt.wav"), done_stem_path.with_suffix(".pt.wav")),
-        "done_video": done_video_path,
+        "done_video": _find_remux_evidence_path(),
     }
 
 
@@ -152,6 +179,11 @@ def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
 
     if run is None:
         run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status="discovered")
+
+    # Never override step states while a run is in-flight. During execution,
+    # worker updates are the source of truth for UI progress.
+    if run.status in {"queued", "running", "stopping"}:
+        return
 
     step_changed = False
     for step_name in PIPELINE_STEP_ORDER:
@@ -495,6 +527,5 @@ def list_assets(
 
     items = []
     for asset in qs:
-        sync_run_steps_with_artifacts(asset)
         items.append(serialize_asset(asset, include_log_tail=include_log_tail))
     return items

@@ -60,6 +60,9 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        "OPTIONS": {
+            "timeout": int(os.environ.get("SQLITE_TIMEOUT_SECONDS", "30")),
+        },
     }
 }
 
@@ -80,5 +83,7 @@ WEBAPP = {
     "PIPELINE_CONFIG": ROOT_DIR / "config" / "pipeline.ini",
     "WORKER_POLL_SECONDS": int(os.environ.get("WEBAPP_WORKER_POLL_SECONDS", "2")),
     "WORKER_GRACE_SECONDS": int(os.environ.get("WEBAPP_WORKER_GRACE_SECONDS", "8")),
+    "SQLITE_LOCK_RETRY_ATTEMPTS": int(os.environ.get("WEBAPP_SQLITE_LOCK_RETRY_ATTEMPTS", "5")),
+    "SQLITE_LOCK_RETRY_WAIT_SECONDS": float(os.environ.get("WEBAPP_SQLITE_LOCK_RETRY_WAIT_SECONDS", "0.25")),
     "WEBAPP_LOG_DIR": ROOT_DIR / "logs" / "webapp",
 }

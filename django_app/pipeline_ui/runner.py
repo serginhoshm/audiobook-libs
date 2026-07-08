@@ -1,4 +1,5 @@
 import os
+import re
 import select
 import signal
 import subprocess
@@ -11,10 +12,15 @@ from django.conf import settings
 from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus
-from .services import RUN_MODE_PIPELINE
+from .services import RUN_MODE_PIPELINE, ffprobe_duration_seconds, load_data_root
 
 
 PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook", "remux"]
+SRT_RANGE_PATTERN = re.compile(
+    r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})"
+)
+VIDEO_SRT_REUSE_TOLERANCE_SECONDS = 4.0
+TRANSLATION_REUSE_TOLERANCE_SECONDS = 1.5
 
 
 def _bool_to_on_off(value: bool) -> str:
@@ -51,6 +57,70 @@ def _whisper_lang_from_source(source_lang: str) -> str:
     if source_lang == "zh-CN":
         return "zh"
     return "auto"
+
+
+def _parts_to_seconds(hours: str, minutes: str, seconds: str, millis: str) -> float:
+    return (int(hours) * 3600) + (int(minutes) * 60) + int(seconds) + (int(millis) / 1000.0)
+
+
+def _srt_last_end_seconds(path: Path) -> float | None:
+    if not path.exists():
+        return None
+
+    last_end: float | None = None
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                match = SRT_RANGE_PATTERN.search(line)
+                if not match:
+                    continue
+                last_end = _parts_to_seconds(match.group(5), match.group(6), match.group(7), match.group(8))
+    except Exception:
+        return None
+
+    return last_end
+
+
+def _can_reuse_transcript(video_path: Path, srt_path: Path) -> tuple[bool, str]:
+    video_duration = ffprobe_duration_seconds(video_path)
+    srt_end = _srt_last_end_seconds(srt_path)
+
+    if video_duration is None:
+        return False, "Transcript check skipped: unable to read video duration"
+    if srt_end is None:
+        return False, "Transcript check skipped: SRT not found or invalid"
+
+    if srt_end + VIDEO_SRT_REUSE_TOLERANCE_SECONDS >= video_duration:
+        return True, (
+            "Reused existing transcript: "
+            f"SRT end {srt_end:.1f}s >= video {video_duration:.1f}s - {VIDEO_SRT_REUSE_TOLERANCE_SECONDS:.1f}s"
+        )
+
+    return False, (
+        "Transcript regeneration required: "
+        f"SRT end {srt_end:.1f}s < video {video_duration:.1f}s - {VIDEO_SRT_REUSE_TOLERANCE_SECONDS:.1f}s"
+    )
+
+
+def _can_reuse_translation(srt_path: Path, srtpt_path: Path) -> tuple[bool, str]:
+    source_srt_end = _srt_last_end_seconds(srt_path)
+    translated_srt_end = _srt_last_end_seconds(srtpt_path)
+
+    if source_srt_end is None:
+        return False, "Translation check skipped: source SRT not found or invalid"
+    if translated_srt_end is None:
+        return False, "Translation check skipped: translated SRTPT not found or invalid"
+
+    if translated_srt_end + TRANSLATION_REUSE_TOLERANCE_SECONDS >= source_srt_end:
+        return True, (
+            "Reused existing translation: "
+            f"SRTPT end {translated_srt_end:.1f}s >= SRT {source_srt_end:.1f}s - {TRANSLATION_REUSE_TOLERANCE_SECONDS:.1f}s"
+        )
+
+    return False, (
+        "Translation regeneration required: "
+        f"SRTPT end {translated_srt_end:.1f}s < SRT {source_srt_end:.1f}s - {TRANSLATION_REUSE_TOLERANCE_SECONDS:.1f}s"
+    )
 
 
 def _run_subprocess_with_streaming(
@@ -150,70 +220,86 @@ def _execute_pipeline_steps(
     if backend == "deepl_doc":
         return 2, "Backend deepl_doc is no longer supported by the current script pipeline. Use google, nllb_local, or gemini."
 
-    log_fh.write("step 0 - extract\n")
-    log_fh.flush()
-    _set_step_status(run.id, "extract", "running", "step 0 - extract")
-    extract_cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-i",
-        str(video_path),
-        "-vn",
-        str(wav_path),
-    ]
-    rc = _run_subprocess_with_streaming(run, extract_cmd, log_fh, root_dir)
-    if rc != 0:
-        _set_step_status(run.id, "extract", "failed", "Audio extraction failed")
-        return rc, "Audio extraction failed"
-    _set_step_status(run.id, "extract", "success", "Completed successfully")
+    reuse_transcript, transcript_detail = _can_reuse_transcript(video_path, srt_path)
+    if reuse_transcript:
+        log_fh.write(f"step 0 - extract skipped ({transcript_detail})\n")
+        log_fh.write(f"step 1 - transcribe skipped ({transcript_detail})\n")
+        log_fh.flush()
+        _set_step_status(run.id, "extract", "skipped", "Skipped: transcript already covers source duration")
+        _set_step_status(run.id, "transcribe", "success", transcript_detail)
+    else:
+        log_fh.write(f"{transcript_detail}\n")
+        log_fh.write("step 0 - extract\n")
+        log_fh.flush()
+        _set_step_status(run.id, "extract", "running", "step 0 - extract")
+        extract_cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vn",
+            str(wav_path),
+        ]
+        rc = _run_subprocess_with_streaming(run, extract_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "extract", "failed", "Audio extraction failed")
+            return rc, "Audio extraction failed"
+        _set_step_status(run.id, "extract", "success", "Completed successfully")
 
-    log_fh.write("step 1 - transcribe\n")
-    log_fh.flush()
-    _set_step_status(run.id, "transcribe", "running", "step 1 - transcribe")
-    transcribe_cmd = [
-        *python_cmd,
-        str(scripts_dir / "transcrever.py"),
-        str(wav_path),
-        str(work_dir),
-        whisper_lang,
-        "medium",
-        base_name,
-        "--device",
-        "cuda" if profile.cuda_enabled else "cpu",
-    ]
-    rc = _run_subprocess_with_streaming(run, transcribe_cmd, log_fh, root_dir)
-    if rc != 0:
-        _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
-        return rc, "Transcription failed"
-    _set_step_status(run.id, "transcribe", "success", "Completed successfully")
+        log_fh.write("step 1 - transcribe\n")
+        log_fh.flush()
+        _set_step_status(run.id, "transcribe", "running", "step 1 - transcribe")
+        transcribe_cmd = [
+            *python_cmd,
+            str(scripts_dir / "transcrever.py"),
+            str(wav_path),
+            str(work_dir),
+            whisper_lang,
+            "medium",
+            base_name,
+            "--device",
+            "cuda" if profile.cuda_enabled else "cpu",
+        ]
+        rc = _run_subprocess_with_streaming(run, transcribe_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
+            return rc, "Transcription failed"
+        _set_step_status(run.id, "transcribe", "success", "Completed successfully")
 
-    log_fh.write("step 2 - translate\n")
-    log_fh.flush()
-    _set_step_status(run.id, "translate", "running", "step 2 - translate")
-    translate_cmd = [
-        *python_cmd,
-        str(scripts_dir / "traduzir.py"),
-        str(srt_path),
-        str(srtpt_path),
-        source_lang,
-        "--backend",
-        backend,
-        "--nllb-max-input-length",
-        str(profile.nllb_max_input_length),
-        "--nllb-max-new-tokens",
-        str(profile.nllb_max_new_tokens),
-    ]
-    if profile.nllb_legacy:
-        translate_cmd.append("--nllb-legacy-generation")
+    reuse_translation, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
+    if reuse_translation:
+        log_fh.write(f"step 2 - translate skipped ({translation_detail})\n")
+        log_fh.flush()
+        _set_step_status(run.id, "translate", "success", translation_detail)
+    else:
+        log_fh.write(f"{translation_detail}\n")
+        log_fh.write("step 2 - translate\n")
+        log_fh.flush()
+        _set_step_status(run.id, "translate", "running", "step 2 - translate")
+        translate_cmd = [
+            *python_cmd,
+            str(scripts_dir / "traduzir.py"),
+            str(srt_path),
+            str(srtpt_path),
+            source_lang,
+            "--backend",
+            backend,
+            "--nllb-max-input-length",
+            str(profile.nllb_max_input_length),
+            "--nllb-max-new-tokens",
+            str(profile.nllb_max_new_tokens),
+        ]
+        if profile.nllb_legacy:
+            translate_cmd.append("--nllb-legacy-generation")
 
-    rc = _run_subprocess_with_streaming(run, translate_cmd, log_fh, root_dir)
-    if rc != 0:
-        _set_step_status(run.id, "translate", "failed", "Translation failed")
-        return rc, "Translation failed"
-    _set_step_status(run.id, "translate", "success", "Completed successfully")
+        rc = _run_subprocess_with_streaming(run, translate_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "translate", "failed", "Translation failed")
+            return rc, "Translation failed"
+        _set_step_status(run.id, "translate", "success", "Completed successfully")
 
     log_fh.write("step 3 - wav generation (piper)\n")
     log_fh.flush()
@@ -242,6 +328,46 @@ def _execute_pipeline_steps(
         _set_step_status(run.id, "audiobook", "failed", "Audiobook synthesis failed")
         return rc, "Audiobook synthesis failed"
     _set_step_status(run.id, "audiobook", "success", "Completed successfully")
+
+    log_fh.write("step 4 - remux generation\n")
+    log_fh.flush()
+    _set_step_status(run.id, "remux", "running", "step 4 - remux generation")
+
+    remux_dir = load_data_root() / "remux"
+    remux_dir.mkdir(parents=True, exist_ok=True)
+    video_ext = video_path.suffix if video_path.suffix else ".mp4"
+    remux_out = remux_dir / f"{base_name} (remux){video_ext}"
+
+    remux_cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(out_wav_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-shortest",
+        str(remux_out),
+    ]
+
+    rc = _run_subprocess_with_streaming(run, remux_cmd, log_fh, root_dir)
+    if rc != 0:
+        _set_step_status(run.id, "remux", "failed", "Remux generation failed")
+        return rc, "Remux generation failed"
+
+    log_fh.write("remux generated successfully\n")
+    log_fh.flush()
+    _set_step_status(run.id, "remux", "success", "Completed successfully")
 
     return 0, ""
 

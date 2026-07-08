@@ -2,6 +2,7 @@ import time
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.db import OperationalError
 from django.db import transaction
 from django.utils import timezone
 
@@ -15,14 +16,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         poll_seconds = int(settings.WEBAPP["WORKER_POLL_SECONDS"])
         self.stdout.write(self.style.SUCCESS("[worker] started"))
-        self._reconcile_inflight_runs()
+        self._with_db_retry(self._reconcile_inflight_runs)
 
         try:
             while True:
-                self._reconcile_inflight_runs()
-                run = self._next_queued_run()
+                self._with_db_retry(self._reconcile_inflight_runs)
+                run = self._with_db_retry(self._next_queued_run)
                 if run is None:
-                    self._sync_stop_requests()
+                    self._with_db_retry(self._sync_stop_requests)
                     time.sleep(poll_seconds)
                     continue
 
@@ -32,12 +33,35 @@ class Command(BaseCommand):
                 try:
                     execute_run(run)
                 except Exception as exc:
-                    run.refresh_from_db()
-                    run.status = "failed"
-                    run.error_message = f"Worker internal error: {exc}"
-                    run.save(update_fields=["status", "error_message", "updated_at"])
+                    self._mark_run_failed(run, f"Worker internal error: {exc}")
         except KeyboardInterrupt:
             self.stdout.write("[worker] shutting down...")
+
+    def _with_db_retry(self, fn):
+        attempts = int(settings.WEBAPP.get("SQLITE_LOCK_RETRY_ATTEMPTS", 5))
+        base_wait = float(settings.WEBAPP.get("SQLITE_LOCK_RETRY_WAIT_SECONDS", 0.25))
+        for attempt in range(1, attempts + 1):
+            try:
+                return fn()
+            except OperationalError as exc:
+                if "database is locked" not in str(exc).lower() or attempt == attempts:
+                    raise
+                wait_seconds = base_wait * attempt
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"[worker] sqlite lock detected; retrying in {wait_seconds:.2f}s (attempt {attempt}/{attempts})"
+                    )
+                )
+                time.sleep(wait_seconds)
+
+    def _mark_run_failed(self, run, message: str):
+        def _update():
+            run.refresh_from_db()
+            run.status = "failed"
+            run.error_message = message
+            run.save(update_fields=["status", "error_message", "updated_at"])
+
+        self._with_db_retry(_update)
 
     def _reconcile_inflight_runs(self):
         running_like = PipelineRun.objects.filter(status__in=["running", "stopping"])
