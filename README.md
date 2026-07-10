@@ -74,3 +74,7 @@ When `deepl_doc` is selected, the pipeline rotates DeepL keys and falls back to 
 - `data/` runtime contents are not required to be committed.
 - `models/` remains outside `data/` and stores local model artifacts.
 - This README reflects the current state after workflow-wrapper cleanup.
+
+## GitHub Auth Note
+
+- For SSH multi-account setup and repo-scoped fix used in this project, see `docs/GITHUB_SSH_MULTI_ACCOUNT.md`.
