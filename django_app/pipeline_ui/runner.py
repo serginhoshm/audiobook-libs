@@ -217,6 +217,10 @@ def _execute_pipeline_steps(
     out_wav_path = work_dir / f"{base_name}.pt.wav"
 
     backend = profile.backend
+    if backend == "libretranslate":
+        # Legacy rows may still carry libretranslate; route them to google by default.
+        backend = "google"
+        log_fh.write("[worker] legacy backend libretranslate detected; using google\n")
 
     reuse_transcript, transcript_detail = _can_reuse_transcript(video_path, srt_path)
     if reuse_transcript:
@@ -258,8 +262,6 @@ def _execute_pipeline_steps(
             whisper_lang,
             "medium",
             base_name,
-            "--device",
-            "cuda" if profile.cuda_enabled else "cpu",
         ]
         rc = _run_subprocess_with_streaming(run, transcribe_cmd, log_fh, root_dir)
         if rc != 0:
@@ -329,8 +331,6 @@ def _execute_pipeline_steps(
         "--pause_duration",
         "0.1",
     ]
-    if profile.cuda_enabled:
-        synth_cmd.append("--piper-cuda")
 
     rc = _run_subprocess_with_streaming(run, synth_cmd, log_fh, root_dir)
     if rc != 0:

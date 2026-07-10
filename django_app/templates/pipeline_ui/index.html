@@ -149,6 +149,10 @@
     }
 
     function translateOptionValue(profile) {
+      if (profile.backend === 'libretranslate') {
+        return 'google';
+      }
+
       if (profile.backend === 'nllb_local') {
         if (profile.nllb_profile === 'legacy') {
           return 'nllb_legacy';
@@ -288,6 +292,7 @@
           : '-';
 
         const translateHtml = selectField(item.id, 'translate', translateOptionValue(profile), [
+          // { value: 'libretranslate', label: 'LibreTranslate (local)' },
           { value: 'google', label: 'Google' },
           { value: 'nllb_fast', label: 'NLLB - Fast' },
           { value: 'nllb_legacy', label: 'NLLB - Legacy' },

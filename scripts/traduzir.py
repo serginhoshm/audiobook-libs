@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 import json
 import os
 import re
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import parse as urlparse
@@ -21,7 +24,7 @@ DEFAULT_BLOCK_MAX_LINES = 20
 DEFAULT_BLOCK_MAX_CHARS = 3500
 TRANSLATION_MEMORY_SUFFIX = ".translation-memory.json"
 MARKER_TEMPLATE = "[[SRT-{index:04d}]]"
-DEFAULT_BACKEND = "google"
+DEFAULT_BACKEND = "libretranslate"
 DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
 DEFAULT_NLLB_MODEL_DIR = "models/nllb/facebook-nllb-200-distilled-600M"
 DEFAULT_ZH_CALIBRATION_DIR = "config/translation/zh"
@@ -34,8 +37,12 @@ DEEPL_FREE_BASE_URL = "https://api-free.deepl.com/v2"
 DEEPL_PRO_BASE_URL = "https://api.deepl.com/v2"
 DEFAULT_NLLB_MAX_INPUT_LENGTH = 768
 DEFAULT_NLLB_MAX_NEW_TOKENS = 192
-DEFAULT_NLLB_USE_GPU = os.getenv("NLLB_USE_GPU", "1") == "1"
 DEFAULT_NLLB_LEGACY_GENERATION = os.getenv("NLLB_LEGACY_GENERATION", "0") == "1"
+DEFAULT_LIBRETRANSLATE_URL = "http://127.0.0.1:5000"
+DEFAULT_LIBRETRANSLATE_TARGET_LANG = "pt"
+DEFAULT_LIBRETRANSLATE_TIMEOUT_SECONDS = 30
+DEFAULT_LIBRETRANSLATE_START_TIMEOUT_SECONDS = 60
+DEFAULT_LIBRETRANSLATE_LOAD_ONLY_LANG_CODES = "en,es,zh,pt"
 CALIBRATION_PROFILE_FILE = "calibration_profile.json"
 CALIBRATION_STATE_FILE = "calibration_state.json"
 GLOSSARY_FILE = "glossary.json"
@@ -68,9 +75,9 @@ def parse_args():
     )
     parser.add_argument(
         "--backend",
-        choices=["google", "nllb_local", "gemini", "deepl_doc"],
+        choices=["libretranslate", "google", "nllb_local", "gemini", "deepl_doc"],
         default=os.getenv("TRANSLATION_BACKEND", DEFAULT_BACKEND),
-        help="Translation backend: google (default), nllb_local (offline), gemini (Google API), or deepl_doc.",
+        help="Translation backend: libretranslate (default), google, nllb_local (offline), gemini (Google API), or deepl_doc.",
     )
     parser.add_argument(
         "--deepl-endpoint",
@@ -124,12 +131,6 @@ def parse_args():
         help="Maximum new tokens per generation for local NLLB.",
     )
     parser.add_argument(
-        "--nllb-use-gpu",
-        action="store_true",
-        default=DEFAULT_NLLB_USE_GPU,
-        help="Try using GPU to accelerate local NLLB (when available).",
-    )
-    parser.add_argument(
         "--nllb-legacy-generation",
         action="store_true",
         default=DEFAULT_NLLB_LEGACY_GENERATION,
@@ -146,6 +147,44 @@ def parse_args():
         type=int,
         default=int(os.getenv("ZH_GLOSSARY_LIMIT", str(DEFAULT_ZH_GLOSSARY_LIMIT))),
         help="Limit for Chinese adaptive glossary/context entries.",
+    )
+    parser.add_argument(
+        "--libretranslate-url",
+        default=os.getenv("LIBRETRANSLATE_URL", DEFAULT_LIBRETRANSLATE_URL),
+        help="Base URL for LibreTranslate API.",
+    )
+    parser.add_argument(
+        "--libretranslate-target-lang",
+        default=os.getenv("LIBRETRANSLATE_TARGET_LANG", DEFAULT_LIBRETRANSLATE_TARGET_LANG),
+        help="Target language code for LibreTranslate.",
+    )
+    parser.add_argument(
+        "--libretranslate-timeout-seconds",
+        type=int,
+        default=int(os.getenv("LIBRETRANSLATE_TIMEOUT_SECONDS", str(DEFAULT_LIBRETRANSLATE_TIMEOUT_SECONDS))),
+        help="HTTP timeout in seconds for LibreTranslate requests.",
+    )
+    parser.add_argument(
+        "--libretranslate-auto-server",
+        action=argparse.BooleanOptionalAction,
+        default=os.getenv("LIBRETRANSLATE_AUTO_SERVER", "1") == "1",
+        help="Automatically start a local LibreTranslate server if the configured URL is offline.",
+    )
+    parser.add_argument(
+        "--libretranslate-start-timeout-seconds",
+        type=int,
+        default=int(
+            os.getenv(
+                "LIBRETRANSLATE_START_TIMEOUT_SECONDS",
+                str(DEFAULT_LIBRETRANSLATE_START_TIMEOUT_SECONDS),
+            )
+        ),
+        help="Timeout in seconds waiting for local LibreTranslate server startup.",
+    )
+    parser.add_argument(
+        "--libretranslate-load-only-lang-codes",
+        default=os.getenv("LIBRETRANSLATE_LOAD_ONLY_LANG_CODES", DEFAULT_LIBRETRANSLATE_LOAD_ONLY_LANG_CODES),
+        help="Comma-separated language codes passed to libretranslate --load-only when auto-starting.",
     )
     return parser.parse_args()
 
@@ -171,6 +210,152 @@ class GoogleBackendTranslator(BaseTranslator):
 
     def translate(self, text):
         return self.translator.translate(text)
+
+
+class LocalLibreTranslateServerManager:
+    def __init__(self, base_url, start_timeout_seconds=DEFAULT_LIBRETRANSLATE_START_TIMEOUT_SECONDS, load_only_lang_codes=""):
+        self.base_url = normalize_text(base_url).rstrip("/")
+        self.start_timeout_seconds = max(5, int(start_timeout_seconds))
+        self.load_only_lang_codes = normalize_text(load_only_lang_codes)
+        self.process = None
+        self.started_here = False
+
+    def _project_root(self):
+        return Path(__file__).resolve().parents[1]
+
+    def _libretranslate_executable(self):
+        root = self._project_root()
+        configured = normalize_text(os.getenv("LIBRETRANSLATE_EXECUTABLE", ""))
+        if configured:
+            return Path(configured)
+        return root / "external" / "LibreTranslate" / ".venv" / "bin" / "libretranslate"
+
+    def _is_ready(self):
+        try:
+            with urlrequest.urlopen(f"{self.base_url}/languages", timeout=2) as resp:
+                return int(getattr(resp, "status", 200)) < 400
+        except Exception:
+            return False
+
+    def ensure_started(self):
+        if self._is_ready():
+            return
+
+        executable = self._libretranslate_executable()
+        if not executable.exists():
+            raise RuntimeError(
+                f"LibreTranslate executable not found: {executable}. "
+                "Run setup/libretranslate/setup_libretranslate.sh first."
+            )
+
+        parsed = urlparse.urlparse(self.base_url)
+        host = parsed.hostname or "127.0.0.1"
+        port = str(parsed.port or 5000)
+
+        cmd = [str(executable), "--host", host, "--port", port]
+        if self.load_only_lang_codes:
+            cmd.extend(["--load-only", self.load_only_lang_codes])
+
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.started_here = True
+
+        for _ in range(self.start_timeout_seconds):
+            if self._is_ready():
+                return
+            time.sleep(1)
+
+        self.close()
+        raise RuntimeError("LibreTranslate local server did not become ready in time")
+
+    def close(self):
+        if not self.process:
+            return
+
+        try:
+            os.killpg(self.process.pid, signal.SIGTERM)
+        except Exception:
+            pass
+
+        for _ in range(8):
+            if self.process.poll() is not None:
+                self.process = None
+                return
+            time.sleep(0.5)
+
+        try:
+            os.killpg(self.process.pid, signal.SIGKILL)
+        except Exception:
+            pass
+        self.process = None
+
+
+class LibreTranslateBackendTranslator(BaseTranslator):
+    SOURCE_LANG_MAP = {
+        "zh-cn": "zh",
+        "es": "es",
+        "auto": "auto",
+    }
+
+    def __init__(self, source_lang, base_url, target_lang="pt", timeout_seconds=DEFAULT_LIBRETRANSLATE_TIMEOUT_SECONDS):
+        self.base_url = normalize_text(base_url).rstrip("/")
+        self.target_lang = normalize_text(target_lang).lower() or DEFAULT_LIBRETRANSLATE_TARGET_LANG
+        self.timeout_seconds = max(3, int(timeout_seconds))
+        source_key = normalize_text(source_lang).lower() or "auto"
+        self.source_lang = self.SOURCE_LANG_MAP.get(source_key, "auto")
+        self.server_manager = None
+
+    def attach_server_manager(self, server_manager):
+        self.server_manager = server_manager
+
+    def _post_json(self, path, payload):
+        data = json.dumps(payload).encode("utf-8")
+        req = urlrequest.Request(
+            f"{self.base_url}{path}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlrequest.urlopen(req, timeout=self.timeout_seconds) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return json.loads(body)
+
+    def translate(self, text):
+        normalized = normalize_text(text)
+        if not normalized:
+            return ""
+
+        payload = {
+            "q": normalized,
+            "source": self.source_lang,
+            "target": self.target_lang,
+            "format": "text",
+        }
+
+        try:
+            response = self._post_json("/translate", payload)
+        except urlerror.HTTPError as exc:
+            if self.source_lang != "auto":
+                payload["source"] = "auto"
+                response = self._post_json("/translate", payload)
+            else:
+                raise RuntimeError(f"LibreTranslate request failed with HTTP {exc.code}") from exc
+        except urlerror.URLError as exc:
+            raise RuntimeError(f"LibreTranslate request failed: {exc}") from exc
+
+        translated = normalize_text(str(response.get("translatedText", "")))
+        if not translated:
+            raise RuntimeError("LibreTranslate returned an empty translation")
+        return translated
+
+    def close(self):
+        if self.server_manager is not None:
+            self.server_manager.close()
+            self.server_manager = None
 
 
 class DeepLKeyExhaustedError(RuntimeError):
@@ -494,7 +679,6 @@ class NLLBLocalTranslator(BaseTranslator):
         source_lang_key,
         max_input_length=DEFAULT_NLLB_MAX_INPUT_LENGTH,
         max_new_tokens=DEFAULT_NLLB_MAX_NEW_TOKENS,
-        use_gpu=DEFAULT_NLLB_USE_GPU,
         legacy_generation=DEFAULT_NLLB_LEGACY_GENERATION,
     ):
         if source_lang_key not in self.SOURCE_LANG_MAP:
@@ -518,9 +702,9 @@ class NLLBLocalTranslator(BaseTranslator):
         self.max_input_length = max(256, int(max_input_length))
         self.max_new_tokens = max(64, int(max_new_tokens))
         self.legacy_generation = bool(legacy_generation)
-        self.device = "cuda" if (use_gpu and torch.cuda.is_available()) else "cpu"
+        self.device = "cpu"
 
-        torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
+        torch_dtype = torch.float32
         self.tokenizer = AutoTokenizer.from_pretrained(str(model_dir), use_fast=False)
         self.model = AutoModelForSeq2SeqLM.from_pretrained(
             str(model_dir),
@@ -596,6 +780,25 @@ class NLLBLocalTranslator(BaseTranslator):
 def build_translator(args, source_lang_key, source_lang_normalized):
     backend = args.backend
 
+    if backend == "libretranslate":
+        server_manager = None
+        if args.libretranslate_auto_server:
+            server_manager = LocalLibreTranslateServerManager(
+                base_url=args.libretranslate_url,
+                start_timeout_seconds=args.libretranslate_start_timeout_seconds,
+                load_only_lang_codes=args.libretranslate_load_only_lang_codes,
+            )
+            server_manager.ensure_started()
+
+        translator = LibreTranslateBackendTranslator(
+            source_lang=source_lang_normalized,
+            base_url=args.libretranslate_url,
+            target_lang=args.libretranslate_target_lang,
+            timeout_seconds=args.libretranslate_timeout_seconds,
+        )
+        translator.attach_server_manager(server_manager)
+        return translator, "libretranslate"
+
     if backend == "deepl_doc":
         translator = DeepLRotatingTranslator(
             source_lang=source_lang_normalized,
@@ -616,7 +819,6 @@ def build_translator(args, source_lang_key, source_lang_normalized):
             source_lang_key,
             max_input_length=args.nllb_max_input_length,
             max_new_tokens=args.nllb_max_new_tokens,
-            use_gpu=args.nllb_use_gpu,
             legacy_generation=args.nllb_legacy_generation,
         )
         return translator, "nllb_local"
@@ -1065,32 +1267,40 @@ def main():
         print(f"Error: input file has no subtitles: {input_path}")
         sys.exit(1)
 
-    tradutor, selected_backend = build_translator(args, source_lang_key, source_lang_normalized)
+    tradutor = None
+    try:
+        tradutor, selected_backend = build_translator(args, source_lang_key, source_lang_normalized)
 
-    if source_lang_key == "zh-cn":
-        memory_path = memory_path_for(output_path, selected_backend, source_lang_key)
-        translation_memory = load_translation_memory(memory_path)
-        calibration_bundle = load_zh_calibration_bundle(args.zh_calibration_dir)
-        calibration_bundle["state"]["backend"] = selected_backend
+        if source_lang_key == "zh-cn":
+            memory_path = memory_path_for(output_path, selected_backend, source_lang_key)
+            translation_memory = load_translation_memory(memory_path)
+            calibration_bundle = load_zh_calibration_bundle(args.zh_calibration_dir)
+            calibration_bundle["state"]["backend"] = selected_backend
 
-        translate_chinese_srt(
-            subtitles,
-            tradutor,
-            memory_path,
-            max(1, args.block_max_lines),
-            max(1, args.block_max_chars),
-            translation_memory,
-            calibration_bundle,
-            max(1, args.zh_glossary_limit),
-        )
-        save_translation_memory(memory_path, translation_memory)
-        save_json_file(calibration_bundle["state_path"], calibration_bundle["state"])
-    else:
-        translate_simple_srt(subtitles, tradutor)
+            translate_chinese_srt(
+                subtitles,
+                tradutor,
+                memory_path,
+                max(1, args.block_max_lines),
+                max(1, args.block_max_chars),
+                translation_memory,
+                calibration_bundle,
+                max(1, args.zh_glossary_limit),
+            )
+            save_translation_memory(memory_path, translation_memory)
+            save_json_file(calibration_bundle["state_path"], calibration_bundle["state"])
+        else:
+            translate_simple_srt(subtitles, tradutor)
 
-    subtitles.save(str(output_path), encoding="utf-8")
+        subtitles.save(str(output_path), encoding="utf-8")
 
-    print(f"Completed. Output file generated at: {output_path}")
+        print(f"Completed. Output file generated at: {output_path}")
+    finally:
+        if tradutor and hasattr(tradutor, "close"):
+            try:
+                tradutor.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

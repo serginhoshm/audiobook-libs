@@ -86,7 +86,6 @@ Target per-row options:
 - `nllb_max_new_tokens`
 - `nllb_legacy`
 - `deepl_endpoint`
-- unified CUDA switch (maps to the underlying execution mode settings)
 
 ## Row UX
 

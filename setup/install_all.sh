@@ -9,6 +9,12 @@ VENV_PIP="$VENV_DIR/bin/pip"
 WHISPER_MODELS_DIR="$ROOT_DIR/models/faster-whisper"
 WHISPER_MODEL_SIZE="${WHISPER_MODEL_SIZE:-medium}"
 
+if [ "$(id -u)" -eq 0 ]; then
+  SUDO=""
+else
+  SUDO="sudo"
+fi
+
 # Setup logging
 mkdir -p "$ROOT_DIR/logs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -90,21 +96,31 @@ ensure_system_deps() {
 
   if command -v dnf >/dev/null 2>&1; then
     info "Detectado Fedora/RHEL com dnf."
-    sudo dnf install -y \
+    $SUDO dnf install -y --skip-unavailable --skip-broken \
       python3 \
       python3-pip \
       python3-virtualenv \
-      ffmpeg \
       yt-dlp \
       socat \
       wget \
       tar \
       coreutils \
       gcc-c++
+
+    if command -v ffmpeg >/dev/null 2>&1; then
+      info "ffmpeg já está disponível; pulando instalação de pacote ffmpeg."
+    else
+      warn "ffmpeg não encontrado no PATH; tentando instalar (ffmpeg ou ffmpeg-free)."
+      if ! $SUDO dnf install -y --skip-unavailable --skip-broken ffmpeg; then
+        warn "Falha ao instalar pacote ffmpeg; tentando ffmpeg-free."
+        $SUDO dnf install -y --skip-unavailable --skip-broken ffmpeg-free || \
+          warn "Não foi possível instalar ffmpeg/ffmpeg-free automaticamente."
+      fi
+    fi
   elif command -v apt-get >/dev/null 2>&1; then
     info "Detectado Debian/Ubuntu com apt-get."
-    sudo apt-get update
-    sudo apt-get install -y \
+    $SUDO apt-get update
+    $SUDO apt-get install -y \
       python3 \
       python3-pip \
       python3-venv \
@@ -132,6 +148,21 @@ ensure_virtualenv() {
     echo "Erro: Python do ambiente virtual não encontrado em $VENV_PYTHON" >&2
     exit 1
   fi
+
+  if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+    warn "pip ausente no venv; tentando bootstrap com ensurepip"
+    if ! "$VENV_PYTHON" -m ensurepip --upgrade >/dev/null 2>&1; then
+      warn "Falha no ensurepip; recriando ambiente virtual"
+      rm -rf "$VENV_DIR"
+      python3 -m venv "$VENV_DIR"
+    fi
+  fi
+
+  if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+    echo "Erro: não foi possível disponibilizar pip em $VENV_DIR." >&2
+    echo "Tente remover manualmente $VENV_DIR e executar novamente." >&2
+    exit 1
+  fi
 }
 
 ensure_python_tooling() {
@@ -153,9 +184,9 @@ ensure_python_pkg() {
 }
 
 ensure_cpu_torch() {
-  info "Garantindo PyTorch CPU para evitar instalação CUDA pesada"
+  info "Garantindo PyTorch CPU-only"
   if "$VENV_PYTHON" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('torch') else 1)"; then
-    "$VENV_PYTHON" -c "import torch; print('torch=', torch.__version__, 'cuda=', torch.version.cuda)"
+    "$VENV_PYTHON" -c "import torch; print('torch=', torch.__version__); print('device=cpu-only')"
   else
     "$VENV_PYTHON" -m pip install --no-cache-dir \
       --extra-index-url https://download.pytorch.org/whl/cpu \
@@ -284,6 +315,10 @@ main() {
   ensure_translation_deps
   ensure_sync_deps
   ensure_youtube_deps
+
+  # Legacy optional setup kept commented for future reactivation.
+  # bash "$ROOT_DIR/setup/libretranslate/setup_libretranslate.sh"
+
   ensure_piper
   ensure_model
 

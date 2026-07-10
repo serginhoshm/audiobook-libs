@@ -2,11 +2,14 @@ import configparser
 import os
 import re
 import subprocess
+import sys
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 from django.conf import settings
+from django.db import OperationalError
 from django.db.models import Q
 from django.utils import timezone
 
@@ -16,6 +19,116 @@ from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsse
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
 PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook", "remux"]
 RUN_MODE_PIPELINE = "pipeline"
+
+
+def _with_sqlite_lock_retry(fn, *args, **kwargs):
+    attempts = int(settings.WEBAPP.get("SQLITE_LOCK_RETRY_ATTEMPTS", 5))
+    base_wait = float(settings.WEBAPP.get("SQLITE_LOCK_RETRY_WAIT_SECONDS", 0.25))
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn(*args, **kwargs)
+        except OperationalError as exc:
+            if "database is locked" not in str(exc).lower() or attempt == attempts:
+                raise
+            time.sleep(base_wait * attempt)
+
+
+def _discover_worker_pids() -> list[int]:
+    root = project_root()
+    script_hint = str(root / "django_app" / "manage.py")
+    try:
+        output = subprocess.check_output(
+            ["pgrep", "-f", f"{script_hint} run_worker"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        pids = [int(line.strip()) for line in output.splitlines() if line.strip().isdigit()]
+        return sorted(set(pids))
+    except Exception:
+        return []
+
+
+def _worker_run_dir() -> Path:
+    return project_root() / ".run" / "webapp"
+
+
+def _worker_pid_file() -> Path:
+    return _worker_run_dir() / "worker.pid"
+
+
+def _worker_log_file() -> Path:
+    return Path(settings.WEBAPP["WEBAPP_LOG_DIR"]) / "worker.log"
+
+
+def _worker_python_executable() -> str:
+    root = project_root()
+    venv_python = root / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        return str(venv_python)
+    return sys.executable
+
+
+def _spawn_worker_process() -> int:
+    run_dir = _worker_run_dir()
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = _worker_log_file()
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    root = project_root()
+    command = [
+        _worker_python_executable(),
+        str(root / "django_app" / "manage.py"),
+        "run_worker",
+    ]
+
+    with open(log_file, "a", encoding="utf-8") as out:
+        out.write("[webapp] auto-starting worker process\n")
+
+    log_handle = open(log_file, "a", encoding="utf-8")
+    proc = subprocess.Popen(
+        command,
+        cwd=str(root),
+        stdout=log_handle,
+        stderr=log_handle,
+        start_new_session=True,
+    )
+    log_handle.close()
+
+    _worker_pid_file().write_text(f"{proc.pid}\n", encoding="utf-8")
+    return proc.pid
+
+
+def ensure_worker_running() -> dict[str, Any]:
+    discovered_pids = _discover_worker_pids()
+    if discovered_pids:
+        run_dir = _worker_run_dir()
+        run_dir.mkdir(parents=True, exist_ok=True)
+        _worker_pid_file().write_text(f"{discovered_pids[0]}\n", encoding="utf-8")
+        return {
+            "started": False,
+            "pid": discovered_pids[0],
+            "reason": "already_running_process_scan",
+            "worker_pids": discovered_pids,
+        }
+
+    status = worker_health_status()
+    if status["running"]:
+        return {
+            "started": False,
+            "pid": status["pid"],
+            "reason": "already_running",
+            "worker_pids": status.get("worker_pids", []),
+        }
+
+    pid = _spawn_worker_process()
+    return {
+        "started": True,
+        "pid": pid,
+        "reason": "auto_started",
+        "worker_pids": [pid],
+    }
 
 
 def project_root() -> Path:
@@ -248,20 +361,24 @@ def scan_videos() -> dict[str, int]:
             "last_seen_at": now,
             "is_present": True,
         }
-        asset, created = VideoAsset.objects.update_or_create(file_path=str(path), defaults=defaults)
-        ensure_execution_profile(asset)
-        sync_run_steps_with_artifacts(asset)
+        asset, created = _with_sqlite_lock_retry(
+            VideoAsset.objects.update_or_create,
+            file_path=str(path),
+            defaults=defaults,
+        )
+        _with_sqlite_lock_retry(ensure_execution_profile, asset)
+        _with_sqlite_lock_retry(sync_run_steps_with_artifacts, asset)
         if created:
             discovered += 1
         else:
             updated += 1
 
     missing = 0
-    for asset in VideoAsset.objects.filter(is_present=True):
+    for asset in _with_sqlite_lock_retry(lambda: list(VideoAsset.objects.filter(is_present=True))):
         if asset.file_path not in present_paths:
             asset.is_present = False
             asset.last_seen_at = now
-            asset.save(update_fields=["is_present", "last_seen_at"])
+            _with_sqlite_lock_retry(asset.save, update_fields=["is_present", "last_seen_at"])
             missing += 1
 
     return {"discovered": discovered, "updated": updated, "missing": missing}
@@ -300,8 +417,8 @@ def run_evidence_worker(
 
 
 def worker_health_status() -> dict[str, Any]:
-    run_dir = project_root() / ".run" / "webapp"
-    pid_file = run_dir / "worker.pid"
+    pid_file = _worker_pid_file()
+    discovered_pids = _discover_worker_pids()
 
     queued = PipelineRun.objects.filter(status="queued").count()
     running = PipelineRun.objects.filter(status="running").count()
@@ -324,9 +441,11 @@ def worker_health_status() -> dict[str, Any]:
         source = "pid_file_missing"
 
     return {
-        "running": process_running,
+        "running": process_running or bool(discovered_pids),
         "pid": pid,
         "source": source,
+        "worker_pids": discovered_pids,
+        "worker_count": len(discovered_pids),
         "queue": {
             "queued": queued,
             "running": running,
@@ -355,7 +474,16 @@ def queue_runs(video_ids: list[int]) -> dict[str, Any]:
             PipelineStepStatus.objects.create(pipeline_run=run, step_name=step_name, status="pending")
         queued_ids.append(run.id)
 
-    return {"queued": len(queued_ids), "skipped": skipped, "run_ids": queued_ids}
+    worker = None
+    if queued_ids:
+        worker = ensure_worker_running()
+
+    return {
+        "queued": len(queued_ids),
+        "skipped": skipped,
+        "run_ids": queued_ids,
+        "worker": worker,
+    }
 
 
 def request_stop_for_runs(run_ids: list[int] | None = None, video_ids: list[int] | None = None) -> int:

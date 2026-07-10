@@ -19,6 +19,7 @@ class VideoAsset(models.Model):
 
 class ExecutionProfile(models.Model):
     BACKEND_CHOICES = [
+        # ("libretranslate", "libretranslate"),  # Legacy option kept commented for possible reactivation.
         ("google", "google"),
         ("nllb_local", "nllb_local"),
         ("deepl_doc", "deepl_doc"),
@@ -36,10 +37,8 @@ class ExecutionProfile(models.Model):
     nllb_profile = models.CharField(max_length=16, choices=NLLB_PROFILE_CHOICES, default="fast")
     nllb_max_input_length = models.PositiveIntegerField(default=768)
     nllb_max_new_tokens = models.PositiveIntegerField(default=192)
-    nllb_gpu = models.BooleanField(default=True)
     nllb_legacy = models.BooleanField(default=False)
     deepl_endpoint = models.CharField(max_length=64, default="free")
-    cuda_enabled = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
