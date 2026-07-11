@@ -13,8 +13,19 @@ if [ ! -d "$VENV_DIR" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
+if [ ! -x "$VENV_PY" ]; then
+  echo "[setup_webapp] venv exists but python is missing; recreating venv"
+  rm -rf "$VENV_DIR"
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
+
 # shellcheck disable=SC1090
 source "$VENV_DIR/bin/activate"
+
+if ! "$VENV_PY" -m pip --version >/dev/null 2>&1; then
+  echo "[setup_webapp] pip missing in venv; repairing with ensurepip"
+  "$VENV_PY" -m ensurepip --upgrade
+fi
 
 "$VENV_PY" -m pip install --upgrade pip
 "$VENV_PY" -m pip install -r "$ROOT_DIR/requirements-webapp.txt"

@@ -17,6 +17,10 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+is_immutable_host() {
+  [ -f /run/ostree-booted ] || has_cmd rpm-ostree
+}
+
 run_privileged() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
@@ -57,6 +61,12 @@ install_system_packages() {
 
   if [ "$#" -eq 0 ]; then
     return 0
+  fi
+
+  if is_immutable_host; then
+    echo "[webapp] immutable host detected; skipping automatic package installation"
+    echo "[webapp] install manually (rpm-ostree/toolbox) if a dependency is missing: $*"
+    return 1
   fi
 
   case "$os_family" in
@@ -174,6 +184,11 @@ run_django_migrate() {
     echo "[webapp] virtual environment not found at $VENV_PY"
     echo "[webapp] run first: bash workflows/webapp.sh setup"
     exit 1
+  fi
+
+  if ! "$VENV_PY" -c "import django" >/dev/null 2>&1; then
+    echo "[webapp] Django is missing in venv; running setup_webapp automatically..."
+    bash scripts/webapp/setup_webapp.sh
   fi
 
   echo "[webapp] applying Django migrations..."

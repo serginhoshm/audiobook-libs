@@ -91,8 +91,74 @@ require_root_or_sudo() {
   fi
 }
 
+is_immutable_host() {
+  [ -f /run/ostree-booted ] || command -v rpm-ostree >/dev/null 2>&1
+}
+
+missing_cmds() {
+  local missing=()
+  local cmd
+  for cmd in "$@"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+    fi
+  done
+  printf '%s\n' "${missing[@]}"
+}
+
 ensure_system_deps() {
   info "Verificando dependências do sistema..."
+
+  local required_cmds=(python3 pip3 ffmpeg yt-dlp socat wget tar git ip firewall-cmd)
+  local build_cmds=(gcc g++)
+  local missing_required
+  local missing_build
+
+  mapfile -t missing_required < <(missing_cmds "${required_cmds[@]}")
+  mapfile -t missing_build < <(missing_cmds "${build_cmds[@]}")
+
+  if is_immutable_host; then
+    info "Detectado sistema imutável (OSTree/Bluefin)."
+
+    if [ "${#missing_required[@]}" -eq 0 ] && [ "${#missing_build[@]}" -eq 0 ]; then
+      info "Dependências essenciais já disponíveis no host; pulando instalação de pacotes do sistema."
+      return
+    fi
+
+    warn "Dependências ausentes no host imutável."
+    echo "Faltando (runtime): ${missing_required[*]:-(nenhuma)}"
+    echo "Faltando (build): ${missing_build[*]:-(nenhuma)}"
+
+    # Em sistemas OSTree, aplique tudo em uma unica transacao para evitar
+    # multiplas reinicializacoes e divergencia entre camadas.
+    local rpm_ostree_pkgs=(
+      python3
+      python3-pip
+      ffmpeg
+      yt-dlp
+      socat
+      wget
+      tar
+      git
+      iproute
+      firewalld
+      gcc
+      gcc-c++
+    )
+
+    if [ "${#rpm_ostree_pkgs[@]}" -gt 0 ]; then
+      echo
+      echo "No Bluefin/Fedora imutável, instale todos os pacotes de SO em um unico passo e reinicie:"
+      echo "  sudo rpm-ostree install ${rpm_ostree_pkgs[*]}"
+      echo "  systemctl reboot"
+      echo
+      echo "Depois do reboot, execute novamente:"
+      echo "  ./setup/install_all.sh"
+      echo
+      echo "Alternativa: executar este projeto dentro de um toolbox/distrobox com essas dependências."
+    fi
+    exit 1
+  fi
 
   if command -v dnf >/dev/null 2>&1; then
     info "Detectado Fedora/RHEL com dnf."
@@ -104,6 +170,9 @@ ensure_system_deps() {
       socat \
       wget \
       tar \
+        git \
+        iproute \
+        firewalld \
       coreutils \
       gcc-c++
 
@@ -129,6 +198,9 @@ ensure_system_deps() {
       socat \
       wget \
       tar \
+      git \
+      iproute2 \
+      ufw \
       coreutils \
       build-essential
   else
@@ -141,6 +213,12 @@ ensure_system_deps() {
 ensure_virtualenv() {
   info "Garantindo ambiente virtual em $VENV_DIR"
   if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+  fi
+
+  if [ -d "$VENV_DIR" ] && [ ! -x "$VENV_PYTHON" ]; then
+    warn "Venv existente, mas Python não está executável (possível symlink quebrado). Recriando venv."
+    rm -rf "$VENV_DIR"
     python3 -m venv "$VENV_DIR"
   fi
 
@@ -250,6 +328,17 @@ ensure_youtube_deps() {
   ensure_python_pkg "yt-dlp" "yt_dlp" ""
 }
 
+ensure_webapp_python_deps() {
+  info "Verificando dependências Python da Webapp (inclui Django)"
+
+  if [ ! -f "$ROOT_DIR/requirements-webapp.txt" ]; then
+    warn "Arquivo requirements-webapp.txt não encontrado; pulando setup da webapp"
+    return
+  fi
+
+  "$VENV_PYTHON" -m pip install --no-cache-dir -r "$ROOT_DIR/requirements-webapp.txt"
+}
+
 ensure_piper() {
   info "Verificando instalação do Piper TTS"
   ensure_python_pkg "piper-tts" "piper" ""
@@ -315,10 +404,9 @@ main() {
   ensure_translation_deps
   ensure_sync_deps
   ensure_youtube_deps
-
   # Legacy optional setup kept commented for future reactivation.
   # bash "$ROOT_DIR/setup/libretranslate/setup_libretranslate.sh"
-
+  ensure_webapp_python_deps
   ensure_piper
   ensure_model
 
