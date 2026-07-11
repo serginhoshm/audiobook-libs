@@ -273,8 +273,6 @@ def _execute_pipeline_steps(
     model_path = root_dir / "models" / "pt_BR-faber-medium.onnx"
     piper_bin = root_dir / "bin" / "piper"
 
-    if not video_path.exists():
-        return 127, f"Input video not found: {video_path}"
     if not model_path.exists():
         return 127, f"Voice model not found: {model_path}"
     if not piper_bin.exists():
@@ -338,6 +336,9 @@ def _execute_pipeline_steps(
             return 2, detail
     elif video_path.exists():
         _set_step_status(run.id, "download", "skipped", "Skipped: local MP4 already present")
+
+    if not video_path.exists():
+        return 127, f"Input video not found: {video_path}"
 
     reuse_transcript, transcript_detail = _can_reuse_transcript(video_path, srt_path)
     if reuse_transcript:
