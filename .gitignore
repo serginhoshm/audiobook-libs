@@ -34,4 +34,5 @@ config/translation/deepl_keys_state.ini
 
 # Django local webapp runtime artifacts
 django_app/db.sqlite3
+django_app/db.sqlite3.prewipe-*.bak
 .run/webapp/
