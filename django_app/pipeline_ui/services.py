@@ -265,6 +265,8 @@ def _probe_youtube_metadata(url: str) -> dict[str, Any]:
     command = [
         "yt-dlp",
         "--no-playlist",
+        "--remote-components",
+        "ejs:github",
         "--skip-download",
         "--dump-single-json",
         *_yt_dlp_js_runtime_args(),
@@ -302,6 +304,8 @@ def _download_command(source_url: str, target_path: Path) -> list[str]:
         "--continue",
         "--merge-output-format",
         "mp4",
+        "--remote-components",
+        "ejs:github",
         *_yt_dlp_js_runtime_args(),
         "-f",
         DOWNLOAD_FORMAT_FILTER,
@@ -843,7 +847,8 @@ def list_assets(
             active_asset_ids = PipelineRun.objects.filter(
                 status__in=["queued", "running", "stopping"]
             ).values_list("video_asset_id", flat=True)
-            qs = qs.filter(Q(is_present=True) | Q(id__in=active_asset_ids))
+            # Keep URL-based download jobs visible even before the MP4 exists on disk.
+            qs = qs.filter(Q(is_present=True) | Q(id__in=active_asset_ids) | Q(source_url__gt=""))
         else:
             qs = qs.filter(is_present=True)
 
