@@ -18,6 +18,24 @@ This repository contains local tooling and assets for audiobook-related processi
 - The remaining shell entrypoint is `workflows/webapp.sh` for webapp lifecycle operations.
 - Existing Python scripts remain in `scripts/` and can be invoked directly when needed.
 
+## yt-dlp Setup
+
+Use the dedicated bootstrap when you need to prepare the YouTube download path used by the webapp.
+
+Recommended command:
+
+```bash
+bash setup/setup-ytdlp.sh
+```
+
+This setup validates and installs, when needed:
+
+- `yt-dlp`
+- `ffmpeg`
+- a JavaScript runtime for YouTube extraction (`nodejs` or `deno`)
+
+On immutable Fedora-style hosts, the script uses a single `rpm-ostree` transaction and asks for a reboot when packages are staged.
+
 ## Webapp (Django)
 
 Recommended commands:
@@ -43,6 +61,18 @@ Manual evidence sync:
 cd django_app
 ../.venv/bin/python manage.py sync_evidence --housekeeping
 ```
+
+## Pipeline Download Stage
+
+The webapp pipeline now starts with a `Download` stage for YouTube URLs added through the `Add` button.
+
+Notes:
+
+- Downloaded videos are normalized to MP4 before the rest of the pipeline runs.
+- The pipeline enforces a 480p to 720p quality window.
+- Downloaded assets use a date-based filename pattern: `YYYY-MM-DD-NNN.mp4`.
+- The webapp stores source URL and source duration in SQLite for restart validation.
+- Existing locally discovered MP4 assets are marked as `skipped` in the `Download` stage.
 
 ## Configuration
 

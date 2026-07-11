@@ -10,6 +10,7 @@ from .models import PipelineRun
 
 from .services import (
     list_assets,
+    queue_download_job,
     queue_runs,
     request_stop_for_runs,
     run_evidence_worker,
@@ -26,6 +27,10 @@ def _json_payload(request: HttpRequest) -> dict:
         return json.loads(request.body.decode("utf-8"))
     except Exception:
         return {}
+
+
+def _json_error(message: str, status: int = 400) -> JsonResponse:
+    return JsonResponse({"ok": False, "error": message}, status=status)
 
 
 def index(request: HttpRequest) -> HttpResponse:
@@ -55,6 +60,24 @@ def api_runs_start(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "video_ids is empty"}, status=400)
 
     result = queue_runs([int(v) for v in video_ids])
+    return JsonResponse({"ok": True, "result": result})
+
+
+@csrf_exempt
+@require_POST
+def api_download_add(request: HttpRequest) -> JsonResponse:
+    payload = _json_payload(request)
+    source_url = str(payload.get("source_url") or "").strip()
+    if not source_url:
+        return _json_error("source_url is empty", status=400)
+
+    try:
+        result = queue_download_job(source_url)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+    except Exception as exc:
+        return _json_error(str(exc), status=500)
+
     return JsonResponse({"ok": True, "result": result})
 
 

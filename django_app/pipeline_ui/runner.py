@@ -12,10 +12,16 @@ from django.conf import settings
 from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus
-from .services import RUN_MODE_PIPELINE, ffprobe_duration_seconds, load_data_root
+from .services import (
+    DOWNLOAD_DURATION_TOLERANCE_SECONDS,
+    RUN_MODE_PIPELINE,
+    ffprobe_duration_seconds,
+    infer_language_from_srt,
+    load_data_root,
+)
 
 
-PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook", "remux"]
+PIPELINE_STEP_ORDER = ["download", "extract", "transcribe", "translate", "audiobook", "remux"]
 SRT_RANGE_PATTERN = re.compile(
     r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})"
 )
@@ -51,12 +57,80 @@ def _infer_source_lang(run: PipelineRun, video_path: Path) -> str:
     return "auto"
 
 
+def _infer_translation_source_lang(run: PipelineRun, video_path: Path, srt_path: Path) -> str:
+    lang = _infer_source_lang(run, video_path)
+
+    # Prefer the current transcript when present; it is the most reliable signal
+    # after a fresh transcription or transcript reuse.
+    inferred_from_srt = infer_language_from_srt(video_path)
+    if inferred_from_srt in {"es", "zh-CN"}:
+        lang = inferred_from_srt
+
+    if lang in {"es", "zh-CN"} and run.video_asset.original_language != lang:
+        run.video_asset.original_language = lang
+        run.video_asset.save(update_fields=["original_language"])
+
+    return lang
+
+
 def _whisper_lang_from_source(source_lang: str) -> str:
     if source_lang == "es":
         return "es"
     if source_lang == "zh-CN":
         return "zh"
     return "auto"
+
+
+def _download_target_is_valid(run: PipelineRun, video_path: Path) -> tuple[bool, str]:
+    source_duration = run.video_asset.source_duration_seconds
+    if not video_path.exists():
+        return False, "Downloaded MP4 not found"
+
+    local_duration = ffprobe_duration_seconds(video_path)
+    if local_duration is None:
+        return False, "Unable to read downloaded MP4 duration"
+
+    if source_duration is None:
+        return True, f"Downloaded MP4 present with duration {local_duration:.1f}s"
+
+    delta = abs(local_duration - source_duration)
+    if delta <= DOWNLOAD_DURATION_TOLERANCE_SECONDS:
+        return True, (
+            "Downloaded MP4 duration matches source duration: "
+            f"local {local_duration:.1f}s vs source {source_duration:.1f}s"
+        )
+
+    return False, (
+        "Downloaded MP4 duration mismatch: "
+        f"local {local_duration:.1f}s vs source {source_duration:.1f}s"
+    )
+
+
+def _persist_download_result(run: PipelineRun, video_path: Path) -> tuple[bool, str]:
+    ok, detail = _download_target_is_valid(run, video_path)
+    if ok:
+        try:
+            run.video_asset.duration_seconds = ffprobe_duration_seconds(video_path)
+            run.video_asset.size_bytes = video_path.stat().st_size
+            run.video_asset.file_name = video_path.name
+            run.video_asset.file_path = str(video_path)
+            run.video_asset.extension = video_path.suffix.lower()
+            run.video_asset.is_present = True
+            run.video_asset.last_seen_at = timezone.now()
+            run.video_asset.save(
+                update_fields=[
+                    "duration_seconds",
+                    "size_bytes",
+                    "file_name",
+                    "file_path",
+                    "extension",
+                    "is_present",
+                    "last_seen_at",
+                ]
+            )
+        except Exception:
+            pass
+    return ok, detail
 
 
 def _parts_to_seconds(hours: str, minutes: str, seconds: str, millis: str) -> float:
@@ -206,8 +280,8 @@ def _execute_pipeline_steps(
     if not piper_bin.exists():
         return 127, f"Piper executable not found: {piper_bin}"
 
-    source_lang = _infer_source_lang(run, video_path)
-    whisper_lang = _whisper_lang_from_source(source_lang)
+    pre_transcribe_source_lang = _infer_source_lang(run, video_path)
+    whisper_lang = _whisper_lang_from_source(pre_transcribe_source_lang)
 
     base_name = video_path.stem
     work_dir = video_path.parent
@@ -222,18 +296,61 @@ def _execute_pipeline_steps(
         backend = "google"
         log_fh.write("[worker] legacy backend libretranslate detected; using google\n")
 
+    download_step = run.steps.filter(step_name="download").first()
+    if download_step and download_step.status == "pending":
+        if video_path.exists() and not run.video_asset.source_url:
+            _set_step_status(run.id, "download", "skipped", "Skipped: local MP4 already present")
+        elif video_path.exists() and run.video_asset.source_url:
+            ok, detail = _persist_download_result(run, video_path)
+            _set_step_status(run.id, "download", "success" if ok else "failed", detail)
+
+    if not video_path.exists() and run.video_asset.source_url:
+        log_fh.write("step 0 - download\n")
+        log_fh.flush()
+        _set_step_status(run.id, "download", "running", "step 0 - download")
+        download_cmd = [
+            "yt-dlp",
+            "--no-playlist",
+            "--continue",
+            "--merge-output-format",
+            "mp4",
+            "-f",
+            "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]",
+            "-o",
+            f"{video_path.with_suffix('')}.%(ext)s",
+            run.video_asset.source_url,
+        ]
+        rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "download", "failed", "Download failed")
+            return rc, "Download failed"
+
+        ok, detail = _persist_download_result(run, video_path)
+        _set_step_status(run.id, "download", "success" if ok else "failed", detail)
+        if not ok:
+            return 2, detail
+    elif video_path.exists() and run.video_asset.source_url:
+        ok, detail = _persist_download_result(run, video_path)
+        if ok:
+            _set_step_status(run.id, "download", "success", detail)
+        else:
+            _set_step_status(run.id, "download", "failed", detail)
+            return 2, detail
+    elif video_path.exists():
+        _set_step_status(run.id, "download", "skipped", "Skipped: local MP4 already present")
+
     reuse_transcript, transcript_detail = _can_reuse_transcript(video_path, srt_path)
     if reuse_transcript:
-        log_fh.write(f"step 0 - extract skipped ({transcript_detail})\n")
-        log_fh.write(f"step 1 - transcribe skipped ({transcript_detail})\n")
+        log_fh.write(f"step 1 - extract skipped ({transcript_detail})\n")
+        log_fh.write(f"step 2 - transcribe skipped ({transcript_detail})\n")
         log_fh.flush()
         _set_step_status(run.id, "extract", "skipped", "Skipped: transcript already covers source duration")
         _set_step_status(run.id, "transcribe", "success", transcript_detail)
     else:
         log_fh.write(f"{transcript_detail}\n")
-        log_fh.write("step 0 - extract\n")
+        log_fh.write("step 1 - extract\n")
         log_fh.flush()
-        _set_step_status(run.id, "extract", "running", "step 0 - extract")
+        _set_step_status(run.id, "extract", "running", "step 1 - extract")
         extract_cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -251,9 +368,9 @@ def _execute_pipeline_steps(
             return rc, "Audio extraction failed"
         _set_step_status(run.id, "extract", "success", "Completed successfully")
 
-        log_fh.write("step 1 - transcribe\n")
+        log_fh.write("step 2 - transcribe\n")
         log_fh.flush()
-        _set_step_status(run.id, "transcribe", "running", "step 1 - transcribe")
+        _set_step_status(run.id, "transcribe", "running", "step 2 - transcribe")
         transcribe_cmd = [
             *python_cmd,
             str(scripts_dir / "transcrever.py"),
@@ -275,15 +392,22 @@ def _execute_pipeline_steps(
         log_fh.flush()
         _set_step_status(run.id, "translate", "success", translation_detail)
     else:
+        source_lang = _infer_translation_source_lang(run, video_path, srt_path)
         log_fh.write(f"{translation_detail}\n")
-        log_fh.write("step 2 - translate\n")
+        log_fh.write("step 3 - translate\n")
+        log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
         if backend == "deepl_doc":
             log_fh.write(
                 f"[DEEPL_ROTATION_MODE] profile_backend=deepl_doc endpoint={profile.deepl_endpoint} "
                 "fallback=google_on_exhausted_keys\n"
             )
+        if backend == "nllb_local" and source_lang == "auto":
+            log_fh.write("[translation] error: nllb_local requires explicit source language (es or zh-CN); auto detection remained unresolved\n")
+            log_fh.flush()
+            _set_step_status(run.id, "translate", "failed", "NLLB source language unresolved")
+            return 2, "NLLB source language unresolved"
         log_fh.flush()
-        _set_step_status(run.id, "translate", "running", "step 2 - translate")
+        _set_step_status(run.id, "translate", "running", "step 3 - translate")
         translate_cmd = [
             *python_cmd,
             str(scripts_dir / "traduzir.py"),
@@ -312,9 +436,9 @@ def _execute_pipeline_steps(
             return rc, "Translation failed"
         _set_step_status(run.id, "translate", "success", "Completed successfully")
 
-    log_fh.write("step 3 - wav generation (piper)\n")
+    log_fh.write("step 4 - wav generation (piper)\n")
     log_fh.flush()
-    _set_step_status(run.id, "audiobook", "running", "step 3 - wav generation (piper)")
+    _set_step_status(run.id, "audiobook", "running", "step 4 - wav generation (piper)")
     synth_cmd = [
         *python_cmd,
         str(scripts_dir / "gerar-sincronizado.py"),
@@ -338,9 +462,9 @@ def _execute_pipeline_steps(
         return rc, "Audiobook synthesis failed"
     _set_step_status(run.id, "audiobook", "success", "Completed successfully")
 
-    log_fh.write("step 4 - remux generation\n")
+    log_fh.write("step 5 - remux generation\n")
     log_fh.flush()
-    _set_step_status(run.id, "remux", "running", "step 4 - remux generation")
+    _set_step_status(run.id, "remux", "running", "step 5 - remux generation")
 
     remux_dir = load_data_root() / "remux"
     remux_dir.mkdir(parents=True, exist_ok=True)
@@ -429,26 +553,33 @@ def _promote_step_from_log_line(run_id: int, line: str, current_step: str | None
     text = line.strip()
     lower = text.lower()
 
-    if "step 0 - extract" in lower:
+    if "step 0 - download" in lower:
+        _set_step_status(run_id, "download", "running", text)
+        return "download"
+    if "step 1 - extract" in lower:
         _set_step_status(run_id, "extract", "running", text)
         return "extract"
-    if "step 1 - transcribe" in lower:
+    if "step 2 - transcribe" in lower:
         _set_step_status(run_id, "transcribe", "running", text)
         return "transcribe"
-    if "step 2 - translate" in lower:
+    if "step 3 - translate" in lower:
         _set_step_status(run_id, "translate", "running", text)
         return "translate"
-    if "step 3" in lower or "wav generation (piper)" in lower:
+    if "step 4" in lower or "wav generation (piper)" in lower:
         _set_step_status(run_id, "audiobook", "running", text)
         return "audiobook"
 
-    if "remux generation" in lower or ("processing video" in lower and "remux" in lower):
+    if "step 5" in lower or "remux generation" in lower or ("processing video" in lower and "remux" in lower):
         _set_step_status(run_id, "remux", "running", text)
         return "remux"
 
     if "remux generated successfully" in lower:
         _set_step_status(run_id, "remux", "success", text)
         return "remux"
+
+    if "download failed" in lower:
+        _set_step_status(run_id, "download", "failed", text)
+        return "download"
 
     if "translated srt not generated/validated" in lower:
         _set_step_status(run_id, "translate", "failed", text)

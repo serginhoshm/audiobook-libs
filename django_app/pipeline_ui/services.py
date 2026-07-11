@@ -1,9 +1,12 @@
 import configparser
+import json
 import os
 import re
 import subprocess
 import sys
 import time
+import shutil
+from urllib.parse import urlparse
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -17,8 +20,10 @@ from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsse
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
-PIPELINE_STEP_ORDER = ["extract", "transcribe", "translate", "audiobook", "remux"]
+PIPELINE_STEP_ORDER = ["download", "extract", "transcribe", "translate", "audiobook", "remux"]
 RUN_MODE_PIPELINE = "pipeline"
+DOWNLOAD_DURATION_TOLERANCE_SECONDS = 2.5
+DOWNLOAD_FORMAT_FILTER = "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]"
 
 
 def _with_sqlite_lock_retry(fn, *args, **kwargs):
@@ -157,6 +162,10 @@ def load_done_dir() -> Path:
     return load_data_root() / "done"
 
 
+def load_download_dir() -> Path:
+    return load_work_exec_dir()
+
+
 def infer_language_from_name(file_name: str) -> str:
     name = file_name.lower()
     if "spanish" in name:
@@ -209,6 +218,167 @@ def ffprobe_duration_seconds(file_path: Path) -> float | None:
         return round(float(out), 3)
     except Exception:
         return None
+
+
+def _download_date_prefix(now=None) -> str:
+    current = now or timezone.now()
+    return current.strftime("%Y-%m-%d")
+
+
+def _yt_dlp_js_runtime_args() -> list[str]:
+    for runtime in ("deno", "node"):
+        runtime_path = shutil.which(runtime)
+        if runtime_path:
+            return ["--js-runtimes", f"{runtime}:{runtime_path}"]
+    raise RuntimeError(
+        "yt-dlp requires a JavaScript runtime for YouTube extraction. "
+        "Install deno or node, then try again."
+    )
+
+
+def _next_download_basename(for_date=None) -> str:
+    date_prefix = _download_date_prefix(for_date)
+    next_number = 1
+    existing_numbers: set[int] = set()
+    download_dir = load_download_dir()
+
+    if download_dir.exists():
+        for candidate in download_dir.iterdir():
+            if not candidate.is_file():
+                continue
+            match = re.fullmatch(rf"{re.escape(date_prefix)}-(\d{{3}})\.mp4", candidate.name)
+            if match:
+                existing_numbers.add(int(match.group(1)))
+
+    for asset_name in VideoAsset.objects.filter(file_name__startswith=f"{date_prefix}-").values_list("file_name", flat=True):
+        match = re.fullmatch(rf"{re.escape(date_prefix)}-(\d{{3}})\.mp4", asset_name)
+        if match:
+            existing_numbers.add(int(match.group(1)))
+
+    while next_number in existing_numbers:
+        next_number += 1
+
+    return f"{date_prefix}-{next_number:03d}"
+
+
+def _probe_youtube_metadata(url: str) -> dict[str, Any]:
+    command = [
+        "yt-dlp",
+        "--no-playlist",
+        "--skip-download",
+        "--dump-single-json",
+        *_yt_dlp_js_runtime_args(),
+        url,
+    ]
+    try:
+        output = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.output or "").strip() or str(exc)
+        raise RuntimeError(f"yt-dlp failed to read metadata: {detail}") from exc
+
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        preview = output.strip().splitlines()[0] if output.strip() else ""
+        raise RuntimeError(
+            f"yt-dlp returned non-JSON metadata output{': ' + preview if preview else ''}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise RuntimeError("yt-dlp metadata response is invalid")
+    return data
+
+
+def _normalize_download_path(target_name: str) -> Path:
+    download_dir = load_download_dir()
+    download_dir.mkdir(parents=True, exist_ok=True)
+    return download_dir / f"{target_name}.mp4"
+
+
+def _download_command(source_url: str, target_path: Path) -> list[str]:
+    return [
+        "yt-dlp",
+        "--no-playlist",
+        "--continue",
+        "--merge-output-format",
+        "mp4",
+        *_yt_dlp_js_runtime_args(),
+        "-f",
+        DOWNLOAD_FORMAT_FILTER,
+        "-o",
+        f"{target_path.with_suffix('')}.%(ext)s",
+        source_url,
+    ]
+
+
+def _validate_downloaded_video(asset: VideoAsset, video_path: Path) -> tuple[bool, str]:
+    if not video_path.exists():
+        return False, "Downloaded MP4 not found"
+
+    local_duration = ffprobe_duration_seconds(video_path)
+    if local_duration is None:
+        return False, "Unable to read downloaded MP4 duration"
+
+    if asset.source_duration_seconds is None:
+        return True, f"Downloaded MP4 present with duration {local_duration:.1f}s"
+
+    delta = abs(local_duration - asset.source_duration_seconds)
+    if delta <= DOWNLOAD_DURATION_TOLERANCE_SECONDS:
+        return True, (
+            "Downloaded MP4 duration matches source duration: "
+            f"local {local_duration:.1f}s vs source {asset.source_duration_seconds:.1f}s"
+        )
+
+    return False, (
+        "Downloaded MP4 duration mismatch: "
+        f"local {local_duration:.1f}s vs source {asset.source_duration_seconds:.1f}s"
+    )
+
+
+def queue_download_run(source_url: str) -> dict[str, Any]:
+    source_url = str(source_url or "").strip()
+    if not source_url:
+        raise ValueError("source_url is empty")
+
+    parsed = urlparse(source_url)
+    host = parsed.netloc.lower()
+    if parsed.scheme not in {"http", "https"} or not host:
+        raise ValueError("source_url must be a valid http or https URL")
+    if "youtube.com" not in host and "youtu.be" not in host:
+        raise ValueError("source_url must point to YouTube")
+
+    metadata = _probe_youtube_metadata(source_url)
+    target_base = _next_download_basename()
+    target_path = _normalize_download_path(target_base)
+    now = timezone.now()
+
+    asset = VideoAsset.objects.create(
+        file_path=str(target_path),
+        file_name=target_path.name,
+        source_url=source_url,
+        extension=".mp4",
+        size_bytes=0,
+        duration_seconds=None,
+        source_duration_seconds=float(metadata.get("duration")) if metadata.get("duration") is not None else None,
+        original_language="auto",
+        discovered_at=now,
+        last_seen_at=now,
+        is_present=False,
+    )
+    ensure_execution_profile(asset)
+
+    run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status="queued")
+    for step_name in PIPELINE_STEP_ORDER:
+        PipelineStepStatus.objects.create(pipeline_run=run, step_name=step_name, status="pending")
+
+    worker = ensure_worker_running()
+    return {
+        "asset_id": asset.id,
+        "run_id": run.id,
+        "target_path": str(target_path),
+        "source_duration_seconds": asset.source_duration_seconds,
+        "worker": worker,
+    }
 
 
 def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
@@ -274,8 +444,17 @@ def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
     has_srtpt = artifacts["srtpt"].exists()
     has_pt_wav = artifacts["pt_wav"].exists()
     has_audio_input = has_wav or has_mp3
+    has_download = artifacts["video"].exists()
+
+    download_found = False
+    download_detail = "Evidence: downloaded MP4 not found"
+    if has_download:
+        download_found, download_detail = _validate_downloaded_video(asset, artifacts["video"])
+        if not asset.source_url:
+            download_detail = "Evidence: MP4 file found"
 
     return {
+        "download": (download_found or (has_download and not asset.source_url), download_detail),
         "extract": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
         "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
         "translate": (has_srtpt or has_pt_wav, "Evidence: .srtpt file found"),
@@ -307,8 +486,17 @@ def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
             defaults={"status": "pending", "detail": ""},
         )
 
-        if found and (created or step.status != "success" or step.detail != detail):
-            step.status = "success"
+        if step_name == "download" and not asset.source_url and found:
+            desired_status = "skipped"
+        elif step_name == "download" and found:
+            desired_status = "success"
+        elif found:
+            desired_status = "success"
+        else:
+            desired_status = "pending"
+
+        if desired_status != "pending" and (created or step.status != desired_status or step.detail != detail):
+            step.status = desired_status
             step.detail = detail
             step.save(update_fields=["status", "detail", "updated_at"])
             step_changed = True
@@ -486,6 +674,10 @@ def queue_runs(video_ids: list[int]) -> dict[str, Any]:
     }
 
 
+def queue_download_job(source_url: str) -> dict[str, Any]:
+    return queue_download_run(source_url)
+
+
 def request_stop_for_runs(run_ids: list[int] | None = None, video_ids: list[int] | None = None) -> int:
     qs = PipelineRun.objects.filter(status__in=["queued", "running", "stopping"])
     if run_ids:
@@ -614,7 +806,9 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
         "id": asset.id,
         "file_path": asset.file_path,
         "file_name": asset.file_name,
+        "source_url": asset.source_url,
         "duration_seconds": asset.duration_seconds,
+        "source_duration_seconds": asset.source_duration_seconds,
         "duration_hms": format_duration(asset.duration_seconds),
         "original_language": asset.original_language,
         "is_present": asset.is_present,

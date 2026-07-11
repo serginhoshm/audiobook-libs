@@ -16,6 +16,7 @@
 
 The repository still contains Python tools for the processing stages:
 
+- Download from YouTube URL to MP4.
 - Audio extraction from video.
 - Transcription (`.srt`).
 - Translation (`.srtpt`).
@@ -26,7 +27,7 @@ These stages now rely on direct script execution and app integrations, not on le
 ## Runtime Control
 
 - Per-video state is tracked in `.pipeline-state/`.
-- Step status can be represented as `extract`, `transcribe`, `translate`, and `audiobook`.
+- Step status can be represented as `download`, `extract`, `transcribe`, `translate`, and `audiobook`.
 
 ## Versioning Notes
 

@@ -103,7 +103,12 @@ missing_cmds() {
       missing+=("$cmd")
     fi
   done
-  printf '%s\n' "${missing[@]}"
+  if [ "${#missing[@]}" -gt 0 ]; then
+    printf '%s\n' "${missing[@]}"
+  fi
+
+  # Always return success so callers can safely consume output under set -e.
+  return 0
 }
 
 ensure_system_deps() {
@@ -111,11 +116,17 @@ ensure_system_deps() {
 
   local required_cmds=(python3 pip3 ffmpeg yt-dlp socat wget tar git ip firewall-cmd)
   local build_cmds=(gcc g++)
-  local missing_required
-  local missing_build
+  local missing_required=()
+  local missing_build=()
+  local cmd
 
-  mapfile -t missing_required < <(missing_cmds "${required_cmds[@]}")
-  mapfile -t missing_build < <(missing_cmds "${build_cmds[@]}")
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] && missing_required+=("$cmd")
+  done < <(missing_cmds "${required_cmds[@]}")
+
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] && missing_build+=("$cmd")
+  done < <(missing_cmds "${build_cmds[@]}")
 
   if is_immutable_host; then
     info "Detectado sistema imutável (OSTree/Bluefin)."

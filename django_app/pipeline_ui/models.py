@@ -5,9 +5,11 @@ from django.utils import timezone
 class VideoAsset(models.Model):
     file_path = models.CharField(max_length=1024, unique=True)
     file_name = models.CharField(max_length=255)
+    source_url = models.CharField(max_length=2048, blank=True, default="")
     extension = models.CharField(max_length=16, blank=True)
     size_bytes = models.BigIntegerField(default=0)
     duration_seconds = models.FloatField(null=True, blank=True)
+    source_duration_seconds = models.FloatField(null=True, blank=True)
     original_language = models.CharField(max_length=24, default="auto")
     discovered_at = models.DateTimeField(default=timezone.now)
     last_seen_at = models.DateTimeField(default=timezone.now)
@@ -33,11 +35,11 @@ class ExecutionProfile(models.Model):
     ]
 
     video_asset = models.OneToOneField(VideoAsset, on_delete=models.CASCADE, related_name="execution_profile")
-    backend = models.CharField(max_length=32, choices=BACKEND_CHOICES, default="google")
-    nllb_profile = models.CharField(max_length=16, choices=NLLB_PROFILE_CHOICES, default="fast")
+    backend = models.CharField(max_length=32, choices=BACKEND_CHOICES, default="nllb_local")
+    nllb_profile = models.CharField(max_length=16, choices=NLLB_PROFILE_CHOICES, default="legacy")
     nllb_max_input_length = models.PositiveIntegerField(default=768)
     nllb_max_new_tokens = models.PositiveIntegerField(default=192)
-    nllb_legacy = models.BooleanField(default=False)
+    nllb_legacy = models.BooleanField(default=True)
     deepl_endpoint = models.CharField(max_length=64, default="free")
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -82,6 +84,7 @@ class PipelineRun(models.Model):
 
 class PipelineStepStatus(models.Model):
     STEP_CHOICES = [
+        ("download", "download"),
         ("extract", "extract"),
         ("transcribe", "transcribe"),
         ("translate", "translate"),

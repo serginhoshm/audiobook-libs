@@ -11,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from pipeline_ui.models import PipelineRun
-from pipeline_ui.runner import execute_run, request_stop
+from pipeline_ui.runner import _persist_download_result, execute_run, request_stop
 
 
 class Command(BaseCommand):
@@ -213,8 +213,29 @@ class Command(BaseCommand):
         self._with_db_retry(_update)
 
     def _reconcile_inflight_runs(self):
-        running_like = PipelineRun.objects.filter(status__in=["running", "stopping"])
+        running_like = PipelineRun.objects.select_related("video_asset").filter(status__in=["running", "stopping"])
         for run in running_like:
+            download_step = run.steps.filter(step_name="download").first()
+            video_path = Path(run.video_asset.file_path)
+            if download_step and run.video_asset.source_url and video_path.exists():
+                try:
+                    ok, detail = _persist_download_result(run, video_path)
+                except Exception:
+                    ok, detail = False, "Download validation failed after restart"
+
+                if ok:
+                    run.status = "queued"
+                    run.pid = None
+                    run.process_group_id = None
+                    run.exit_code = None
+                    run.error_message = ""
+                    run.save(update_fields=["status", "pid", "process_group_id", "exit_code", "error_message", "updated_at"])
+                    if download_step.status != "success" or download_step.detail != detail:
+                        download_step.status = "success"
+                        download_step.detail = detail
+                        download_step.save(update_fields=["status", "detail", "updated_at"])
+                    continue
+
             if run.process_group_id:
                 request_stop(run)
             run.status = "failed"

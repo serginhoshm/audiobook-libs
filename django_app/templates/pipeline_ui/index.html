@@ -10,6 +10,7 @@
     .top { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
     .btn { border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 700; cursor: pointer; }
     .scan { background: #d8e7ff; color: #1f3c7f; }
+    .add { background: #f1dfb6; color: #6d4a00; }
     .run { background: #117a62; color: #fff; }
     .stop { background: #b5382b; color: #fff; }
     .worker-pill { border-radius: 999px; padding: 5px 10px; font-size: .82rem; font-weight: 700; border: 1px solid #c6dcd3; background: #e9f4ef; color: #2c584a; }
@@ -66,6 +67,13 @@
     .overlay-close { border: 0; background: #eef5f2; color: #173026; border-radius: 8px; padding: 7px 10px; cursor: pointer; font-weight: 700; }
     .overlay-body { padding: 0; overflow: auto; }
     .overlay-pre { margin: 0; padding: 16px; font-family: ui-monospace, Menlo, monospace; font-size: .82rem; line-height: 1.45; white-space: pre-wrap; color: #203a31; background: #fbfdfc; }
+    .download-form { padding: 16px; display: grid; gap: 10px; }
+    .download-form label { font-size: .84rem; font-weight: 700; color: #335348; }
+    .download-form input { width: 100%; box-sizing: border-box; border: 1px solid #c7d6d0; border-radius: 10px; padding: 11px 12px; font-size: .92rem; }
+    .download-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .download-ok { background: #117a62; color: #fff; }
+    .download-cancel { background: #e8eeec; color: #29473d; }
+    .download-error { min-height: 1.2em; font-size: .82rem; color: #a61b1b; }
   </style>
 </head>
 <body>
@@ -74,6 +82,7 @@
     <div class="top">
       <button class="btn scan" id="scanBtn">Refresh</button>
       <button class="btn run" id="runBtn">Start</button>
+      <button class="btn add" id="addBtn">Add</button>
       <button class="btn stop" id="stopBtn">Stop</button>
       <span class="worker-pill worker-unknown" id="workerStatus">Worker: unknown</span>
       <span class="hint" id="hint">Selected: 0</span>
@@ -85,6 +94,7 @@
           <tr>
             <th><input type="checkbox" id="all"></th>
             <th>File</th>
+            <th class="step-col">Download</th>
             <th class="step-col">Extract</th>
             <th class="step-col">Transcribe</th>
             <th class="step-col">Translate</th>
@@ -111,6 +121,28 @@
     </div>
   </div>
 
+  <div class="overlay" id="downloadOverlay" hidden>
+    <div class="overlay-card" role="dialog" aria-modal="true" aria-labelledby="downloadTitle">
+      <div class="overlay-head">
+        <div class="overlay-title" id="downloadTitle">Add YouTube link</div>
+        <button class="overlay-close" id="downloadClose" type="button">Cancel</button>
+      </div>
+      <div class="overlay-body">
+        <div class="download-form">
+          <div>
+            <label for="downloadUrl">YouTube link</label>
+            <input id="downloadUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false">
+          </div>
+          <div class="download-error" id="downloadError"></div>
+          <div class="download-actions">
+            <button class="btn download-cancel" id="downloadCancel" type="button">Cancel</button>
+            <button class="btn download-ok" id="downloadOk" type="button">OK</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const tbody = document.getElementById('tbody');
     const hint = document.getElementById('hint');
@@ -120,6 +152,12 @@
     const logTailTitle = document.getElementById('logTailTitle');
     const logTailContent = document.getElementById('logTailContent');
     const logTailClose = document.getElementById('logTailClose');
+    const downloadOverlay = document.getElementById('downloadOverlay');
+    const downloadUrl = document.getElementById('downloadUrl');
+    const downloadError = document.getElementById('downloadError');
+    const downloadClose = document.getElementById('downloadClose');
+    const downloadCancel = document.getElementById('downloadCancel');
+    const downloadOk = document.getElementById('downloadOk');
 
     let items = [];
 
@@ -148,13 +186,26 @@
       return `<select data-id="${videoId}" data-key="${key}" class="opt">${opts}</select>`;
     }
 
+    function openDownloadOverlay() {
+      downloadError.textContent = '';
+      downloadUrl.value = '';
+      downloadOverlay.hidden = false;
+      window.setTimeout(() => downloadUrl.focus(), 0);
+    }
+
+    function closeDownloadOverlay() {
+      downloadOverlay.hidden = true;
+      downloadError.textContent = '';
+      downloadUrl.value = '';
+    }
+
     function translateOptionValue(profile) {
       if (profile.backend === 'libretranslate') {
         return 'google';
       }
 
       if (profile.backend === 'nllb_local') {
-        if (profile.nllb_profile === 'legacy') {
+        if (profile.nllb_legacy || profile.nllb_profile === 'legacy') {
           return 'nllb_legacy';
         }
         if (profile.nllb_profile === 'custom') {
@@ -230,7 +281,7 @@
     }
 
     function buildDisplayStepMap(run) {
-      const orderedStepNames = ['extract', 'transcribe', 'translate', 'audiobook', 'remux'];
+      const orderedStepNames = ['download', 'extract', 'transcribe', 'translate', 'audiobook', 'remux'];
       const stepMap = new Map();
 
       (run?.steps || []).forEach((step) => {
@@ -282,11 +333,13 @@
         const translateNoteHtml = translateModeNote(profile, run);
         const runStatus = run?.status || '';
         const stepMap = buildDisplayStepMap(run);
+        const downloadStatus = mapStepStatus(stepMap.download, runStatus);
         const extractStatus = mapStepStatus(stepMap.extract, runStatus);
         const transcribeStatus = mapStepStatus(stepMap.transcribe, runStatus);
         const translateStatus = mapStepStatus(stepMap.translate, runStatus);
         const audiobookStatus = mapStepStatus(stepMap.audiobook, runStatus);
         const remuxStatus = mapStepStatus(stepMap.remux, runStatus);
+        const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
         const logActions = run?.log_url
           ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
           : '-';
@@ -305,7 +358,8 @@
         return `
           <tr>
             <td><input type="checkbox" class="row-check" data-id="${item.id}"></td>
-            <td><b>${item.file_name}</b><div class="mono">${item.file_path}</div></td>
+            <td><b>${item.file_name}</b><div class="mono">${item.file_path}</div>${sourceUrlHtml}</td>
+            <td>${statusBadge(downloadStatus.label, downloadStatus.className)}</td>
             <td>${statusBadge(extractStatus.label, extractStatus.className)}</td>
             <td>${statusBadge(transcribeStatus.label, transcribeStatus.className)}</td>
             <td>${statusBadge(translateStatus.label, translateStatus.className)}</td>
@@ -376,12 +430,15 @@
         } else if (value === 'nllb_fast') {
           payload.backend = 'nllb_local';
           payload.nllb_profile = 'fast';
+          payload.nllb_legacy = false;
         } else if (value === 'nllb_legacy') {
           payload.backend = 'nllb_local';
           payload.nllb_profile = 'legacy';
+          payload.nllb_legacy = true;
         } else if (value === 'nllb_custom') {
           payload.backend = 'nllb_local';
           payload.nllb_profile = 'custom';
+          payload.nllb_legacy = false;
         } else {
           payload.backend = value;
         }
@@ -417,6 +474,66 @@
       await loadStatus(false);
     });
 
+    document.getElementById('addBtn').addEventListener('click', openDownloadOverlay);
+
+    async function submitDownload() {
+      const sourceUrl = String(downloadUrl.value || '').trim();
+      if (!sourceUrl) {
+        downloadError.textContent = 'Informe o link do YouTube.';
+        downloadUrl.focus();
+        return;
+      }
+
+      downloadError.textContent = '';
+      downloadOk.disabled = true;
+      try {
+        const response = await fetch('/api/downloads/add', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({source_url: sourceUrl})
+        });
+        const responseText = await response.text();
+        let payload = null;
+
+        if (responseText) {
+          try {
+            payload = JSON.parse(responseText);
+          } catch (error) {
+            payload = null;
+          }
+        }
+
+        if (!response.ok || !payload || !payload.ok) {
+          const detail = payload?.error || responseText.trim() || `Request failed (${response.status})`;
+          throw new Error(detail);
+        }
+        closeDownloadOverlay();
+        await loadStatus(false);
+      } catch (error) {
+        const message = String(error?.message || error || 'Falha ao adicionar o download.');
+        downloadError.textContent = message.includes('Request failed (')
+          ? message
+          : `Falha ao adicionar o download: ${message}`;
+      } finally {
+        downloadOk.disabled = false;
+      }
+    }
+
+    downloadOk.addEventListener('click', submitDownload);
+    downloadCancel.addEventListener('click', closeDownloadOverlay);
+    downloadClose.addEventListener('click', closeDownloadOverlay);
+    downloadUrl.addEventListener('keydown', (evt) => {
+      if (evt.key === 'Enter') {
+        evt.preventDefault();
+        submitDownload();
+      }
+    });
+    downloadOverlay.addEventListener('click', (evt) => {
+      if (evt.target === downloadOverlay) {
+        closeDownloadOverlay();
+      }
+    });
+
     document.getElementById('stopBtn').addEventListener('click', async () => {
       const ids = selectedIds();
       if (!ids.length) return;
@@ -442,6 +559,9 @@
     document.addEventListener('keydown', (evt) => {
       if (evt.key === 'Escape' && !logTailOverlay.hidden) {
         closeLogTailOverlay();
+      }
+      if (evt.key === 'Escape' && !downloadOverlay.hidden) {
+        closeDownloadOverlay();
       }
     });
 
