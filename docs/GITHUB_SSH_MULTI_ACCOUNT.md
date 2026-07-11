@@ -92,3 +92,46 @@ If it returns the Vinta account, this is still fine. Only this repository remote
 - Never overwrite or remove the key/comment for `sergio.marchiori@vinta.com.br`.
 - Prefer repo-scoped fixes (`git remote set-url`) over global Git/SSH changes.
 - Use `git push --dry-run` before first real push after any auth adjustment.
+
+## Pre-Push Checklist
+
+Run this checklist before pushing from this repository:
+
+1. Confirm remote alias is repo-scoped to `github-sergio85`:
+
+```bash
+git remote get-url origin
+```
+
+Expected:
+
+```text
+git@github-sergio85:serginhoshm/audiobook-libs.git
+```
+
+2. Confirm explicit identity works:
+
+```bash
+ssh -T git@github-sergio85
+```
+
+Expected:
+
+```text
+Hi serginhoshm! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+3. If remote is still `github.com`, use one-shot push with explicit key (do not edit Vinta entry):
+
+```bash
+GIT_SSH_COMMAND='ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519_github_sergio85 -o StrictHostKeyChecking=accept-new' \
+  git push origin main
+```
+
+4. Final verify:
+
+```bash
+git status -sb
+```
+
+Expected: no pending changes and no ahead/behind after successful sync.
