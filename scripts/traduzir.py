@@ -43,6 +43,10 @@ DEFAULT_LIBRETRANSLATE_TARGET_LANG = "pt"
 DEFAULT_LIBRETRANSLATE_TIMEOUT_SECONDS = 30
 DEFAULT_LIBRETRANSLATE_START_TIMEOUT_SECONDS = 60
 DEFAULT_LIBRETRANSLATE_LOAD_ONLY_LANG_CODES = "en,es,zh,pt"
+DEFAULT_MAX_UNTRANSLATED_RATIO = 0.10
+DEFAULT_MAX_UNTRANSLATED_LINES = 6
+DEFAULT_ZH_MAX_UNTRANSLATED_RATIO = 0.05
+DEFAULT_ZH_MAX_UNTRANSLATED_LINES = 3
 CALIBRATION_PROFILE_FILE = "calibration_profile.json"
 CALIBRATION_STATE_FILE = "calibration_state.json"
 GLOSSARY_FILE = "glossary.json"
@@ -185,6 +189,36 @@ def parse_args():
         "--libretranslate-load-only-lang-codes",
         default=os.getenv("LIBRETRANSLATE_LOAD_ONLY_LANG_CODES", DEFAULT_LIBRETRANSLATE_LOAD_ONLY_LANG_CODES),
         help="Comma-separated language codes passed to libretranslate --load-only when auto-starting.",
+    )
+    parser.add_argument(
+        "--fail-on-untranslated",
+        action=argparse.BooleanOptionalAction,
+        default=os.getenv("TRANSLATION_FAIL_ON_UNTRANSLATED", "1") == "1",
+        help="Fail the run when too many lines look untranslated in the output SRT.",
+    )
+    parser.add_argument(
+        "--max-untranslated-ratio",
+        type=float,
+        default=float(os.getenv("TRANSLATION_MAX_UNTRANSLATED_RATIO", str(DEFAULT_MAX_UNTRANSLATED_RATIO))),
+        help="Maximum allowed ratio of suspicious untranslated lines before failing.",
+    )
+    parser.add_argument(
+        "--max-untranslated-lines",
+        type=int,
+        default=int(os.getenv("TRANSLATION_MAX_UNTRANSLATED_LINES", str(DEFAULT_MAX_UNTRANSLATED_LINES))),
+        help="Minimum number of suspicious untranslated lines required to fail.",
+    )
+    parser.add_argument(
+        "--zh-max-untranslated-ratio",
+        type=float,
+        default=float(os.getenv("TRANSLATION_ZH_MAX_UNTRANSLATED_RATIO", str(DEFAULT_ZH_MAX_UNTRANSLATED_RATIO))),
+        help="zh-CN specific maximum allowed ratio of suspicious untranslated lines before failing.",
+    )
+    parser.add_argument(
+        "--zh-max-untranslated-lines",
+        type=int,
+        default=int(os.getenv("TRANSLATION_ZH_MAX_UNTRANSLATED_LINES", str(DEFAULT_ZH_MAX_UNTRANSLATED_LINES))),
+        help="zh-CN specific minimum number of suspicious untranslated lines required to fail.",
     )
     return parser.parse_args()
 
@@ -839,6 +873,49 @@ def contains_cjk(text):
     return bool(re.search(r"[\u3400-\u9fff\uf900-\ufaff]", text or ""))
 
 
+def _is_suspicious_untranslated(source_text, translated_text, source_lang_key):
+    src = normalize_text(source_text)
+    tgt = normalize_text(translated_text)
+    if not src or not tgt:
+        return False
+
+    if src == tgt:
+        return True
+
+    # For Chinese source, translated lines that still contain CJK are often untranslated.
+    if source_lang_key == "zh-cn" and contains_cjk(tgt):
+        return True
+
+    return False
+
+
+def collect_translation_quality_stats(source_texts, subtitles, source_lang_key):
+    suspicious = []
+    checked = 0
+
+    for idx, subtitle in enumerate(subtitles, start=1):
+        src = source_texts[idx - 1] if idx - 1 < len(source_texts) else ""
+        tgt = normalize_text(subtitle.text)
+        if not src or not tgt:
+            continue
+        checked += 1
+        if _is_suspicious_untranslated(src, tgt, source_lang_key):
+            suspicious.append(
+                {
+                    "index": idx,
+                    "source": src,
+                    "translated": tgt,
+                }
+            )
+
+    ratio = (len(suspicious) / checked) if checked else 0.0
+    return {
+        "checked": checked,
+        "suspicious": suspicious,
+        "ratio": ratio,
+    }
+
+
 def load_json_file(path, default_value):
     if not path.exists():
         return default_value
@@ -1263,6 +1340,8 @@ def main():
     except Exception:
         subtitles = pysrt.open(str(input_path), encoding="iso-8859-1")
 
+    source_texts = [normalize_text(subtitle.text) for subtitle in subtitles]
+
     if len(subtitles) == 0:
         print(f"Error: input file has no subtitles: {input_path}")
         sys.exit(1)
@@ -1291,6 +1370,52 @@ def main():
             save_json_file(calibration_bundle["state_path"], calibration_bundle["state"])
         else:
             translate_simple_srt(subtitles, tradutor)
+
+        quality_stats = collect_translation_quality_stats(source_texts, subtitles, source_lang_key)
+        suspicious_count = len(quality_stats["suspicious"])
+        checked_count = quality_stats["checked"]
+        suspicious_ratio = quality_stats["ratio"]
+
+        if source_lang_key == "zh-cn":
+            effective_max_untranslated_ratio = max(0.0, args.zh_max_untranslated_ratio)
+            effective_max_untranslated_lines = max(1, args.zh_max_untranslated_lines)
+        else:
+            effective_max_untranslated_ratio = max(0.0, args.max_untranslated_ratio)
+            effective_max_untranslated_lines = max(1, args.max_untranslated_lines)
+
+        print(
+            "[translation_quality] checked=%s suspicious=%s ratio=%.3f threshold_lines=%s threshold_ratio=%.3f"
+            % (
+                checked_count,
+                suspicious_count,
+                suspicious_ratio,
+                effective_max_untranslated_lines,
+                effective_max_untranslated_ratio,
+            ),
+            flush=True,
+        )
+
+        should_fail_quality = (
+            args.fail_on_untranslated
+            and checked_count > 0
+            and suspicious_count >= effective_max_untranslated_lines
+            and suspicious_ratio >= effective_max_untranslated_ratio
+        )
+
+        if should_fail_quality:
+            print(
+                "[translation_quality] FAIL: suspicious untranslated lines exceed threshold "
+                "(min_lines=%s min_ratio=%.3f)"
+                % (effective_max_untranslated_lines, effective_max_untranslated_ratio),
+                flush=True,
+            )
+            for item in quality_stats["suspicious"][:8]:
+                print(
+                    "[translation_quality] suspicious line %s src='%s' out='%s'"
+                    % (item["index"], item["source"][:120], item["translated"][:120]),
+                    flush=True,
+                )
+            sys.exit(2)
 
         subtitles.save(str(output_path), encoding="utf-8")
 

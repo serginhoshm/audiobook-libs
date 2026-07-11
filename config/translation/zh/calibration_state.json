@@ -3,9 +3,12 @@
     "a casa construída pelo patrão com palha": "o mais velho construiu uma casa de palha",
     "a chuva choveu": "choveu",
     "bata na porta com força": "bateu com força na porta",
+    "caixao": "gaveta",
+    "caixão": "gaveta",
     "cheio de ar": "aromático",
     "ciências básicas": "ciência básica",
     "da casa de madeira da casa": "na casa de madeira",
+    "folheto": "pasta",
     "o lobo mau está se aproximando": "o lobo mau se aproximou",
     "proximo quarta-feira": "próxima quarta-feira",
     "próximo quarta-feira": "próxima quarta-feira"
@@ -2012,38 +2015,44 @@
       "target": "Comei já."
     }
   },
-  "backend": "libretranslate",
+  "backend": "nllb_local",
   "case_results": [
     {
-      "forbid_hits": [],
-      "id": "drawer_term",
-      "missing_terms": [],
-      "source": "请把蓝色文件夹放在第二个抽屉里。",
-      "translated": "Coloque a pasta azul na segunda gaveta。",
-      "triggered": false
-    },
-    {
-      "forbid_hits": [],
-      "id": "coffee_aroma",
-      "missing_terms": [
-        "café"
+      "forbid_hits": [
+        "caixão"
       ],
-      "source": "这家店的咖啡很香，但有点贵。",
-      "translated": "Cheira bem, mas é um pouco caro。",
+      "id": "drawer_term",
+      "missing_terms": [
+        "gaveta"
+      ],
+      "source": "请把蓝色文件夹放在第二个抽屉里。",
+      "translated": "Coloque o folheto azul no segundo caixão.",
       "triggered": true
     },
     {
-      "forbid_hits": [],
+      "forbid_hits": [
+        "cheio de ar"
+      ],
+      "id": "coffee_aroma",
+      "missing_terms": [],
+      "source": "这家店的咖啡很香，但有点贵。",
+      "translated": "O café da loja é cheio de ar, mas um pouco caro.",
+      "triggered": true
+    },
+    {
+      "forbid_hits": [
+        "a chuva choveu"
+      ],
       "id": "rain_phrase",
       "missing_terms": [],
       "source": "昨晚下雨了，所以路上很滑。",
-      "translated": "Choveu ontem à noite, por isso escorregou。",
-      "triggered": false
+      "translated": "A chuva choveu ontem à noite, por isso o caminho foi muito liso.",
+      "triggered": true
     }
   ],
-  "last_run": "2026-07-09T02:53:07.393041+00:00",
+  "last_run": "2026-07-11T16:44:10.336427+00:00",
   "watch_hits": {
-    "phrase_o_que_e_que_eu_faco": 134,
+    "phrase_o_que_e_que_eu_faco": 136,
     "term_patron": 9
   },
   "watch_samples": [
@@ -2761,6 +2770,16 @@
       "pattern": "term_patron",
       "source": "王老板没给我开低价",
       "translated": "O meu patrão não me deu um preço baixo."
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "我該怎麼做",
+      "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "我該怎麼做",
+      "translated": "O que é que eu faço?"
     }
   ]
 }
