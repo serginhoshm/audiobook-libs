@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -11,6 +12,7 @@
     .btn { border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 700; cursor: pointer; }
     .scan { background: #d8e7ff; color: #1f3c7f; }
     .add { background: #f1dfb6; color: #6d4a00; }
+    .delete { background: #f8d9d6; color: #8a2318; }
     .run { background: #117a62; color: #fff; }
     .stop { background: #b5382b; color: #fff; }
     .worker-pill { border-radius: 999px; padding: 5px 10px; font-size: .82rem; font-weight: 700; border: 1px solid #c6dcd3; background: #e9f4ef; color: #2c584a; }
@@ -19,9 +21,17 @@
     .worker-unknown { background: #f3f4f6; color: #4f5962; border-color: #d6d9de; }
     .hint { margin-left: auto; font-size: .9rem; color: #49655c; }
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d6e2dd; }
-    th, td { border-bottom: 1px solid #e2ece8; padding: 8px 9px; text-align: left; vertical-align: top; font-size: .88rem; }
+    th, td { border-bottom: 1px solid #e2ece8; padding: 12px 9px; text-align: left; vertical-align: top; font-size: .88rem; }
     th { background: #edf6f3; position: sticky; top: 0; }
-    .step-col { min-width: 108px; }
+    .phase-col { min-width: 360px; }
+    .file-cell { min-width: 360px; }
+    .file-head { display: flex; align-items: center; gap: 8px; }
+    .file-icons { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .file-icon { width: 16px; height: 16px; display: inline-block; vertical-align: middle; }
+    .file-name { font-size: .94rem; font-weight: 700; color: #173026; }
+    .title-line { margin-top: 4px; text-align: left; line-height: 1.4; }
+    .title-label { font-weight: 700; color: #335348; }
+    .title-text { color: #29473d; }
     .status-badge {
       display: inline-block;
       padding: 4px 8px;
@@ -39,6 +49,54 @@
     .status-stopped { background: #f3e8ff; border-color: #d8b4fe; color: #6b21a8; }
     .status-skipped { background: #eef2f7; border-color: #d3dae6; color: #475569; }
     .status-unknown { background: #ff8a1f; border-color: #d66a00; color: #ffffff; }
+    .phase-track { display: flex; align-items: flex-start; gap: 0; min-width: 320px; padding-top: 2px; }
+    .phase-step { position: relative; flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+    .phase-step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 8px;
+      left: calc(50% + 12px);
+      right: calc(-50% + 12px);
+      height: 2px;
+      background: #d5dfdb;
+      z-index: 0;
+    }
+    .phase-step.is-completed:not(:last-child)::after { background: #77c89a; }
+    .phase-step.is-error:not(:last-child)::after { background: #ef9a9a; }
+    .phase-step.is-running:not(:last-child)::after {
+      background: linear-gradient(90deg, #f2c267 0%, #f7d99e 50%, #d5dfdb 100%);
+    }
+    .phase-dot {
+      position: relative;
+      z-index: 1;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid #b7c6c1;
+      background: #ffffff;
+      box-sizing: border-box;
+    }
+    .phase-step.is-not-started .phase-dot { background: #ffffff; border-color: #cbd5e1; }
+    .phase-step.is-queued .phase-dot { background: #d9e9ff; border-color: #7fb1ff; }
+    .phase-step.is-running .phase-dot {
+      background: #ffd37f;
+      border-color: #d89114;
+      box-shadow: 0 0 0 0 rgba(216, 145, 20, 0.45);
+      animation: phase-pulse 1.5s infinite;
+    }
+    .phase-step.is-completed .phase-dot { background: #34b56a; border-color: #239150; }
+    .phase-step.is-error .phase-dot { background: #e66a6a; border-color: #ba3f3f; }
+    .phase-step.is-stopped .phase-dot { background: #b788f7; border-color: #8854d0; }
+    .phase-step.is-skipped .phase-dot { background: #dbe4ea; border-color: #aab7c5; }
+    .phase-step.is-unknown .phase-dot { background: #ff8a1f; border-color: #d66a00; }
+    .phase-label { font-size: .66rem; font-weight: 700; color: #486258; letter-spacing: .02em; line-height: 1.15; }
+    .phase-step.is-running .phase-label { color: #7c4a03; }
+    .phase-summary { margin-top: 8px; font-size: .76rem; color: #49655c; }
+    @keyframes phase-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(216, 145, 20, 0.45); }
+      70% { box-shadow: 0 0 0 8px rgba(216, 145, 20, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(216, 145, 20, 0); }
+    }
     select { width: 100%; border: 1px solid #c1d2cc; border-radius: 7px; padding: 5px; font-size: .8rem; background: #fff; }
     .mono { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: #4a5f58; }
     .translate-mode-note {
@@ -74,6 +132,12 @@
     .download-ok { background: #117a62; color: #fff; }
     .download-cancel { background: #e8eeec; color: #29473d; }
     .download-error { min-height: 1.2em; font-size: .82rem; color: #a61b1b; }
+    .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    .pager-info { font-size: .88rem; color: #49655c; }
+    .pager-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pager-actions select { width: auto; min-width: 88px; }
+    .btn.pager-btn { background: #edf6f3; color: #26483d; padding: 8px 10px; }
+    .btn.pager-btn[disabled] { opacity: .5; cursor: default; }
   </style>
 </head>
 <body>
@@ -83,6 +147,7 @@
       <button class="btn scan" id="scanBtn">Refresh</button>
       <button class="btn run" id="runBtn">Start</button>
       <button class="btn add" id="addBtn">Add</button>
+      <button class="btn delete" id="deleteBtn">Delete</button>
       <button class="btn stop" id="stopBtn">Stop</button>
       <span class="worker-pill worker-unknown" id="workerStatus">Worker: unknown</span>
       <span class="hint" id="hint">Selected: 0</span>
@@ -94,18 +159,29 @@
           <tr>
             <th><input type="checkbox" id="all"></th>
             <th>File</th>
-            <th class="step-col">Download</th>
-            <th class="step-col">Extract</th>
-            <th class="step-col">Transcribe</th>
-            <th class="step-col">Translate</th>
-            <th class="step-col">Audiobook</th>
-            <th class="step-col">Remux</th>
+            <th class="phase-col">Phases</th>
             <th>Translate</th>
             <th>Logs</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
       </table>
+    </div>
+
+    <div class="pager">
+      <div class="pager-info" id="pagerInfo">0 registros</div>
+      <div class="pager-actions">
+        <label for="pageSize">Por pagina</label>
+        <select id="pageSize">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <button class="btn pager-btn" id="prevPageBtn" type="button">Prev</button>
+        <span class="pager-info" id="pageIndicator">Pagina 1 de 1</span>
+        <button class="btn pager-btn" id="nextPageBtn" type="button">Next</button>
+      </div>
     </div>
   </div>
 
@@ -158,8 +234,52 @@
     const downloadClose = document.getElementById('downloadClose');
     const downloadCancel = document.getElementById('downloadCancel');
     const downloadOk = document.getElementById('downloadOk');
+    const deleteBtn = document.getElementById('deleteBtn');
+    const pageSizeEl = document.getElementById('pageSize');
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+    const pageIndicator = document.getElementById('pageIndicator');
+    const pagerInfo = document.getElementById('pagerInfo');
+    const iconPaths = {
+      disk: '{% static "pipeline_ui/icons/hdd-fill.svg" %}',
+      youtube: '{% static "pipeline_ui/icons/youtube.svg" %}',
+      warning: '{% static "pipeline_ui/icons/exclamation-triangle-fill.svg" %}'
+    };
 
     let items = [];
+    let currentPage = 1;
+
+    function pageSize() {
+      return Number(pageSizeEl.value || 25);
+    }
+
+    function totalPages() {
+      return Math.max(1, Math.ceil(items.length / pageSize()));
+    }
+
+    function pageItems() {
+      const size = pageSize();
+      const start = (currentPage - 1) * size;
+      return items.slice(start, start + size);
+    }
+
+    function syncPager() {
+      const total = items.length;
+      const pages = totalPages();
+      if (currentPage > pages) {
+        currentPage = pages;
+      }
+      if (currentPage < 1) {
+        currentPage = 1;
+      }
+
+      const start = total === 0 ? 0 : ((currentPage - 1) * pageSize()) + 1;
+      const end = total === 0 ? 0 : Math.min(currentPage * pageSize(), total);
+      pagerInfo.textContent = `${total} registros | exibindo ${start}-${end}`;
+      pageIndicator.textContent = `Pagina ${currentPage} de ${pages}`;
+      prevPageBtn.disabled = currentPage <= 1;
+      nextPageBtn.disabled = currentPage >= pages;
+    }
 
     function selectedIds() {
       return Array.from(document.querySelectorAll('.row-check:checked')).map(el => Number(el.dataset.id));
@@ -175,6 +295,60 @@
 
     function statusBadge(label, className) {
       return `<span class="status-badge ${className}">${label}</span>`;
+    }
+
+    function phaseStateClass(className) {
+      return String(className || '').replace(/^status-/, 'is-') || 'is-unknown';
+    }
+
+    function renderPhaseTimeline(statuses) {
+      const steps = [
+        { key: 'download', label: 'DL', title: 'Download' },
+        { key: 'extract', label: 'EX', title: 'Extract' },
+        { key: 'transcribe', label: 'TR', title: 'Transcribe' },
+        { key: 'translate', label: 'TL', title: 'Translate' },
+        { key: 'audiobook', label: 'AB', title: 'Audiobook' },
+        { key: 'remux', label: 'RX', title: 'Remux' }
+      ];
+      const runningStep = steps.find((step) => statuses[step.key]?.className === 'status-running');
+      const summary = runningStep
+        ? `Em execucao: ${runningStep.title}`
+        : steps.find((step) => statuses[step.key]?.className === 'status-error')
+          ? 'Ha fase com erro'
+          : steps.every((step) => statuses[step.key]?.className === 'status-completed' || statuses[step.key]?.className === 'status-skipped')
+            ? 'Fluxo concluido'
+            : 'Aguardando proxima fase';
+
+      const timeline = steps.map((step) => {
+        const state = statuses[step.key] || { label: 'Unknown', className: 'status-unknown' };
+        const stateClass = phaseStateClass(state.className);
+        return `<div class="phase-step ${stateClass}" title="${step.title}: ${state.label}"><span class="phase-dot"></span><span class="phase-label">${step.label}</span></div>`;
+      }).join('');
+
+      return `<div class="phase-track">${timeline}</div><div class="phase-summary">${summary}</div>`;
+    }
+
+    function renderTitleLine(label, text) {
+      const normalized = String(text || '').trim();
+      if (!normalized) {
+        return '';
+      }
+      return `<div class="title-line"><span class="title-label">${escapeHtml(label)}:</span> <span class="title-text">${escapeHtml(normalized)}</span></div>`;
+    }
+
+    function renderFileIcons(item) {
+      const icons = [];
+      if (String(item.source_url || '').trim()) {
+        icons.push(`<img class="file-icon" src="${iconPaths.youtube}" alt="YouTube" title="Origem YouTube">`);
+      } else {
+        icons.push(`<img class="file-icon" src="${iconPaths.disk}" alt="Disco" title="Origem disco">`);
+      }
+
+      if (!item.is_present) {
+        icons.push(`<img class="file-icon" src="${iconPaths.warning}" alt="Ausente" title="Arquivo ausente no disco">`);
+      }
+
+      return `<span class="file-icons">${icons.join('')}</span>`;
     }
 
     function selectField(videoId, key, value, options) {
@@ -327,7 +501,8 @@
     }
 
     function render() {
-      tbody.innerHTML = items.map(item => {
+      syncPager();
+      tbody.innerHTML = pageItems().map(item => {
         const run = item.latest_run;
         const profile = item.profile;
         const translateNoteHtml = translateModeNote(profile, run);
@@ -339,7 +514,18 @@
         const translateStatus = mapStepStatus(stepMap.translate, runStatus);
         const audiobookStatus = mapStepStatus(stepMap.audiobook, runStatus);
         const remuxStatus = mapStepStatus(stepMap.remux, runStatus);
+        const phaseTimelineHtml = renderPhaseTimeline({
+          download: downloadStatus,
+          extract: extractStatus,
+          transcribe: transcribeStatus,
+          translate: translateStatus,
+          audiobook: audiobookStatus,
+          remux: remuxStatus
+        });
         const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
+        const youtubeTitleOriginalHtml = renderTitleLine('Original', item.youtube_title_original);
+        const youtubeTitlePtBrHtml = renderTitleLine('PT-BR', item.youtube_title_pt_br);
+        const fileIconsHtml = renderFileIcons(item);
         const logActions = run?.log_url
           ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
           : '-';
@@ -358,13 +544,8 @@
         return `
           <tr>
             <td><input type="checkbox" class="row-check" data-id="${item.id}"></td>
-            <td><b>${item.file_name}</b><div class="mono">${item.file_path}</div>${sourceUrlHtml}</td>
-            <td>${statusBadge(downloadStatus.label, downloadStatus.className)}</td>
-            <td>${statusBadge(extractStatus.label, extractStatus.className)}</td>
-            <td>${statusBadge(transcribeStatus.label, transcribeStatus.className)}</td>
-            <td>${statusBadge(translateStatus.label, translateStatus.className)}</td>
-            <td>${statusBadge(audiobookStatus.label, audiobookStatus.className)}</td>
-            <td>${statusBadge(remuxStatus.label, remuxStatus.className)}</td>
+            <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
+            <td>${phaseTimelineHtml}</td>
             <td>${translateHtml}${translateNoteHtml}</td>
             <td class="mono">${logActions}</td>
           </tr>
@@ -409,6 +590,7 @@
       const statusData = await statusRes.json();
       const workerData = await workerRes.json();
       items = statusData.items || [];
+      currentPage = Math.min(currentPage, totalPages());
       renderWorkerStatus(workerData.worker || null);
       render();
     }
@@ -475,6 +657,29 @@
     });
 
     document.getElementById('addBtn').addEventListener('click', openDownloadOverlay);
+
+    deleteBtn.addEventListener('click', async () => {
+      const ids = selectedIds();
+      if (!ids.length) return;
+      if (!window.confirm(`Excluir ${ids.length} linha(s) selecionada(s)?`)) {
+        return;
+      }
+
+      const response = await fetch('/api/videos/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_ids: ids})
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const detail = payload?.error || `Falha ao excluir linhas (${response.status}).`;
+        window.alert(detail);
+        return;
+      }
+
+      await loadStatus(false);
+    });
 
     async function submitDownload() {
       const sourceUrl = String(downloadUrl.value || '').trim();
@@ -548,6 +753,23 @@
     all.addEventListener('change', () => {
       document.querySelectorAll('.row-check').forEach(el => el.checked = all.checked);
       updateHint();
+    });
+
+    pageSizeEl.addEventListener('change', () => {
+      currentPage = 1;
+      render();
+    });
+
+    prevPageBtn.addEventListener('click', () => {
+      if (currentPage <= 1) return;
+      currentPage -= 1;
+      render();
+    });
+
+    nextPageBtn.addEventListener('click', () => {
+      if (currentPage >= totalPages()) return;
+      currentPage += 1;
+      render();
     });
 
     logTailClose.addEventListener('click', closeLogTailOverlay);

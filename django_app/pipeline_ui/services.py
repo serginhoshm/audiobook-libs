@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import shutil
+import unicodedata
 from urllib.parse import urlparse
 from datetime import timedelta
 from pathlib import Path
@@ -18,12 +19,18 @@ from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsset
 
+try:
+    from deep_translator import GoogleTranslator
+except Exception:  # pragma: no cover - optional dependency fallback
+    GoogleTranslator = None
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv"}
+
+VIDEO_EXTENSIONS = {".mp4"}
 PIPELINE_STEP_ORDER = ["download", "extract", "transcribe", "translate", "audiobook", "remux"]
 RUN_MODE_PIPELINE = "pipeline"
 DOWNLOAD_DURATION_TOLERANCE_SECONDS = 2.5
 DOWNLOAD_FORMAT_FILTER = "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]"
+MAX_FILESYSTEM_NAME_BYTES = 255
 
 
 def _with_sqlite_lock_retry(fn, *args, **kwargs):
@@ -220,6 +227,100 @@ def ffprobe_duration_seconds(file_path: Path) -> float | None:
         return None
 
 
+def _normalize_title_text(text: Any) -> str:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _truncate_filesystem_name(text: Any, max_bytes: int = MAX_FILESYSTEM_NAME_BYTES) -> str:
+    normalized = _normalize_title_text(text)
+    if not normalized:
+        return ""
+
+    encoded = normalized.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return normalized
+
+    truncated = encoded[:max_bytes]
+    while truncated:
+        try:
+            return truncated.decode("utf-8").rstrip(" .")
+        except UnicodeDecodeError:
+            truncated = truncated[:-1]
+    return ""
+
+
+def _normalize_translation_source(language: Any) -> str:
+    source = _normalize_title_text(language).lower()
+    if not source:
+        return "auto"
+    if source.startswith("pt"):
+        return "auto"
+    if re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]+)*", source):
+        return source
+    return "auto"
+
+
+def _is_youtube_source(source_url: Any) -> bool:
+    raw = str(source_url or "").strip()
+    if not raw:
+        return False
+
+    try:
+        host = urlparse(raw).netloc.lower()
+    except Exception:
+        return False
+    return "youtube.com" in host or "youtu.be" in host
+
+
+def _translate_title_pt_br(title: str, source_language: Any = None) -> str:
+    normalized = _normalize_title_text(title)
+    if not normalized:
+        return ""
+    if GoogleTranslator is None:
+        return normalized
+
+    try:
+        translated = GoogleTranslator(
+            source=_normalize_translation_source(source_language),
+            target="pt",
+        ).translate(normalized)
+    except Exception:
+        translated = normalized
+    return _normalize_title_text(translated)
+
+
+def _title_fields_for_asset(asset: VideoAsset, file_name: str) -> dict[str, str]:
+    current_original = _normalize_title_text(asset.youtube_title_original)
+    current_pt_br = _normalize_title_text(asset.youtube_title_pt_br)
+    if current_original and current_pt_br:
+        return {}
+
+    fallback_title = _truncate_filesystem_name(file_name)
+    updates: dict[str, str] = {}
+
+    if _is_youtube_source(asset.source_url):
+        title_original = current_original
+        if not title_original:
+            try:
+                metadata = _probe_youtube_metadata(asset.source_url)
+            except Exception:
+                metadata = {}
+            title_original = _truncate_filesystem_name(metadata.get("title")) or fallback_title
+            updates["youtube_title_original"] = title_original
+
+        if not current_pt_br:
+            updates["youtube_title_pt_br"] = _translate_title_pt_br(title_original, asset.original_language) or title_original
+        return updates
+
+    if not current_original:
+        updates["youtube_title_original"] = fallback_title
+    if not current_pt_br:
+        updates["youtube_title_pt_br"] = current_original or fallback_title
+    return updates
+
+
 def _download_date_prefix(now=None) -> str:
     current = now or timezone.now()
     return current.strftime("%Y-%m-%d")
@@ -355,11 +456,15 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
     target_base = _next_download_basename()
     target_path = _normalize_download_path(target_base)
     now = timezone.now()
+    youtube_title_original = _truncate_filesystem_name(metadata.get("title"))
+    youtube_title_pt_br = _translate_title_pt_br(youtube_title_original, metadata.get("language"))
 
     asset = VideoAsset.objects.create(
         file_path=str(target_path),
         file_name=target_path.name,
         source_url=source_url,
+        youtube_title_original=youtube_title_original,
+        youtube_title_pt_br=youtube_title_pt_br,
         extension=".mp4",
         size_bytes=0,
         duration_seconds=None,
@@ -537,12 +642,10 @@ def scan_videos() -> dict[str, int]:
     discovered = 0
     updated = 0
 
-    present_paths: set[str] = set()
     for path in sorted(work_exec.iterdir()):
         if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
             continue
 
-        present_paths.add(str(path))
         defaults = {
             "file_name": path.name,
             "extension": path.suffix.lower(),
@@ -558,6 +661,11 @@ def scan_videos() -> dict[str, int]:
             file_path=str(path),
             defaults=defaults,
         )
+        title_updates = _title_fields_for_asset(asset, path.name)
+        if title_updates:
+            for field_name, field_value in title_updates.items():
+                setattr(asset, field_name, field_value)
+            _with_sqlite_lock_retry(asset.save, update_fields=list(title_updates.keys()))
         _with_sqlite_lock_retry(ensure_execution_profile, asset)
         _with_sqlite_lock_retry(sync_run_steps_with_artifacts, asset)
         if created:
@@ -565,15 +673,38 @@ def scan_videos() -> dict[str, int]:
         else:
             updated += 1
 
-    missing = 0
-    for asset in _with_sqlite_lock_retry(lambda: list(VideoAsset.objects.filter(is_present=True))):
-        if asset.file_path not in present_paths:
-            asset.is_present = False
-            asset.last_seen_at = now
-            _with_sqlite_lock_retry(asset.save, update_fields=["is_present", "last_seen_at"])
-            missing += 1
+    for asset in _with_sqlite_lock_retry(
+        lambda: list(
+            VideoAsset.objects.filter(is_deleted=False).filter(
+                Q(youtube_title_original="") | Q(youtube_title_pt_br="")
+            )
+        )
+    ):
+        title_updates = _title_fields_for_asset(asset, asset.file_name)
+        if not title_updates:
+            continue
+        for field_name, field_value in title_updates.items():
+            setattr(asset, field_name, field_value)
+        _with_sqlite_lock_retry(asset.save, update_fields=list(title_updates.keys()))
+        updated += 1
 
-    return {"discovered": discovered, "updated": updated, "missing": missing}
+    return {"discovered": discovered, "updated": updated, "missing": 0}
+
+
+def delete_assets(video_ids: list[int]) -> int:
+    if not video_ids:
+        return 0
+
+    active_asset_ids = set(
+        PipelineRun.objects.filter(
+            video_asset_id__in=video_ids,
+            status__in=["queued", "running", "stopping"],
+        ).values_list("video_asset_id", flat=True)
+    )
+    if active_asset_ids:
+        raise ValueError("Nao e possivel excluir linhas com processamento ativo.")
+
+    return VideoAsset.objects.filter(id__in=video_ids).update(is_deleted=True)
 
 
 def run_evidence_worker(
@@ -596,14 +727,15 @@ def run_evidence_worker(
         synced += 1
 
     missing = 0
-    if include_housekeeping:
-        now = timezone.now()
-        for asset in VideoAsset.objects.filter(is_present=True):
-            if not Path(asset.file_path).exists():
-                asset.is_present = False
-                asset.last_seen_at = now
-                asset.save(update_fields=["is_present", "last_seen_at"])
-                missing += 1
+    # Housekeeping intentionally disabled: rows are kept until manual deletion.
+    # if include_housekeeping:
+    #     now = timezone.now()
+    #     for asset in VideoAsset.objects.filter(is_present=True):
+    #         if not Path(asset.file_path).exists():
+    #             asset.is_present = False
+    #             asset.last_seen_at = now
+    #             asset.save(update_fields=["is_present", "last_seen_at"])
+    #             missing += 1
 
     return {"synced": synced, "missing": missing}
 
@@ -811,11 +943,14 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
         "file_path": asset.file_path,
         "file_name": asset.file_name,
         "source_url": asset.source_url,
+        "youtube_title_original": asset.youtube_title_original,
+        "youtube_title_pt_br": asset.youtube_title_pt_br,
         "duration_seconds": asset.duration_seconds,
         "source_duration_seconds": asset.source_duration_seconds,
         "duration_hms": format_duration(asset.duration_seconds),
         "original_language": asset.original_language,
         "is_present": asset.is_present,
+        "is_deleted": asset.is_deleted,
         "last_seen_at": asset.last_seen_at.isoformat() if asset.last_seen_at else None,
         "profile": serialize_profile(profile),
         "latest_run": {
@@ -841,16 +976,7 @@ def list_assets(
     include_active_runs: bool = False,
     include_log_tail: bool = False,
 ) -> list[dict[str, Any]]:
-    qs = VideoAsset.objects.all().order_by("file_name")
-    if present_only:
-        if include_active_runs:
-            active_asset_ids = PipelineRun.objects.filter(
-                status__in=["queued", "running", "stopping"]
-            ).values_list("video_asset_id", flat=True)
-            # Keep URL-based download jobs visible even before the MP4 exists on disk.
-            qs = qs.filter(Q(is_present=True) | Q(id__in=active_asset_ids) | Q(source_url__gt=""))
-        else:
-            qs = qs.filter(is_present=True)
+    qs = VideoAsset.objects.filter(is_deleted=False).order_by("file_name")
 
     items = []
     for asset in qs:

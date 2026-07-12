@@ -9,6 +9,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from .models import PipelineRun
 
 from .services import (
+    delete_assets,
     list_assets,
     queue_download_job,
     queue_runs,
@@ -39,15 +40,14 @@ def index(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def api_videos(request: HttpRequest) -> JsonResponse:
-    present_only = request.GET.get("present_only", "true").lower() != "false"
-    return JsonResponse({"items": list_assets(present_only=present_only)})
+    return JsonResponse({"items": list_assets(present_only=False)})
 
 
 @csrf_exempt
 @require_POST
 def api_scan(request: HttpRequest) -> JsonResponse:
     summary = scan_videos()
-    evidence = run_evidence_worker(include_housekeeping=True)
+    evidence = run_evidence_worker(include_housekeeping=False)
     return JsonResponse({"ok": True, "summary": summary, "evidence": evidence})
 
 
@@ -95,6 +95,22 @@ def api_runs_stop(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "requested_stop": count})
 
 
+@csrf_exempt
+@require_POST
+def api_videos_delete(request: HttpRequest) -> JsonResponse:
+    payload = _json_payload(request)
+    video_ids = payload.get("video_ids") or []
+    if not isinstance(video_ids, list) or not video_ids:
+        return _json_error("video_ids is empty", status=400)
+
+    try:
+        deleted = delete_assets([int(video_id) for video_id in video_ids])
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+
+    return JsonResponse({"ok": True, "deleted": deleted})
+
+
 @require_GET
 def api_status(request: HttpRequest) -> JsonResponse:
     include_log_tail = request.GET.get("include_log_tail", "false").lower() in {"1", "true", "yes", "on"}
@@ -102,7 +118,7 @@ def api_status(request: HttpRequest) -> JsonResponse:
         {
             "ok": True,
             "items": list_assets(
-                present_only=True,
+                present_only=False,
                 include_active_runs=True,
                 include_log_tail=include_log_tail,
             ),

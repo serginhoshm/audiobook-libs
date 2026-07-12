@@ -6,6 +6,8 @@ class VideoAsset(models.Model):
     file_path = models.CharField(max_length=1024, unique=True)
     file_name = models.CharField(max_length=255)
     source_url = models.CharField(max_length=2048, blank=True, default="")
+    youtube_title_original = models.CharField(max_length=255, blank=True, default="")
+    youtube_title_pt_br = models.TextField(blank=True, default="")
     extension = models.CharField(max_length=16, blank=True)
     size_bytes = models.BigIntegerField(default=0)
     duration_seconds = models.FloatField(null=True, blank=True)
@@ -14,6 +16,7 @@ class VideoAsset(models.Model):
     discovered_at = models.DateTimeField(default=timezone.now)
     last_seen_at = models.DateTimeField(default=timezone.now)
     is_present = models.BooleanField(default=True)
+    is_deleted = models.BooleanField(default=False)
 
     def __str__(self):
         return self.file_name
