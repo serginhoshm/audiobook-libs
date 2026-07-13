@@ -12,6 +12,7 @@ LAN_MODE="0"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 VENV_PY="$VENV_DIR/bin/python"
 MANAGE_PY="$ROOT_DIR/django_app/manage.py"
+OLLAMA_ENV_FILE="$ROOT_DIR/config/translation/ollama.env"
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
@@ -195,6 +196,39 @@ run_django_migrate() {
   "$VENV_PY" "$MANAGE_PY" migrate
 }
 
+maybe_setup_ollama() {
+  local backend="${TRANSLATION_BACKEND:-}"
+  local auto_detected="0"
+
+  # Load local Ollama settings if available so setup uses project-specific host/model.
+  if [ -f "$OLLAMA_ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$OLLAMA_ENV_FILE"
+    backend="${backend:-ollama}"
+  fi
+
+  if [ -z "$backend" ] && has_cmd podman && podman container exists ollama >/dev/null 2>&1; then
+    backend="ollama"
+    auto_detected="1"
+  fi
+
+  if [ "$backend" != "ollama" ]; then
+    return 0
+  fi
+
+  if [ ! -x "$ROOT_DIR/setup/setup-ollama-bluefin.sh" ]; then
+    echo "[webapp] ollama backend selected, but setup/setup-ollama-bluefin.sh is not executable"
+    return 1
+  fi
+
+  if [ "$auto_detected" = "1" ]; then
+    echo "[webapp] detected local Ollama container; running model bootstrap"
+  else
+    echo "[webapp] ollama backend detected; running Ollama setup with model bootstrap"
+  fi
+  bash "$ROOT_DIR/setup/setup-ollama-bluefin.sh"
+}
+
 usage() {
   cat <<'EOF'
 Usage: bash workflows/webapp.sh <command>
@@ -219,6 +253,7 @@ cmd="${1:-start}"
 case "$cmd" in
   setup)
     bash scripts/webapp/setup_webapp.sh
+    maybe_setup_ollama
     ;;
   start)
     ensure_lan_prereqs

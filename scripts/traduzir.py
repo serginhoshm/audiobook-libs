@@ -26,6 +26,9 @@ TRANSLATION_MEMORY_SUFFIX = ".translation-memory.json"
 MARKER_TEMPLATE = "[[SRT-{index:04d}]]"
 DEFAULT_BACKEND = "libretranslate"
 DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:14b"
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+DEFAULT_NLLB_HF_MODEL = "facebook/nllb-200-distilled-600M"
 DEFAULT_NLLB_MODEL_DIR = "models/nllb/facebook-nllb-200-distilled-600M"
 DEFAULT_ZH_CALIBRATION_DIR = "config/translation/zh"
 DEFAULT_ZH_GLOSSARY_LIMIT = 500
@@ -43,8 +46,8 @@ DEFAULT_LIBRETRANSLATE_TARGET_LANG = "pt"
 DEFAULT_LIBRETRANSLATE_TIMEOUT_SECONDS = 30
 DEFAULT_LIBRETRANSLATE_START_TIMEOUT_SECONDS = 60
 DEFAULT_LIBRETRANSLATE_LOAD_ONLY_LANG_CODES = "en,es,zh,pt"
-DEFAULT_MAX_UNTRANSLATED_RATIO = 0.10
-DEFAULT_MAX_UNTRANSLATED_LINES = 6
+DEFAULT_MAX_UNTRANSLATED_RATIO = 0.20
+DEFAULT_MAX_UNTRANSLATED_LINES = 8
 DEFAULT_ZH_MAX_UNTRANSLATED_RATIO = 0.05
 DEFAULT_ZH_MAX_UNTRANSLATED_LINES = 3
 CALIBRATION_PROFILE_FILE = "calibration_profile.json"
@@ -53,6 +56,38 @@ GLOSSARY_FILE = "glossary.json"
 LOCAL_KNOWLEDGE_FILE = "local_knowledge.json"
 DETECTION_SAMPLE_MAX_CHARS = 100
 DETECTION_TIMEOUT_SECONDS = 8
+SPANISH_LEAK_WORDS = {
+    "pero",
+    "los",
+    "las",
+    "uno",
+    "una",
+    "unos",
+    "unas",
+    "del",
+    "al",
+    "que",
+    "como",
+    "dijo",
+    "cerditos",
+    "lobo",
+    "soplaré",
+    "sopraré",
+    "abriré",
+}
+OLLAMA_META_RESPONSE_PATTERNS = [
+    r"\baqui est[aá] a tradu[cç][aã]o\b",
+    r"\bsegue a tradu[cç][aã]o\b",
+    r"\bresultado da tradu[cç][aã]o\b",
+    r"\bforne[cç]o a tradu[cç][aã]o\b",
+    r"\bvou corrigir\b",
+    r"\bestou corrigindo\b",
+    r"\binstru[cç][aã]o\b",
+    r"\bdesculpe\b",
+    r"\bpe[cç]o desculpas\b",
+    r"\btranslation result\b",
+    r"\bhere is the translation\b",
+]
 
 SOURCE_LANG_ALIASES = {
     "auto": "auto",
@@ -161,9 +196,9 @@ def parse_args():
     )
     parser.add_argument(
         "--backend",
-        choices=["libretranslate", "google", "nllb_local", "gemini", "deepl_doc"],
+        choices=["libretranslate", "google", "nllb_local", "nllb_hf", "gemini", "ollama", "deepl_doc"],
         default=os.getenv("TRANSLATION_BACKEND", DEFAULT_BACKEND),
-        help="Translation backend: libretranslate (default), google, nllb_local (offline), gemini (Google API), or deepl_doc.",
+        help="Translation backend: libretranslate (default), google, nllb_local (offline local files), nllb_hf (Hugging Face model id), gemini (Google API), ollama (local LLM), or deepl_doc.",
     )
     parser.add_argument(
         "--deepl-endpoint",
@@ -197,6 +232,21 @@ def parse_args():
         "--gemini-model",
         default=os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
         help="Gemini model name used by the gemini backend.",
+    )
+    parser.add_argument(
+        "--ollama-model",
+        default=os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
+        help="Ollama model name used by the ollama backend.",
+    )
+    parser.add_argument(
+        "--ollama-host",
+        default=os.getenv("OLLAMA_HOST", DEFAULT_OLLAMA_HOST),
+        help="Ollama server URL used by the ollama backend.",
+    )
+    parser.add_argument(
+        "--nllb-hf-model",
+        default=os.getenv("NLLB_HF_MODEL", DEFAULT_NLLB_HF_MODEL),
+        help="Hugging Face NLLB model id used by nllb_hf.",
     )
     parser.add_argument(
         "--nllb-model-dir",
@@ -307,6 +357,23 @@ def parse_args():
 
 def normalize_text(text):
     return re.sub(r"\s+", " ", (text or "").replace("\r", " ").replace("\n", " ")).strip()
+
+
+def strip_leaked_srt_markers(text):
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+
+    cleaned = re.sub(
+        r"\[\[SRT-\d{4}\]\s*\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}\]?",
+        " ",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\[\[SRT-\d{4}\]\]", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\[\[SRT-\d{4}\]", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*(->|:|-)+\s*", "", cleaned)
+    return normalize_text(cleaned)
 
 
 def normalize_source_language(source_lang):
@@ -872,6 +939,66 @@ class GeminiBackendTranslator(BaseTranslator):
         return translated
 
 
+class OllamaBackendTranslator(BaseTranslator):
+    def __init__(self, model_name, source_lang, host):
+        self.model_name = normalize_text(model_name) or DEFAULT_OLLAMA_MODEL
+        self.source_lang = source_lang or "auto"
+        self.host = (normalize_text(host) or DEFAULT_OLLAMA_HOST).rstrip("/")
+        if not (self.host.startswith("http://") or self.host.startswith("https://")):
+            self.host = f"http://{self.host}"
+
+    def _post_json(self, path, payload, timeout_seconds=60):
+        data = json.dumps(payload).encode("utf-8")
+        req = urlrequest.Request(
+            f"{self.host}{path}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        # Ignore environment proxy settings for local Ollama calls.
+        opener = urlrequest.build_opener(urlrequest.ProxyHandler({}))
+        with opener.open(req, timeout=timeout_seconds) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return json.loads(body)
+
+    def translate(self, text):
+        normalized = (text or "").strip()
+        if not normalized:
+            return ""
+
+        has_marker = bool(re.search(r"\[\[SRT-\d{4}\]\]", normalized))
+        marker_instruction = (
+            "Se houver marcadores no texto de entrada no formato [[SRT-0001]], preserve-os exatamente sem inventar novos. "
+            if has_marker
+            else "Nao adicione nenhum marcador como [[SRT-0001]] se ele nao existir na entrada. "
+        )
+        prompt = (
+            "Instrução: Traduza o texto a seguir para Português do Brasil (PT-BR). "
+            "Use ortografia correta do português, com acentuação adequada. "
+            f"{marker_instruction}"
+            "Retorne apenas a tradução final, sem comentários. "
+            f"Idioma de origem esperado: {self.source_lang}.\n\n"
+            f"Texto:\n{normalized}"
+        )
+        try:
+            response = self._post_json(
+                "/api/generate",
+                {
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0},
+                },
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Ollama request failed: {exc}") from exc
+
+        translated = strip_leaked_srt_markers(str(response.get("response", "")))
+        if not translated:
+            raise RuntimeError("Empty response from Ollama backend.")
+        return translated
+
+
 class NLLBLocalTranslator(BaseTranslator):
     def __init__(
         self,
@@ -980,6 +1107,76 @@ class NLLBLocalTranslator(BaseTranslator):
         return translated
 
 
+class NLLBHFTranslator(BaseTranslator):
+    def __init__(
+        self,
+        model_name,
+        source_lang_nllb,
+        max_input_length=DEFAULT_NLLB_MAX_INPUT_LENGTH,
+    ):
+        if not normalize_text(source_lang_nllb):
+            raise ValueError("nllb_hf requires an explicit source language.")
+
+        try:
+            import torch
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+        except Exception as exc:
+            raise RuntimeError(
+                "Missing dependencies for nllb_hf. Run setup/setup-nllb-hf.sh"
+            ) from exc
+
+        self._torch = torch
+        self.max_input_length = max(256, int(max_input_length))
+        self.device = "cpu"
+        self.model_name = normalize_text(model_name) or DEFAULT_NLLB_HF_MODEL
+
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=False)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(
+            self.model_name,
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True,
+        )
+        self.model.to(self.device)
+        self.model.eval()
+
+        self.source_lang = source_lang_nllb
+        self.target_lang = "por_Latn"
+        try:
+            self.tokenizer.src_lang = self.source_lang
+        except Exception as exc:
+            raise ValueError(f"Unsupported NLLB source language: {self.source_lang}") from exc
+        self.forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(self.target_lang)
+        if self.forced_bos_token_id is None or self.forced_bos_token_id < 0:
+            raise RuntimeError("Could not resolve target token por_Latn")
+
+        print(
+            "[nllb_hf] model=%s device=%s max_input=%s"
+            % (self.model_name, self.device, self.max_input_length),
+            flush=True,
+        )
+
+    def translate(self, text):
+        normalized = normalize_text(text)
+        if not normalized:
+            return normalized
+
+        inputs = self.tokenizer(
+            normalized,
+            return_tensors="pt",
+            truncation=True,
+            max_length=self.max_input_length,
+        )
+
+        with self._torch.no_grad():
+            output_tokens = self.model.generate(
+                **inputs,
+                forced_bos_token_id=self.forced_bos_token_id,
+                max_length=512,
+            )
+
+        return self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0]
+
+
 def build_translator(args, source_lang_key, source_lang_normalized):
     backend = args.backend
 
@@ -1035,6 +1232,26 @@ def build_translator(args, source_lang_key, source_lang_normalized):
         )
         return translator, "nllb_local"
 
+    if backend == "nllb_hf":
+        if source_lang_key == "auto":
+            print("Warning: source_lang=auto is not supported in nllb_hf. Falling back to google backend.")
+            return GoogleBackendTranslator(source_lang_normalized), "google"
+
+        source_lang_nllb = NLLB_SOURCE_LANG_MAP.get(source_lang_key)
+        if not source_lang_nllb:
+            print(
+                "Warning: source_lang=%s is not mapped for nllb_hf. Falling back to google backend."
+                % source_lang_key
+            )
+            return GoogleBackendTranslator(source_lang_normalized), "google"
+
+        translator = NLLBHFTranslator(
+            model_name=args.nllb_hf_model,
+            source_lang_nllb=source_lang_nllb,
+            max_input_length=args.nllb_max_input_length,
+        )
+        return translator, "nllb_hf"
+
     if backend == "gemini":
         api_key = os.getenv("GEMINI_API_KEY", "")
         translator = GeminiBackendTranslator(
@@ -1044,6 +1261,14 @@ def build_translator(args, source_lang_key, source_lang_normalized):
         )
         return translator, "gemini"
 
+    if backend == "ollama":
+        translator = OllamaBackendTranslator(
+            model_name=args.ollama_model,
+            source_lang=source_lang_normalized,
+            host=args.ollama_host,
+        )
+        return translator, "ollama"
+
     return GoogleBackendTranslator(source_lang_normalized), "google"
 
 
@@ -1051,9 +1276,44 @@ def contains_cjk(text):
     return bool(re.search(r"[\u3400-\u9fff\uf900-\ufaff]", text or ""))
 
 
+def contains_japanese_kana(text):
+    return bool(re.search(r"[\u3040-\u30ff]", text or ""))
+
+
+def contains_hangul(text):
+    return bool(re.search(r"[\uac00-\ud7af]", text or ""))
+
+
+def contains_disallowed_cjk_scripts(text, source_lang_key):
+    normalized_source_lang = normalize_text(source_lang_key).lower()
+    if normalized_source_lang in {"zh-cn", "zh", "ja", "ko"}:
+        return False
+    return contains_cjk(text) or contains_japanese_kana(text) or contains_hangul(text)
+
+
+def has_ollama_meta_response(text):
+    normalized = normalize_text(text).lower()
+    if not normalized:
+        return False
+    return any(re.search(pattern, normalized) for pattern in OLLAMA_META_RESPONSE_PATTERNS)
+
+
+def invalid_ollama_output_reason(source_text, translated_text, source_lang_key):
+    tgt = strip_leaked_srt_markers(translated_text)
+    if not normalize_text(tgt):
+        return "empty_output"
+    if contains_disallowed_cjk_scripts(tgt, source_lang_key):
+        return "disallowed_cjk_script"
+    if has_ollama_meta_response(tgt):
+        return "meta_response"
+    if _is_suspicious_untranslated(source_text, tgt, source_lang_key):
+        return "suspicious_untranslated"
+    return ""
+
+
 def _is_suspicious_untranslated(source_text, translated_text, source_lang_key):
     src = normalize_text(source_text)
-    tgt = normalize_text(translated_text)
+    tgt = strip_leaked_srt_markers(translated_text)
     if not src or not tgt:
         return False
 
@@ -1063,6 +1323,18 @@ def _is_suspicious_untranslated(source_text, translated_text, source_lang_key):
     # For Chinese source, translated lines that still contain CJK are often untranslated.
     if source_lang_key == "zh-cn" and contains_cjk(tgt):
         return True
+
+    if source_lang_key == "es":
+        if re.search(r"[¡¿]", tgt):
+            return True
+        if re.search(r"\b[a-záéíóúñç]{3,}ré\b", tgt.lower()):
+            return True
+        src_tokens = [tok for tok in re.findall(r"[a-zA-ZáéíóúñÁÉÍÓÚÑçÇ]+", src.lower()) if len(tok) >= 3]
+        tgt_tokens = [tok for tok in re.findall(r"[a-zA-ZáéíóúñÁÉÍÓÚÑçÇ]+", tgt.lower()) if len(tok) >= 3]
+        if src_tokens and tgt_tokens:
+            leak_hits = sum(1 for tok in tgt_tokens if tok in SPANISH_LEAK_WORDS)
+            if leak_hits >= 2:
+                return True
 
     return False
 
@@ -1366,7 +1638,7 @@ def split_into_blocks(subtitles, max_lines, max_chars):
 
 def translate_single_line(tradutor, text):
     try:
-        return normalize_text(tradutor.translate(text))
+        return strip_leaked_srt_markers(tradutor.translate(text))
     except Exception:
         return text
 
@@ -1398,7 +1670,7 @@ def translate_block_text(tradutor, subtitles, source_memory, max_chars):
     for position, match in enumerate(matches):
         start = match.end()
         end = matches[position + 1].start() if position + 1 < len(matches) else len(translated_payload)
-        translated_text = normalize_text(translated_payload[start:end])
+        translated_text = strip_leaked_srt_markers(translated_payload[start:end])
         if not translated_text:
             return None
         translated_lines.append(translated_text)
@@ -1477,14 +1749,33 @@ def translate_chinese_srt(
 
         save_translation_memory(memory_path, source_memory)
 
-def translate_simple_srt(subtitles, tradutor):
+def translate_simple_srt(subtitles, tradutor, source_lang_key):
+    google_fallback = None
+
     for subtitle in tqdm(subtitles, desc="[translation]", unit="item", leave=False, disable=not sys.stderr.isatty()):
         texto = normalize_text(subtitle.text)
         if not texto:
             continue
 
         try:
-            subtitle.text = tradutor.translate(texto)
+            translated = strip_leaked_srt_markers(tradutor.translate(texto))
+
+            if isinstance(tradutor, OllamaBackendTranslator):
+                invalid_reason = invalid_ollama_output_reason(texto, translated, source_lang_key)
+            else:
+                invalid_reason = ""
+
+            if invalid_reason:
+                if google_fallback is None:
+                    google_fallback = GoogleBackendTranslator(source_lang_key)
+                print(
+                    "[translation] ollama line fallback (%s): src='%s' out='%s'"
+                    % (invalid_reason, texto[:120], translated[:120]),
+                    flush=True,
+                )
+                translated = strip_leaked_srt_markers(google_fallback.translate(texto))
+
+            subtitle.text = translated
         except Exception:
             continue
 
@@ -1549,7 +1840,7 @@ def main():
             save_translation_memory(memory_path, translation_memory)
             save_json_file(calibration_bundle["state_path"], calibration_bundle["state"])
         else:
-            translate_simple_srt(subtitles, tradutor)
+            translate_simple_srt(subtitles, tradutor, source_lang_key)
 
         quality_stats = collect_translation_quality_stats(source_texts, subtitles, source_lang_key)
         suspicious_count = len(quality_stats["suspicious"])

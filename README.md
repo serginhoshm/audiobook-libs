@@ -91,6 +91,15 @@ Gemini local key file:
 - Versioned template: `config/translation/gemini.env.template`
 - Local runtime file (gitignored): `config/translation/gemini.env`
 
+Ollama local backend:
+
+- Bluefin setup script: `bash setup/setup-ollama-bluefin.sh`
+- Versioned template: `config/translation/ollama.env.template`
+- Local runtime file (gitignored): `config/translation/ollama.env`
+- Default model: `qwen2.5:14b`
+- Backend name in webapp/pipeline: `ollama`
+- `bash workflows/webapp.sh setup` executa bootstrap do Ollama automaticamente quando `TRANSLATION_BACKEND=ollama` (ou quando `config/translation/ollama.env` existe).
+
 DeepL key template and runtime key rotation:
 
 - Versioned template: `config/translation/deepl_keys_template.ini`
@@ -98,6 +107,12 @@ DeepL key template and runtime key rotation:
 - Runtime blocked-key state (gitignored): `config/translation/deepl_keys_state.ini`
 
 When `deepl_doc` is selected, the pipeline rotates DeepL keys and falls back to Google only if all keys are exhausted/blocked.
+
+NLLB (Hugging Face) backend option:
+
+- Backend name in webapp/pipeline: `nllb_hf`
+- Setup script: `bash setup/setup-nllb-hf.sh`
+- Optional model override: `export NLLB_HF_MODEL=facebook/nllb-200-distilled-600M`
 
 ## Notes
 

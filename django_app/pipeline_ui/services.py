@@ -72,6 +72,10 @@ def _worker_pid_file() -> Path:
     return _worker_run_dir() / "worker.pid"
 
 
+def _discovery_status_file() -> Path:
+    return _worker_run_dir() / "discovery-status.json"
+
+
 def _worker_log_file() -> Path:
     return Path(settings.WEBAPP["WEBAPP_LOG_DIR"]) / "worker.log"
 
@@ -168,8 +172,18 @@ def load_work_exec_dir() -> Path:
     return load_data_root() / "exec"
 
 
-def load_done_dir() -> Path:
-    return load_data_root() / "done"
+def is_generated_remux_sibling(video_path: Path) -> bool:
+    """Return True when file follows generated remux naming '<base> (remux).mp4'."""
+    if video_path.suffix.lower() not in VIDEO_EXTENSIONS:
+        return False
+
+    stem = video_path.stem
+    match = re.match(r"^(?P<base>.+?)\s*\(remux\)$", stem, flags=re.IGNORECASE)
+    if not match:
+        return False
+
+    base_stem = (match.group("base") or "").rstrip()
+    return bool(base_stem)
 
 
 def load_download_dir() -> Path:
@@ -180,6 +194,41 @@ def load_thumbnail_dir() -> Path:
     path = project_root() / "video-thumbs"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def get_discovery_status() -> dict[str, Any]:
+    status = {
+        "in_progress": False,
+        "last_completed_at": None,
+    }
+
+    path = _discovery_status_file()
+    if not path.exists():
+        return status
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return status
+
+    if isinstance(payload, dict):
+        status["in_progress"] = bool(payload.get("in_progress", False))
+        last_completed_at = str(payload.get("last_completed_at") or "").strip()
+        status["last_completed_at"] = last_completed_at or None
+    return status
+
+
+def set_discovery_status(*, in_progress: bool, last_completed_at: str | None = None) -> dict[str, Any]:
+    run_dir = _worker_run_dir()
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    current = get_discovery_status()
+    payload = {
+        "in_progress": bool(in_progress),
+        "last_completed_at": last_completed_at if last_completed_at is not None else current.get("last_completed_at"),
+    }
+    _discovery_status_file().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
 
 def _youtube_thumbnail_url_from_metadata(metadata: dict[str, Any]) -> str:
@@ -583,25 +632,21 @@ def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
 
 def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
     video_path = Path(asset.file_path)
-    done_dir = load_done_dir()
-    remux_dir = load_data_root() / "remux"
-    done_video_path = done_dir / asset.file_name
     stem_path = video_path.with_suffix("")
-    done_stem_path = done_video_path.with_suffix("")
+    remux_video_path = video_path.with_name(f"{video_path.stem} (remux){video_path.suffix}")
 
     def _find_remux_evidence_path() -> Path:
-        # Exact original filename in done/ remains the highest-confidence signal.
-        if done_video_path.exists():
-            return done_video_path
-
         source_stem = video_path.stem.lower()
         source_ext = video_path.suffix.lower()
+        exec_dir = video_path.parent
 
-        for folder in (done_dir, remux_dir):
-            if not folder.exists():
-                continue
+        preferred = remux_video_path
+        if preferred.exists():
+            return preferred
+
+        if exec_dir.exists():
             try:
-                for candidate in folder.iterdir():
+                for candidate in exec_dir.iterdir():
                     if not candidate.is_file():
                         continue
                     name_lower = candidate.name.lower()
@@ -610,9 +655,9 @@ def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
                     if source_stem in name_lower and "remux" in name_lower:
                         return candidate
             except Exception:
-                continue
+                pass
 
-        return done_video_path
+        return preferred
 
     def _first_existing(*paths: Path) -> Path:
         for path in paths:
@@ -621,13 +666,13 @@ def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
         return paths[0]
 
     return {
-        "video": _first_existing(video_path, done_video_path),
-        "wav": _first_existing(stem_path.with_suffix(".wav"), done_stem_path.with_suffix(".wav")),
-        "mp3": _first_existing(stem_path.with_suffix(".mp3"), done_stem_path.with_suffix(".mp3")),
-        "srt": _first_existing(stem_path.with_suffix(".srt"), done_stem_path.with_suffix(".srt")),
-        "srtpt": _first_existing(stem_path.with_suffix(".srtpt"), done_stem_path.with_suffix(".srtpt")),
-        "pt_wav": _first_existing(stem_path.with_suffix(".pt.wav"), done_stem_path.with_suffix(".pt.wav")),
-        "done_video": _find_remux_evidence_path(),
+        "video": video_path,
+        "wav": stem_path.with_suffix(".wav"),
+        "mp3": stem_path.with_suffix(".mp3"),
+        "srt": stem_path.with_suffix(".srt"),
+        "srtpt": stem_path.with_suffix(".srtpt"),
+        "pt_wav": stem_path.with_suffix(".pt.wav"),
+        "remux_video": _find_remux_evidence_path(),
     }
 
 
@@ -654,7 +699,7 @@ def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
         "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
         "translate": (has_srtpt or has_pt_wav, "Evidence: .srtpt file found"),
         "audiobook": (has_pt_wav, "Evidence: .pt.wav file found"),
-        "remux": (artifacts["done_video"].exists(), "Evidence: final video moved to done"),
+        "remux": (artifacts["remux_video"].exists(), "Evidence: remuxed video found in exec"),
     }
 
 
@@ -730,6 +775,8 @@ def scan_videos() -> dict[str, int]:
 
     for path in sorted(work_exec.iterdir()):
         if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        if is_generated_remux_sibling(path):
             continue
 
         defaults = {
@@ -1109,5 +1156,7 @@ def list_assets(
 
     items = []
     for asset in qs:
+        if is_generated_remux_sibling(Path(asset.file_path)):
+            continue
         items.append(serialize_asset(asset, include_log_tail=include_log_tail))
     return items

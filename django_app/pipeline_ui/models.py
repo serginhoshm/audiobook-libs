@@ -28,8 +28,10 @@ class ExecutionProfile(models.Model):
         # ("libretranslate", "libretranslate"),  # Legacy option kept commented for possible reactivation.
         ("google", "google"),
         ("nllb_local", "nllb_local"),
+        ("nllb_hf", "nllb_hf"),
         ("deepl_doc", "deepl_doc"),
         ("gemini", "gemini"),
+        ("ollama", "ollama"),
     ]
 
     NLLB_PROFILE_CHOICES = [
@@ -39,7 +41,7 @@ class ExecutionProfile(models.Model):
     ]
 
     video_asset = models.OneToOneField(VideoAsset, on_delete=models.CASCADE, related_name="execution_profile")
-    backend = models.CharField(max_length=32, choices=BACKEND_CHOICES, default="nllb_local")
+    backend = models.CharField(max_length=32, choices=BACKEND_CHOICES, default="ollama")
     nllb_profile = models.CharField(max_length=16, choices=NLLB_PROFILE_CHOICES, default="legacy")
     nllb_max_input_length = models.PositiveIntegerField(default=768)
     nllb_max_new_tokens = models.PositiveIntegerField(default=192)

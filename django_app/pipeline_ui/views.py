@@ -6,17 +6,20 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.utils import timezone
 
 from .models import PipelineRun, VideoAsset
 
 from .services import (
     delete_assets,
+    get_discovery_status,
     list_assets,
     queue_download_job,
     queue_runs,
     request_stop_for_runs,
     run_evidence_worker,
     scan_videos,
+    set_discovery_status,
     update_execution_profile,
     worker_health_status,
 )
@@ -47,9 +50,15 @@ def api_videos(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_POST
 def api_scan(request: HttpRequest) -> JsonResponse:
-    summary = scan_videos()
-    evidence = run_evidence_worker(include_housekeeping=False)
-    return JsonResponse({"ok": True, "summary": summary, "evidence": evidence})
+    set_discovery_status(in_progress=True)
+    completed_at = None
+    try:
+        summary = scan_videos()
+        evidence = run_evidence_worker(include_housekeeping=False)
+        completed_at = timezone.now().isoformat()
+    finally:
+        set_discovery_status(in_progress=False, last_completed_at=completed_at)
+    return JsonResponse({"ok": True, "summary": summary, "evidence": evidence, "discovery": get_discovery_status()})
 
 
 @csrf_exempt
@@ -118,6 +127,7 @@ def api_status(request: HttpRequest) -> JsonResponse:
     return JsonResponse(
         {
             "ok": True,
+            "discovery": get_discovery_status(),
             "items": list_assets(
                 present_only=False,
                 include_active_runs=True,
