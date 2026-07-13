@@ -3,12 +3,8 @@
     "a casa construída pelo patrão com palha": "o mais velho construiu uma casa de palha",
     "a chuva choveu": "choveu",
     "bata na porta com força": "bateu com força na porta",
-    "caixao": "gaveta",
-    "caixão": "gaveta",
-    "cheio de ar": "aromático",
     "ciências básicas": "ciência básica",
     "da casa de madeira da casa": "na casa de madeira",
-    "folheto": "pasta",
     "o lobo mau está se aproximando": "o lobo mau se aproximou",
     "proximo quarta-feira": "próxima quarta-feira",
     "próximo quarta-feira": "próxima quarta-feira"
@@ -2015,44 +2011,37 @@
       "target": "Comei já."
     }
   },
-  "backend": "nllb_local",
+  "backend": "ollama",
   "case_results": [
     {
-      "forbid_hits": [
-        "caixão"
-      ],
+      "forbid_hits": [],
       "id": "drawer_term",
-      "missing_terms": [
-        "gaveta"
-      ],
+      "missing_terms": [],
       "source": "请把蓝色文件夹放在第二个抽屉里。",
-      "translated": "Coloque o folheto azul no segundo caixão.",
-      "triggered": true
+      "translated": "Por favor, coloque a pasta azul no segundo drawer. Correção para melhor fluidez em português: Por favor, coloque a pasta azul na segunda gaveta.",
+      "triggered": false
     },
     {
-      "forbid_hits": [
-        "cheio de ar"
-      ],
+      "forbid_hits": [],
       "id": "coffee_aroma",
       "missing_terms": [],
       "source": "这家店的咖啡很香，但有点贵。",
-      "translated": "O café da loja é cheio de ar, mas um pouco caro.",
-      "triggered": true
+      "translated": "O café desta loja é muito cheiroso, mas um pouco caro.",
+      "triggered": false
     },
     {
-      "forbid_hits": [
-        "a chuva choveu"
-      ],
+      "forbid_hits": [],
       "id": "rain_phrase",
       "missing_terms": [],
       "source": "昨晚下雨了，所以路上很滑。",
-      "translated": "A chuva choveu ontem à noite, por isso o caminho foi muito liso.",
-      "triggered": true
+      "translated": "A noite choveu, então a estrada estava muito escorregadia.",
+      "triggered": false
     }
   ],
-  "last_run": "2026-07-11T16:44:10.336427+00:00",
+  "last_run": "2026-07-13T19:57:49.333674+00:00",
   "watch_hits": {
-    "phrase_o_que_e_que_eu_faco": 136,
+    "phrase_o_que_e_que_eu_faco": 139,
+    "phrase_velho_3": 3,
     "term_patron": 9
   },
   "watch_samples": [
@@ -2780,6 +2769,36 @@
       "pattern": "phrase_o_que_e_que_eu_faco",
       "source": "我該怎麼做",
       "translated": "O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_velho_3",
+      "source": "老三却想用砖瓦砌一座房子",
+      "translated": "O velho 3 quer uma casa em ruínas"
+    },
+    {
+      "pattern": "phrase_velho_3",
+      "source": "老三的新房子也盖好了",
+      "translated": "A casa do velho 3 também está pronta."
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "野狼嘿嘿地冷笑了两声",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "只好投到老二家里",
+      "translated": "E depois, o que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_o_que_e_que_eu_faco",
+      "source": "气喘吁吁地说",
+      "translated": "\"O que é que eu faço?"
+    },
+    {
+      "pattern": "phrase_velho_3",
+      "source": "老三从窗口发现后",
+      "translated": "O velho 3 foi encontrado pela janela"
     }
   ]
 }
