@@ -1,4 +1,5 @@
 import json
+import mimetypes
 from pathlib import Path
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -6,7 +7,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from .models import PipelineRun
+from .models import PipelineRun, VideoAsset
 
 from .services import (
     delete_assets,
@@ -147,6 +148,26 @@ def api_run_log(request: HttpRequest, run_id: int) -> HttpResponse:
 @require_GET
 def api_worker_status(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "worker": worker_health_status()})
+
+
+@require_GET
+def api_video_thumbnail(request: HttpRequest, video_id: int) -> HttpResponse:
+    asset = VideoAsset.objects.filter(id=video_id).first()
+
+    placeholder = Path(__file__).resolve().parent / "static" / "pipeline_ui" / "img" / "sem-imagem.svg"
+    target = placeholder
+
+    if asset is not None:
+        candidate = Path(str(asset.thumbnail_path or "").strip())
+        if candidate.exists() and candidate.is_file():
+            target = candidate
+
+    if (not target.exists()) or (not target.is_file()):
+        return HttpResponse("Thumbnail not found\n", status=404, content_type="text/plain; charset=utf-8")
+
+    content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    data = target.read_bytes()
+    return HttpResponse(data, content_type=content_type)
 
 
 @csrf_exempt

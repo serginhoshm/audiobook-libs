@@ -24,6 +24,19 @@
     th, td { border-bottom: 1px solid #e2ece8; padding: 12px 9px; text-align: left; vertical-align: top; font-size: .88rem; }
     th { background: #edf6f3; position: sticky; top: 0; }
     .phase-col { min-width: 360px; }
+    .select-col { width: 150px; min-width: 150px; }
+    .select-cell { display: flex; align-items: center; gap: 8px; }
+    .video-thumb {
+      width: 96px;
+      height: 54px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid #ccd9e2;
+      background: #eef3f7;
+      flex-shrink: 0;
+    }
+    .video-thumb-clickable { cursor: zoom-in; transition: transform .12s ease, box-shadow .12s ease; }
+    .video-thumb-clickable:hover { transform: scale(1.03); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); }
     .file-cell { min-width: 360px; }
     .file-head { display: flex; align-items: center; gap: 8px; }
     .file-icons { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -124,6 +137,8 @@
     .overlay-title { font-size: .95rem; font-weight: 700; color: #173026; }
     .overlay-close { border: 0; background: #eef5f2; color: #173026; border-radius: 8px; padding: 7px 10px; cursor: pointer; font-weight: 700; }
     .overlay-body { padding: 0; overflow: auto; }
+    .overlay-body.image-preview { padding: 12px; background: #f6faf8; display: flex; justify-content: center; }
+    .preview-image { display: block; max-width: min(1200px, 92vw); max-height: 80vh; width: auto; height: auto; border-radius: 10px; border: 1px solid #d3e1db; background: #ffffff; }
     .overlay-pre { margin: 0; padding: 16px; font-family: ui-monospace, Menlo, monospace; font-size: .82rem; line-height: 1.45; white-space: pre-wrap; color: #203a31; background: #fbfdfc; }
     .download-form { padding: 16px; display: grid; gap: 10px; }
     .download-form label { font-size: .84rem; font-weight: 700; color: #335348; }
@@ -219,6 +234,18 @@
     </div>
   </div>
 
+  <div class="overlay" id="thumbOverlay" hidden>
+    <div class="overlay-card" role="dialog" aria-modal="true" aria-labelledby="thumbTitle">
+      <div class="overlay-head">
+        <div class="overlay-title" id="thumbTitle">Thumbnail</div>
+        <button class="overlay-close" id="thumbClose" type="button">Close</button>
+      </div>
+      <div class="overlay-body image-preview">
+        <img id="thumbPreviewImage" class="preview-image" alt="Thumbnail preview">
+      </div>
+    </div>
+  </div>
+
   <script>
     const tbody = document.getElementById('tbody');
     const hint = document.getElementById('hint');
@@ -234,6 +261,10 @@
     const downloadClose = document.getElementById('downloadClose');
     const downloadCancel = document.getElementById('downloadCancel');
     const downloadOk = document.getElementById('downloadOk');
+    const thumbOverlay = document.getElementById('thumbOverlay');
+    const thumbTitle = document.getElementById('thumbTitle');
+    const thumbClose = document.getElementById('thumbClose');
+    const thumbPreviewImage = document.getElementById('thumbPreviewImage');
     const deleteBtn = document.getElementById('deleteBtn');
     const pageSizeEl = document.getElementById('pageSize');
     const prevPageBtn = document.getElementById('prevPageBtn');
@@ -336,6 +367,20 @@
       return `<div class="title-line"><span class="title-label">${escapeHtml(label)}:</span> <span class="title-text">${escapeHtml(normalized)}</span></div>`;
     }
 
+    function formatOriginalLanguage(value) {
+      const raw = String(value || '').trim();
+      if (!raw) {
+        return '(Desconhecido)';
+      }
+
+      const lower = raw.toLowerCase();
+      if (lower === 'auto' || lower === 'unknown') {
+        return '(Desconhecido)';
+      }
+
+      return raw;
+    }
+
     function renderFileIcons(item) {
       const icons = [];
       if (String(item.source_url || '').trim()) {
@@ -371,6 +416,20 @@
       downloadOverlay.hidden = true;
       downloadError.textContent = '';
       downloadUrl.value = '';
+    }
+
+    function openThumbOverlay(src, fileName) {
+      thumbTitle.textContent = `Thumbnail: ${fileName}`;
+      thumbPreviewImage.src = src;
+      thumbPreviewImage.alt = `Thumbnail ${fileName}`;
+      thumbOverlay.hidden = false;
+    }
+
+    function closeThumbOverlay() {
+      thumbOverlay.hidden = true;
+      thumbPreviewImage.removeAttribute('src');
+      thumbPreviewImage.alt = 'Thumbnail preview';
+      thumbTitle.textContent = 'Thumbnail';
     }
 
     function translateOptionValue(profile) {
@@ -523,6 +582,13 @@
           remux: remuxStatus
         });
         const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
+        const thumbnailUrl = item.thumbnail_url || `/api/videos/${item.id}/thumbnail`;
+        const canPreviewThumb = Boolean(item.has_real_thumbnail);
+        const thumbClass = canPreviewThumb ? 'video-thumb video-thumb-clickable' : 'video-thumb';
+        const thumbAttrs = canPreviewThumb
+          ? `data-preview-src="${escapeHtml(thumbnailUrl)}" data-file-name="${escapeHtml(item.file_name)}"`
+          : '';
+        const originalLanguageHtml = renderTitleLine('Idioma original', formatOriginalLanguage(item.original_language));
         const youtubeTitleOriginalHtml = renderTitleLine('Original', item.youtube_title_original);
         const youtubeTitlePtBrHtml = renderTitleLine('PT-BR', item.youtube_title_pt_br);
         const fileIconsHtml = renderFileIcons(item);
@@ -543,8 +609,8 @@
 
         return `
           <tr>
-            <td><input type="checkbox" class="row-check" data-id="${item.id}"></td>
-            <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
+            <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
+            <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
             <td>${phaseTimelineHtml}</td>
             <td>${translateHtml}${translateNoteHtml}</td>
             <td class="mono">${logActions}</td>
@@ -555,6 +621,9 @@
       document.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', updateHint));
       document.querySelectorAll('.opt').forEach(el => el.addEventListener('change', onOptionChange));
       document.querySelectorAll('.tail-link').forEach(el => el.addEventListener('click', () => showLogTail(el.dataset.logUrl, el.dataset.fileName)));
+      document.querySelectorAll('.video-thumb-clickable').forEach((el) => {
+        el.addEventListener('click', () => openThumbOverlay(el.dataset.previewSrc, el.dataset.fileName));
+      });
       updateHint();
     }
 
@@ -784,6 +853,16 @@
       }
       if (evt.key === 'Escape' && !downloadOverlay.hidden) {
         closeDownloadOverlay();
+      }
+      if (evt.key === 'Escape' && !thumbOverlay.hidden) {
+        closeThumbOverlay();
+      }
+    });
+
+    thumbClose.addEventListener('click', closeThumbOverlay);
+    thumbOverlay.addEventListener('click', (evt) => {
+      if (evt.target === thumbOverlay) {
+        closeThumbOverlay();
       }
     });
 

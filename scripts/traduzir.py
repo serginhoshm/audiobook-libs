@@ -51,6 +51,88 @@ CALIBRATION_PROFILE_FILE = "calibration_profile.json"
 CALIBRATION_STATE_FILE = "calibration_state.json"
 GLOSSARY_FILE = "glossary.json"
 LOCAL_KNOWLEDGE_FILE = "local_knowledge.json"
+DETECTION_SAMPLE_MAX_CHARS = 100
+DETECTION_TIMEOUT_SECONDS = 8
+
+SOURCE_LANG_ALIASES = {
+    "auto": "auto",
+    "unknown": "auto",
+    "desconhecido": "auto",
+    "ar": "ar",
+    "arb_arab": "ar",
+    "de": "de",
+    "deu_latn": "de",
+    "en": "en",
+    "eng_latn": "en",
+    "es": "es",
+    "es-es": "es",
+    "spa_latn": "es",
+    "fr": "fr",
+    "fra_latn": "fr",
+    "hi": "hi",
+    "hin_deva": "hi",
+    "it": "it",
+    "ita_latn": "it",
+    "ja": "ja",
+    "jpn_jpan": "ja",
+    "ko": "ko",
+    "kor_hang": "ko",
+    "nl": "nl",
+    "nld_latn": "nl",
+    "pl": "pl",
+    "pol_latn": "pl",
+    "pt": "pt",
+    "por_latn": "pt",
+    "ru": "ru",
+    "rus_cyrl": "ru",
+    "tr": "tr",
+    "tur_latn": "tr",
+    "uk": "uk",
+    "ukr_cyrl": "uk",
+    "zh": "zh-cn",
+    "zh-cn": "zh-cn",
+    "zh_hans": "zh-cn",
+    "zho_hans": "zh-cn",
+}
+
+SOURCE_LANG_NORMALIZED_MAP = {
+    "auto": "auto",
+    "ar": "ar",
+    "de": "de",
+    "en": "en",
+    "es": "es",
+    "fr": "fr",
+    "hi": "hi",
+    "it": "it",
+    "ja": "ja",
+    "ko": "ko",
+    "nl": "nl",
+    "pl": "pl",
+    "pt": "pt",
+    "ru": "ru",
+    "tr": "tr",
+    "uk": "uk",
+    "zh-cn": "zh-CN",
+}
+
+NLLB_SOURCE_LANG_MAP = {
+    "ar": "arb_Arab",
+    "de": "deu_Latn",
+    "en": "eng_Latn",
+    "es": "spa_Latn",
+    "fr": "fra_Latn",
+    "hi": "hin_Deva",
+    "it": "ita_Latn",
+    "ja": "jpn_Jpan",
+    "ko": "kor_Hang",
+    "nl": "nld_Latn",
+    "pl": "pol_Latn",
+    "pt": "por_Latn",
+    "ru": "rus_Cyrl",
+    "tr": "tur_Latn",
+    "uk": "ukr_Cyrl",
+    "zh-cn": "zho_Hans",
+}
 
 
 def parse_args():
@@ -225,6 +307,95 @@ def parse_args():
 
 def normalize_text(text):
     return re.sub(r"\s+", " ", (text or "").replace("\r", " ").replace("\n", " ")).strip()
+
+
+def normalize_source_language(source_lang):
+    raw = normalize_text(source_lang).lower().replace("_", "-")
+    if not raw:
+        raw = "auto"
+    key = SOURCE_LANG_ALIASES.get(raw)
+    if not key:
+        return None, None
+    normalized = SOURCE_LANG_NORMALIZED_MAP.get(key, "auto")
+    return key, normalized
+
+
+def build_detection_sample(texts, max_chars=DETECTION_SAMPLE_MAX_CHARS):
+    remaining = max(1, int(max_chars))
+    parts = []
+
+    for raw_text in texts:
+        text = normalize_text(raw_text)
+        if not text:
+            continue
+        chunk = text[:remaining]
+        parts.append(chunk)
+        remaining -= len(chunk)
+        if remaining <= 0:
+            break
+
+    return " ".join(parts).strip()[: max(1, int(max_chars))]
+
+
+def detect_language_with_google(sample_text):
+    if not normalize_text(sample_text):
+        return None
+
+    query = urlparse.urlencode(
+        {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": "pt",
+            "dt": "t",
+            "q": sample_text,
+        }
+    )
+    endpoint = f"https://translate.googleapis.com/translate_a/single?{query}"
+    req = urlrequest.Request(endpoint, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+
+    try:
+        with urlrequest.urlopen(req, timeout=DETECTION_TIMEOUT_SECONDS) as resp:
+            payload = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(payload)
+    except (urlerror.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        return None
+    except Exception:
+        return None
+
+    if isinstance(data, list) and len(data) >= 3 and isinstance(data[2], str):
+        detected = data[2].strip().lower().replace("_", "-")
+        return detected or None
+    return None
+
+
+def resolve_source_language_for_translation(source_lang_key, source_lang_normalized, source_texts):
+    if source_lang_key != "auto":
+        return source_lang_key, source_lang_normalized
+
+    sample_text = build_detection_sample(source_texts)
+    if not sample_text:
+        print("[translation] detect_language: sample unavailable", flush=True)
+        return "auto", "auto"
+
+    detected = detect_language_with_google(sample_text)
+    if not detected:
+        print("[translation] detect_language: unresolved", flush=True)
+        return "auto", "auto"
+
+    detected_key, detected_normalized = normalize_source_language(detected)
+    if detected_key in {None, "auto"}:
+        primary = detected.split("-")[0]
+        detected_key, detected_normalized = normalize_source_language(primary)
+
+    if detected_key in {None, "auto"}:
+        print(f"[translation] detect_language: detected={detected} not mapped", flush=True)
+        return "auto", "auto"
+
+    print(
+        f"[translation] detect_language: detected={detected} resolved_source={detected_key}",
+        flush=True,
+    )
+    return detected_key, detected_normalized
 
 
 def memory_path_for(output_path, backend, source_lang_key):
@@ -702,22 +873,17 @@ class GeminiBackendTranslator(BaseTranslator):
 
 
 class NLLBLocalTranslator(BaseTranslator):
-    SOURCE_LANG_MAP = {
-        "zh-cn": "zho_Hans",
-        "es": "spa_Latn",
-    }
-
     def __init__(
         self,
         model_dir,
-        source_lang_key,
+        source_lang_nllb,
         max_input_length=DEFAULT_NLLB_MAX_INPUT_LENGTH,
         max_new_tokens=DEFAULT_NLLB_MAX_NEW_TOKENS,
         legacy_generation=DEFAULT_NLLB_LEGACY_GENERATION,
     ):
-        if source_lang_key not in self.SOURCE_LANG_MAP:
+        if not normalize_text(source_lang_nllb):
             raise ValueError(
-                "nllb_local backend only supports source_lang es or zh-CN."
+                "nllb_local requires an explicit source language."
             )
         if not model_dir.exists():
             raise FileNotFoundError(
@@ -751,9 +917,12 @@ class NLLBLocalTranslator(BaseTranslator):
         if not self.legacy_generation:
             self.model.generation_config.max_length = None
 
-        self.source_lang = self.SOURCE_LANG_MAP[source_lang_key]
+        self.source_lang = source_lang_nllb
         self.target_lang = "por_Latn"
-        self.tokenizer.src_lang = self.source_lang
+        try:
+            self.tokenizer.src_lang = self.source_lang
+        except Exception as exc:
+            raise ValueError(f"Unsupported NLLB source language: {self.source_lang}") from exc
         self.forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(self.target_lang)
         if self.forced_bos_token_id is None or self.forced_bos_token_id < 0:
             raise RuntimeError("Could not resolve target token por_Latn")
@@ -848,9 +1017,18 @@ def build_translator(args, source_lang_key, source_lang_normalized):
         if source_lang_key == "auto":
             print("Warning: source_lang=auto is not supported in nllb_local. Falling back to google backend.")
             return GoogleBackendTranslator(source_lang_normalized), "google"
+
+        source_lang_nllb = NLLB_SOURCE_LANG_MAP.get(source_lang_key)
+        if not source_lang_nllb:
+            print(
+                "Warning: source_lang=%s is not mapped for nllb_local. Falling back to google backend."
+                % source_lang_key
+            )
+            return GoogleBackendTranslator(source_lang_normalized), "google"
+
         translator = NLLBLocalTranslator(
             args.nllb_model_dir,
-            source_lang_key,
+            source_lang_nllb,
             max_input_length=args.nllb_max_input_length,
             max_new_tokens=args.nllb_max_new_tokens,
             legacy_generation=args.nllb_legacy_generation,
@@ -1317,17 +1495,10 @@ def main():
     output_path = args.output_srt
 
     source_lang = (args.source_lang or "").strip()
-    source_lang_key = source_lang.lower()
-    if source_lang_key not in {"es", "zh-cn", "auto"}:
-        print("Error: invalid source language. Use 'es', 'zh-CN', or 'auto'.")
+    source_lang_key, source_lang_normalized = normalize_source_language(source_lang)
+    if source_lang_key is None:
+        print("Error: invalid source language. Use ISO code (ex: en, es, zh-CN), NLLB code (ex: eng_Latn), or auto.")
         sys.exit(1)
-
-    if source_lang_key == "es":
-        source_lang_normalized = "es"
-    elif source_lang_key == "zh-cn":
-        source_lang_normalized = "zh-CN"
-    else:
-        source_lang_normalized = "auto"
 
     if not input_path.exists():
         print(f"Error: input file not found: {input_path}")
@@ -1345,6 +1516,15 @@ def main():
     if len(subtitles) == 0:
         print(f"Error: input file has no subtitles: {input_path}")
         sys.exit(1)
+
+    source_lang_key, source_lang_normalized = resolve_source_language_for_translation(
+        source_lang_key,
+        source_lang_normalized,
+        source_texts,
+    )
+    if source_lang_key == "auto":
+        print("[translation] error: source language unresolved (Desconhecido).", flush=True)
+        sys.exit(2)
 
     tradutor = None
     try:

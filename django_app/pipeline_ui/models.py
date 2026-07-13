@@ -8,6 +8,7 @@ class VideoAsset(models.Model):
     source_url = models.CharField(max_length=2048, blank=True, default="")
     youtube_title_original = models.CharField(max_length=255, blank=True, default="")
     youtube_title_pt_br = models.TextField(blank=True, default="")
+    thumbnail_path = models.CharField(max_length=1024, blank=True, default="")
     extension = models.CharField(max_length=16, blank=True)
     size_bytes = models.BigIntegerField(default=0)
     duration_seconds = models.FloatField(null=True, blank=True)

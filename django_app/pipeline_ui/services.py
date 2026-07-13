@@ -7,7 +7,9 @@ import sys
 import time
 import shutil
 import unicodedata
+from urllib import error as urlerror
 from urllib.parse import urlparse
+from urllib import request as urlrequest
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,7 @@ RUN_MODE_PIPELINE = "pipeline"
 DOWNLOAD_DURATION_TOLERANCE_SECONDS = 2.5
 DOWNLOAD_FORMAT_FILTER = "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]"
 MAX_FILESYSTEM_NAME_BYTES = 255
+THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
 
 
 def _with_sqlite_lock_retry(fn, *args, **kwargs):
@@ -171,6 +174,84 @@ def load_done_dir() -> Path:
 
 def load_download_dir() -> Path:
     return load_work_exec_dir()
+
+
+def load_thumbnail_dir() -> Path:
+    path = project_root() / "video-thumbs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _youtube_thumbnail_url_from_metadata(metadata: dict[str, Any]) -> str:
+    direct = str(metadata.get("thumbnail") or "").strip()
+    if direct:
+        return direct
+
+    thumbs = metadata.get("thumbnails")
+    if isinstance(thumbs, list):
+        for item in reversed(thumbs):
+            if not isinstance(item, dict):
+                continue
+            candidate = str(item.get("url") or "").strip()
+            if candidate:
+                return candidate
+    return ""
+
+
+def _thumbnail_extension_from_url(url: str) -> str:
+    path = urlparse(url).path.lower()
+    suffix = Path(path).suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".webp"}:
+        return ".jpg" if suffix == ".jpeg" else suffix
+    return ".jpg"
+
+
+def _download_thumbnail_from_url(url: str, target_stem: str) -> Path | None:
+    clean_url = str(url or "").strip()
+    if not clean_url:
+        return None
+
+    target_dir = load_thumbnail_dir()
+    target_path = target_dir / f"{target_stem}{_thumbnail_extension_from_url(clean_url)}"
+
+    try:
+        req = urlrequest.Request(clean_url, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+        with urlrequest.urlopen(req, timeout=20) as resp:
+            body = resp.read(THUMBNAIL_MAX_BYTES + 1)
+        if (not body) or len(body) > THUMBNAIL_MAX_BYTES:
+            return None
+        target_path.write_bytes(body)
+        return target_path
+    except (urlerror.URLError, TimeoutError, OSError):
+        return None
+    except Exception:
+        return None
+
+
+def ensure_asset_thumbnail(asset: VideoAsset, metadata: dict[str, Any] | None = None) -> str:
+    current = str(asset.thumbnail_path or "").strip()
+    if current and Path(current).exists():
+        return current
+
+    if not _is_youtube_source(asset.source_url):
+        return ""
+
+    details = metadata
+    if details is None:
+        try:
+            details = _probe_youtube_metadata(asset.source_url)
+        except Exception:
+            details = {}
+
+    thumb_url = _youtube_thumbnail_url_from_metadata(details if isinstance(details, dict) else {})
+    if not thumb_url:
+        return ""
+
+    stem = Path(asset.file_name).stem or f"video-{asset.id}"
+    saved_path = _download_thumbnail_from_url(thumb_url, f"{stem}-{asset.id}")
+    if saved_path is None:
+        return ""
+    return str(saved_path)
 
 
 def infer_language_from_name(file_name: str) -> str:
@@ -465,6 +546,7 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
         source_url=source_url,
         youtube_title_original=youtube_title_original,
         youtube_title_pt_br=youtube_title_pt_br,
+        thumbnail_path="",
         extension=".mp4",
         size_bytes=0,
         duration_seconds=None,
@@ -474,6 +556,10 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
         last_seen_at=now,
         is_present=False,
     )
+    thumbnail_path = ensure_asset_thumbnail(asset, metadata=metadata)
+    if thumbnail_path:
+        asset.thumbnail_path = thumbnail_path
+        asset.save(update_fields=["thumbnail_path"])
     ensure_execution_profile(asset)
 
     run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status="queued")
@@ -651,7 +737,6 @@ def scan_videos() -> dict[str, int]:
             "extension": path.suffix.lower(),
             "size_bytes": path.stat().st_size,
             "duration_seconds": ffprobe_duration_seconds(path),
-            "original_language": infer_language_from_srt(path),
             "discovered_at": now,
             "last_seen_at": now,
             "is_present": True,
@@ -666,6 +751,19 @@ def scan_videos() -> dict[str, int]:
             for field_name, field_value in title_updates.items():
                 setattr(asset, field_name, field_value)
             _with_sqlite_lock_retry(asset.save, update_fields=list(title_updates.keys()))
+
+        thumbnail_path = ensure_asset_thumbnail(asset)
+        if thumbnail_path and thumbnail_path != asset.thumbnail_path:
+            asset.thumbnail_path = thumbnail_path
+            _with_sqlite_lock_retry(asset.save, update_fields=["thumbnail_path"])
+
+        current_language = (asset.original_language or "").strip().lower()
+        if current_language in {"", "auto", "unknown"}:
+            inferred_lang = infer_language_from_srt(path)
+            if inferred_lang and inferred_lang != asset.original_language:
+                asset.original_language = inferred_lang
+                _with_sqlite_lock_retry(asset.save, update_fields=["original_language"])
+
         _with_sqlite_lock_retry(ensure_execution_profile, asset)
         _with_sqlite_lock_retry(sync_run_steps_with_artifacts, asset)
         if created:
@@ -687,6 +785,28 @@ def scan_videos() -> dict[str, int]:
             setattr(asset, field_name, field_value)
         _with_sqlite_lock_retry(asset.save, update_fields=list(title_updates.keys()))
         updated += 1
+
+    unresolved_language_values = {"", "auto", "unknown"}
+    for asset in _with_sqlite_lock_retry(lambda: list(VideoAsset.objects.filter(is_deleted=False))):
+        update_fields: list[str] = []
+
+        current_thumb = str(asset.thumbnail_path or "").strip()
+        if not current_thumb:
+            thumbnail_path = ensure_asset_thumbnail(asset)
+            if thumbnail_path and thumbnail_path != asset.thumbnail_path:
+                asset.thumbnail_path = thumbnail_path
+                update_fields.append("thumbnail_path")
+
+        current_language = (asset.original_language or "").strip().lower()
+        if current_language in unresolved_language_values:
+            inferred_lang = infer_language_from_srt(Path(asset.file_path))
+            if inferred_lang and inferred_lang != asset.original_language:
+                asset.original_language = inferred_lang
+                update_fields.append("original_language")
+
+        if update_fields:
+            _with_sqlite_lock_retry(asset.save, update_fields=update_fields)
+            updated += 1
 
     return {"discovered": discovered, "updated": updated, "missing": 0}
 
@@ -937,12 +1057,21 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
         ]
 
     latest_log_tail = _safe_log_tail(latest_run.log_file_path) if latest_run and include_log_tail else ""
+    has_real_thumbnail = False
+    thumb_path = str(asset.thumbnail_path or "").strip()
+    if thumb_path:
+        try:
+            has_real_thumbnail = Path(thumb_path).exists()
+        except Exception:
+            has_real_thumbnail = False
 
     return {
         "id": asset.id,
         "file_path": asset.file_path,
         "file_name": asset.file_name,
         "source_url": asset.source_url,
+        "thumbnail_url": f"/api/videos/{asset.id}/thumbnail",
+        "has_real_thumbnail": has_real_thumbnail,
         "youtube_title_original": asset.youtube_title_original,
         "youtube_title_pt_br": asset.youtube_title_pt_br,
         "duration_seconds": asset.duration_seconds,

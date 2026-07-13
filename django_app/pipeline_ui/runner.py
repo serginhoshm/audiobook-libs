@@ -5,8 +5,12 @@ import signal
 import subprocess
 import sys
 import time
+import json
 from pathlib import Path
 from typing import Any
+from urllib import error as urlerror
+from urllib import parse as urlparse
+from urllib import request as urlrequest
 
 from django.conf import settings
 from django.utils import timezone
@@ -27,6 +31,48 @@ SRT_RANGE_PATTERN = re.compile(
 )
 VIDEO_SRT_REUSE_TOLERANCE_SECONDS = 4.0
 TRANSLATION_REUSE_TOLERANCE_SECONDS = 1.5
+LANGUAGE_SAMPLE_MAX_CHARS = 100
+LANGUAGE_DETECT_TIMEOUT_SECONDS = 8
+
+NLLB_LANG_MAP = {
+    "ar": "arb_Arab",
+    "de": "deu_Latn",
+    "en": "eng_Latn",
+    "es": "spa_Latn",
+    "fr": "fra_Latn",
+    "hi": "hin_Deva",
+    "it": "ita_Latn",
+    "ja": "jpn_Jpan",
+    "ko": "kor_Hang",
+    "nl": "nld_Latn",
+    "pl": "pol_Latn",
+    "pt": "por_Latn",
+    "ru": "rus_Cyrl",
+    "tr": "tur_Latn",
+    "uk": "ukr_Cyrl",
+    "zh": "zho_Hans",
+    "zh-cn": "zho_Hans",
+    "zh-hans": "zho_Hans",
+}
+
+TRANSLATION_SOURCE_BY_NLLB = {
+    "arb_Arab": "ar",
+    "deu_Latn": "de",
+    "eng_Latn": "en",
+    "fra_Latn": "fr",
+    "hin_Deva": "hi",
+    "ita_Latn": "it",
+    "jpn_Jpan": "ja",
+    "kor_Hang": "ko",
+    "nld_Latn": "nl",
+    "pol_Latn": "pl",
+    "por_Latn": "pt",
+    "rus_Cyrl": "ru",
+    "spa_Latn": "es",
+    "tur_Latn": "tr",
+    "ukr_Cyrl": "uk",
+    "zho_Hans": "zh-CN",
+}
 
 
 def _bool_to_on_off(value: bool) -> str:
@@ -49,6 +95,8 @@ def _infer_source_lang(run: PipelineRun, video_path: Path) -> str:
     lang = (run.video_asset.original_language or "auto").strip()
     if lang in {"es", "zh-CN", "auto"}:
         return lang
+    if lang in TRANSLATION_SOURCE_BY_NLLB:
+        return TRANSLATION_SOURCE_BY_NLLB[lang]
     name = video_path.name.lower()
     if "spanish" in name:
         return "es"
@@ -58,19 +106,110 @@ def _infer_source_lang(run: PipelineRun, video_path: Path) -> str:
 
 
 def _infer_translation_source_lang(run: PipelineRun, video_path: Path, srt_path: Path) -> str:
-    lang = _infer_source_lang(run, video_path)
+    persisted = (run.video_asset.original_language or "").strip()
+    if persisted in TRANSLATION_SOURCE_BY_NLLB:
+        return TRANSLATION_SOURCE_BY_NLLB[persisted]
 
-    # Prefer the current transcript when present; it is the most reliable signal
-    # after a fresh transcription or transcript reuse.
+    lang = _infer_source_lang(run, video_path)
+    if lang in {"es", "zh-CN"}:
+        return lang
+
     inferred_from_srt = infer_language_from_srt(video_path)
     if inferred_from_srt in {"es", "zh-CN"}:
-        lang = inferred_from_srt
+        return inferred_from_srt
 
-    if lang in {"es", "zh-CN"} and run.video_asset.original_language != lang:
-        run.video_asset.original_language = lang
+    return "auto"
+
+
+def _extract_language_sample_from_srt(srt_path: Path, max_chars: int = LANGUAGE_SAMPLE_MAX_CHARS) -> str:
+    if not srt_path.exists():
+        return ""
+
+    parts: list[str] = []
+    remaining = max_chars
+    try:
+        with open(srt_path, "r", encoding="utf-8", errors="ignore") as fh:
+            for raw_line in fh:
+                line = raw_line.strip()
+                if (not line) or line.isdigit() or ("-->" in line):
+                    continue
+                snippet = line[:remaining]
+                parts.append(snippet)
+                remaining -= len(snippet)
+                if remaining <= 0:
+                    break
+    except Exception:
+        return ""
+
+    return " ".join(parts).strip()[:max_chars]
+
+
+def _detect_language_with_google(sample_text: str) -> str | None:
+    if not sample_text:
+        return None
+
+    query = urlparse.urlencode(
+        {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": "pt",
+            "dt": "t",
+            "q": sample_text,
+        }
+    )
+    endpoint = f"https://translate.googleapis.com/translate_a/single?{query}"
+    req = urlrequest.Request(endpoint, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+
+    try:
+        with urlrequest.urlopen(req, timeout=LANGUAGE_DETECT_TIMEOUT_SECONDS) as resp:
+            payload = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(payload)
+    except (urlerror.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        return None
+    except Exception:
+        return None
+
+    # Google translate public endpoint returns detected language at index 2.
+    if isinstance(data, list) and len(data) >= 3 and isinstance(data[2], str):
+        detected = data[2].strip().lower()
+        return detected or None
+    return None
+
+
+def _map_to_nllb_code(detected_lang: str | None) -> str:
+    if not detected_lang:
+        return "unknown"
+    normalized = detected_lang.strip().lower()
+    if not normalized:
+        return "unknown"
+
+    direct = NLLB_LANG_MAP.get(normalized)
+    if direct:
+        return direct
+
+    primary = normalized.split("-")[0]
+    return NLLB_LANG_MAP.get(primary, "unknown")
+
+
+def _persist_detected_language_from_srt(run: PipelineRun, srt_path: Path, log_fh: Any) -> str:
+    sample = _extract_language_sample_from_srt(srt_path)
+    if not sample:
+        run.video_asset.original_language = "unknown"
         run.video_asset.save(update_fields=["original_language"])
+        log_fh.write("[language] detection sample unavailable; original_language=unknown\n")
+        log_fh.flush()
+        return "unknown"
 
-    return lang
+    detected_lang = _detect_language_with_google(sample)
+    nllb_code = _map_to_nllb_code(detected_lang)
+    run.video_asset.original_language = nllb_code
+    run.video_asset.save(update_fields=["original_language"])
+    if detected_lang:
+        log_fh.write(f"[language] detected={detected_lang} nllb={nllb_code}\n")
+    else:
+        log_fh.write("[language] detection failed; original_language=unknown\n")
+    log_fh.flush()
+    return nllb_code
 
 
 def _whisper_lang_from_source(source_lang: str) -> str:
@@ -347,6 +486,7 @@ def _execute_pipeline_steps(
         log_fh.flush()
         _set_step_status(run.id, "extract", "skipped", "Skipped: transcript already covers source duration")
         _set_step_status(run.id, "transcribe", "success", transcript_detail)
+        _persist_detected_language_from_srt(run, srt_path, log_fh)
     else:
         log_fh.write(f"{transcript_detail}\n")
         log_fh.write("step 1 - extract\n")
@@ -386,14 +526,20 @@ def _execute_pipeline_steps(
             _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
             return rc, "Transcription failed"
         _set_step_status(run.id, "transcribe", "success", "Completed successfully")
+        _persist_detected_language_from_srt(run, srt_path, log_fh)
 
+    source_lang = _infer_translation_source_lang(run, video_path, srt_path)
     reuse_translation, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
-    if reuse_translation:
+    if reuse_translation and source_lang != "auto":
         log_fh.write(f"step 2 - translate skipped ({translation_detail})\n")
+        log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
         log_fh.flush()
         _set_step_status(run.id, "translate", "success", translation_detail)
     else:
-        source_lang = _infer_translation_source_lang(run, video_path, srt_path)
+        if reuse_translation and source_lang == "auto":
+            log_fh.write(
+                "[translation] source language unresolved; forcing translator detection before reuse\n"
+            )
         log_fh.write(f"{translation_detail}\n")
         log_fh.write("step 3 - translate\n")
         log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
@@ -402,11 +548,6 @@ def _execute_pipeline_steps(
                 f"[DEEPL_ROTATION_MODE] profile_backend=deepl_doc endpoint={profile.deepl_endpoint} "
                 "fallback=google_on_exhausted_keys\n"
             )
-        if backend == "nllb_local" and source_lang == "auto":
-            log_fh.write("[translation] error: nllb_local requires explicit source language (es or zh-CN); auto detection remained unresolved\n")
-            log_fh.flush()
-            _set_step_status(run.id, "translate", "failed", "NLLB source language unresolved")
-            return 2, "NLLB source language unresolved"
         log_fh.flush()
         _set_step_status(run.id, "translate", "running", "step 3 - translate")
         translate_cmd = [
