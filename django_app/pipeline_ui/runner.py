@@ -1,6 +1,7 @@
 import os
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -218,6 +219,17 @@ def _whisper_lang_from_source(source_lang: str) -> str:
     if source_lang == "zh-CN":
         return "zh"
     return "auto"
+
+
+def _yt_dlp_js_runtime_args() -> list[str]:
+    for runtime in ("deno", "node"):
+        runtime_path = shutil.which(runtime)
+        if runtime_path:
+            return ["--js-runtimes", f"{runtime}:{runtime_path}"]
+    raise RuntimeError(
+        "yt-dlp requires a JavaScript runtime for YouTube extraction. "
+        "Install deno or node, then try again."
+    )
 
 
 def _download_target_is_valid(run: PipelineRun, video_path: Path) -> tuple[bool, str]:
@@ -445,18 +457,25 @@ def _execute_pipeline_steps(
         log_fh.write("step 0 - download\n")
         log_fh.flush()
         _set_step_status(run.id, "download", "running", "step 0 - download")
-        download_cmd = [
-            "yt-dlp",
-            "--no-playlist",
-            "--continue",
-            "--merge-output-format",
-            "mp4",
-            "-f",
-            "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]",
-            "-o",
-            f"{video_path.with_suffix('')}.%(ext)s",
-            run.video_asset.source_url,
-        ]
+        try:
+            download_cmd = [
+                "yt-dlp",
+                "--no-playlist",
+                "--continue",
+                "--merge-output-format",
+                "mp4",
+                "--remote-components",
+                "ejs:github",
+                *_yt_dlp_js_runtime_args(),
+                "-f",
+                "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]",
+                "-o",
+                f"{video_path.with_suffix('')}.%(ext)s",
+                run.video_asset.source_url,
+            ]
+        except RuntimeError as exc:
+            _set_step_status(run.id, "download", "failed", str(exc))
+            return 2, str(exc)
         rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
         if rc != 0:
             _set_step_status(run.id, "download", "failed", "Download failed")
@@ -608,10 +627,8 @@ def _execute_pipeline_steps(
     log_fh.flush()
     _set_step_status(run.id, "remux", "running", "step 5 - remux generation")
 
-    remux_dir = load_data_root() / "remux"
-    remux_dir.mkdir(parents=True, exist_ok=True)
     video_ext = video_path.suffix if video_path.suffix else ".mp4"
-    remux_out = remux_dir / f"{base_name} (remux){video_ext}"
+    remux_out = video_path.with_name(f"{base_name} (remux){video_ext}")
 
     remux_cmd = [
         "ffmpeg",
@@ -691,6 +708,297 @@ def _set_step_status(run_id: int, step_name: str, status: str, detail: str = "")
     )
 
 
+def _step_status_map(run: PipelineRun) -> dict[str, str]:
+    return {step.step_name: step.status for step in run.steps.all()}
+
+
+def _next_pending_step_name(run: PipelineRun) -> str | None:
+    status_map = _step_status_map(run)
+    for step_name in PIPELINE_STEP_ORDER:
+        if status_map.get(step_name, "pending") not in {"success", "skipped"}:
+            return step_name
+    return None
+
+
+def _execute_pipeline_single_step(
+    run: PipelineRun,
+    profile: ExecutionProfile,
+    video_path: Path,
+    root_dir: Path,
+    log_fh: Any,
+    target_step: str,
+) -> tuple[int, str]:
+    python_cmd = build_exec_command(profile)
+    scripts_dir = root_dir / "scripts"
+    model_path = root_dir / "models" / "pt_BR-faber-medium.onnx"
+    piper_bin = root_dir / "bin" / "piper"
+
+    base_name = video_path.stem
+    work_dir = video_path.parent
+    wav_path = work_dir / f"{base_name}.wav"
+    srt_path = work_dir / f"{base_name}.srt"
+    srtpt_path = work_dir / f"{base_name}.srtpt"
+    out_wav_path = work_dir / f"{base_name}.pt.wav"
+
+    backend = profile.backend
+    if backend == "libretranslate":
+        backend = "google"
+        log_fh.write("[worker] legacy backend libretranslate detected; using google\n")
+
+    if target_step == "download":
+        if video_path.exists() and not run.video_asset.source_url:
+            _set_step_status(run.id, "download", "skipped", "Skipped: local MP4 already present")
+            return 0, ""
+
+        if video_path.exists() and run.video_asset.source_url:
+            ok, detail = _persist_download_result(run, video_path)
+            _set_step_status(run.id, "download", "success" if ok else "failed", detail)
+            return (0, "") if ok else (2, detail)
+
+        if not run.video_asset.source_url:
+            _set_step_status(run.id, "download", "failed", "Input video not found and no source URL available")
+            return 127, f"Input video not found: {video_path}"
+
+        log_fh.write("step 0 - download\n")
+        log_fh.flush()
+        _set_step_status(run.id, "download", "running", "step 0 - download")
+        try:
+            download_cmd = [
+                "yt-dlp",
+                "--no-playlist",
+                "--continue",
+                "--merge-output-format",
+                "mp4",
+                "--remote-components",
+                "ejs:github",
+                *_yt_dlp_js_runtime_args(),
+                "-f",
+                "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]",
+                "-o",
+                f"{video_path.with_suffix('')}.%(ext)s",
+                run.video_asset.source_url,
+            ]
+        except RuntimeError as exc:
+            _set_step_status(run.id, "download", "failed", str(exc))
+            return 2, str(exc)
+
+        rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "download", "failed", "Download failed")
+            return rc, "Download failed"
+
+        ok, detail = _persist_download_result(run, video_path)
+        _set_step_status(run.id, "download", "success" if ok else "failed", detail)
+        return (0, "") if ok else (2, detail)
+
+    if not video_path.exists():
+        return 127, f"Input video not found: {video_path}"
+
+    if target_step == "extract":
+        reuse_transcript, transcript_detail = _can_reuse_transcript(video_path, srt_path)
+        if reuse_transcript:
+            log_fh.write(f"step 1 - extract skipped ({transcript_detail})\n")
+            log_fh.flush()
+            _set_step_status(run.id, "extract", "skipped", "Skipped: transcript already covers source duration")
+            return 0, ""
+
+        log_fh.write(f"{transcript_detail}\n")
+        log_fh.write("step 1 - extract\n")
+        log_fh.flush()
+        _set_step_status(run.id, "extract", "running", "step 1 - extract")
+        extract_cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vn",
+            str(wav_path),
+        ]
+        rc = _run_subprocess_with_streaming(run, extract_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "extract", "failed", "Audio extraction failed")
+            return rc, "Audio extraction failed"
+        _set_step_status(run.id, "extract", "success", "Completed successfully")
+        return 0, ""
+
+    if target_step == "transcribe":
+        pre_transcribe_source_lang = _infer_source_lang(run, video_path)
+        whisper_lang = _whisper_lang_from_source(pre_transcribe_source_lang)
+
+        reuse_transcript, transcript_detail = _can_reuse_transcript(video_path, srt_path)
+        if reuse_transcript:
+            log_fh.write(f"step 2 - transcribe skipped ({transcript_detail})\n")
+            log_fh.flush()
+            _set_step_status(run.id, "transcribe", "success", transcript_detail)
+            _persist_detected_language_from_srt(run, srt_path, log_fh)
+            return 0, ""
+
+        if not wav_path.exists():
+            _set_step_status(run.id, "transcribe", "failed", "Audio input missing: run extract first")
+            return 2, "Audio input missing: run extract first"
+
+        log_fh.write(f"{transcript_detail}\n")
+        log_fh.write("step 2 - transcribe\n")
+        log_fh.flush()
+        _set_step_status(run.id, "transcribe", "running", "step 2 - transcribe")
+        transcribe_cmd = [
+            *python_cmd,
+            str(scripts_dir / "transcrever.py"),
+            str(wav_path),
+            str(work_dir),
+            whisper_lang,
+            "medium",
+            base_name,
+        ]
+        rc = _run_subprocess_with_streaming(run, transcribe_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
+            return rc, "Transcription failed"
+        _set_step_status(run.id, "transcribe", "success", "Completed successfully")
+        _persist_detected_language_from_srt(run, srt_path, log_fh)
+        return 0, ""
+
+    if target_step == "translate":
+        source_lang = _infer_translation_source_lang(run, video_path, srt_path)
+        reuse_translation, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
+        if reuse_translation and source_lang != "auto":
+            log_fh.write(f"step 3 - translate skipped ({translation_detail})\n")
+            log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
+            log_fh.flush()
+            _set_step_status(run.id, "translate", "success", translation_detail)
+            return 0, ""
+
+        if not srt_path.exists():
+            _set_step_status(run.id, "translate", "failed", "Source SRT missing: run transcribe first")
+            return 2, "Source SRT missing: run transcribe first"
+
+        if reuse_translation and source_lang == "auto":
+            log_fh.write("[translation] source language unresolved; forcing translator detection before reuse\n")
+        log_fh.write(f"{translation_detail}\n")
+        log_fh.write("step 3 - translate\n")
+        log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
+        if backend == "deepl_doc":
+            log_fh.write(
+                f"[DEEPL_ROTATION_MODE] profile_backend=deepl_doc endpoint={profile.deepl_endpoint} "
+                "fallback=google_on_exhausted_keys\n"
+            )
+        log_fh.flush()
+        _set_step_status(run.id, "translate", "running", "step 3 - translate")
+        translate_cmd = [
+            *python_cmd,
+            str(scripts_dir / "traduzir.py"),
+            str(srt_path),
+            str(srtpt_path),
+            source_lang,
+            "--backend",
+            backend,
+            "--deepl-endpoint",
+            profile.deepl_endpoint,
+            "--deepl-keys-ini",
+            str(root_dir / "config" / "translation" / "deepl_keys.ini"),
+            "--deepl-keys-state-ini",
+            str(root_dir / "config" / "translation" / "deepl_keys_state.ini"),
+            "--nllb-max-input-length",
+            str(profile.nllb_max_input_length),
+            "--nllb-max-new-tokens",
+            str(profile.nllb_max_new_tokens),
+        ]
+        if profile.nllb_legacy:
+            translate_cmd.append("--nllb-legacy-generation")
+
+        rc = _run_subprocess_with_streaming(run, translate_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "translate", "failed", "Translation failed")
+            return rc, "Translation failed"
+        _set_step_status(run.id, "translate", "success", "Completed successfully")
+        return 0, ""
+
+    if target_step == "audiobook":
+        if not model_path.exists():
+            return 127, f"Voice model not found: {model_path}"
+        if not piper_bin.exists():
+            return 127, f"Piper executable not found: {piper_bin}"
+        if not srtpt_path.exists():
+            _set_step_status(run.id, "audiobook", "failed", "Translated SRTPT missing: run translate first")
+            return 2, "Translated SRTPT missing: run translate first"
+
+        source_lang = _infer_translation_source_lang(run, video_path, srt_path)
+        log_fh.write("step 4 - wav generation (piper)\n")
+        log_fh.flush()
+        _set_step_status(run.id, "audiobook", "running", "step 4 - wav generation (piper)")
+        synth_cmd = [
+            *python_cmd,
+            str(scripts_dir / "gerar-sincronizado.py"),
+            "--srt",
+            str(srtpt_path),
+            "--output",
+            str(out_wav_path),
+            "--model",
+            str(model_path),
+            "--piper",
+            str(piper_bin),
+            "--source_lang",
+            source_lang,
+            "--pause_duration",
+            "0.1",
+        ]
+        rc = _run_subprocess_with_streaming(run, synth_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "audiobook", "failed", "Audiobook synthesis failed")
+            return rc, "Audiobook synthesis failed"
+        _set_step_status(run.id, "audiobook", "success", "Completed successfully")
+        return 0, ""
+
+    if target_step == "remux":
+        if not out_wav_path.exists():
+            _set_step_status(run.id, "remux", "failed", "PT WAV missing: run audiobook first")
+            return 2, "PT WAV missing: run audiobook first"
+
+        log_fh.write("step 5 - remux generation\n")
+        log_fh.flush()
+        _set_step_status(run.id, "remux", "running", "step 5 - remux generation")
+
+        video_ext = video_path.suffix if video_path.suffix else ".mp4"
+        remux_out = video_path.with_name(f"{base_name} (remux){video_ext}")
+
+        remux_cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(out_wav_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(remux_out),
+        ]
+
+        rc = _run_subprocess_with_streaming(run, remux_cmd, log_fh, root_dir)
+        if rc != 0:
+            _set_step_status(run.id, "remux", "failed", "Remux generation failed")
+            return rc, "Remux generation failed"
+
+        log_fh.write("remux generated successfully\n")
+        log_fh.flush()
+        _set_step_status(run.id, "remux", "success", "Completed successfully")
+        return 0, ""
+
+    return 2, f"Unsupported step: {target_step}"
+
+
 def _promote_step_from_log_line(run_id: int, line: str, current_step: str | None) -> str | None:
     text = line.strip()
     lower = text.lower()
@@ -763,7 +1071,25 @@ def execute_run(run: PipelineRun) -> None:
     run.refresh_from_db()
     profile = run.video_asset.execution_profile
     _ensure_step_rows(run)
-    _reset_step_rows_for_attempt(run)
+
+    target_step = _next_pending_step_name(run)
+    if target_step is None:
+        run.status = "success"
+        run.finished_at = timezone.now()
+        run.exit_code = 0
+        run.error_message = ""
+        run.pid = None
+        run.process_group_id = None
+        run.save(update_fields=[
+            "status",
+            "finished_at",
+            "exit_code",
+            "error_message",
+            "pid",
+            "process_group_id",
+            "updated_at",
+        ])
+        return
 
     try:
         selected_video_path = _resolve_video_path_for_run(run)
@@ -804,16 +1130,18 @@ def execute_run(run: PipelineRun) -> None:
     with open(log_file, "a", encoding="utf-8") as fh:
         fh.write("[webapp] command: script-based direct pipeline\n")
         fh.write(f"[webapp] run mode: {run.run_mode}\n")
+        fh.write(f"[webapp] target step: {target_step}\n")
         fh.write("[webapp] worker kind: serial-cpu\n")
         fh.write(f"[webapp] selected video path: {selected_video_path}\n")
         fh.flush()
 
-        rc, step_error = _execute_pipeline_steps(
+        rc, step_error = _execute_pipeline_single_step(
             run=run,
             profile=profile,
             video_path=Path(selected_video_path),
             root_dir=root_dir,
             log_fh=fh,
+            target_step=target_step,
         )
 
         if step_error:
@@ -821,16 +1149,26 @@ def execute_run(run: PipelineRun) -> None:
             fh.flush()
 
     run.exit_code = rc
-    run.finished_at = timezone.now()
     run.pid = None
     run.process_group_id = None
 
     if run.stop_requested:
         run.status = "stopped"
+        run.finished_at = timezone.now()
     elif rc == 0:
-        run.status = "success"
+        run.refresh_from_db()
+        next_step = _next_pending_step_name(run)
+        if next_step is None:
+            run.status = "success"
+            run.finished_at = timezone.now()
+            run.exit_code = 0
+        else:
+            run.status = "queued"
+            run.finished_at = None
+            run.exit_code = None
     else:
         run.status = "failed"
+        run.finished_at = timezone.now()
         run.error_message = f"Process failed with code {rc}. See log: {run.log_file_path}"
 
     run.save(update_fields=[
@@ -843,4 +1181,5 @@ def execute_run(run: PipelineRun) -> None:
         "updated_at",
     ])
 
-    _finalize_step_states(run.id, run.status, run.error_message)
+    if run.status in {"success", "failed", "stopped"}:
+        _finalize_step_states(run.id, run.status, run.error_message)

@@ -11,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from pipeline_ui.models import PipelineRun
-from pipeline_ui.runner import _persist_download_result, execute_run, request_stop
+from pipeline_ui.runner import PIPELINE_STEP_ORDER, _persist_download_result, execute_run, request_stop
 
 
 class Command(BaseCommand):
@@ -257,19 +257,42 @@ class Command(BaseCommand):
 
     def _next_queued_run(self):
         with transaction.atomic():
-            run = (
+            queued_runs = list(
                 PipelineRun.objects.select_related("video_asset", "video_asset__execution_profile")
                 .filter(status="queued")
+                .prefetch_related("steps")
                 .order_by("created_at")
-                .first()
             )
-            if run is None:
+
+            if not queued_runs:
                 return None
 
-            claimed = PipelineRun.objects.filter(id=run.id, status="queued").update(status="running")
+            best_run = None
+            best_step_index = None
+            for candidate in queued_runs:
+                step_status_map = {step.step_name: step.status for step in candidate.steps.all()}
+                next_idx = None
+                for idx, step_name in enumerate(PIPELINE_STEP_ORDER):
+                    status = step_status_map.get(step_name, "pending")
+                    if status not in {"success", "skipped"}:
+                        next_idx = idx
+                        break
+
+                # Nothing left to execute for this run.
+                if next_idx is None:
+                    continue
+
+                if best_run is None or next_idx < best_step_index:
+                    best_run = candidate
+                    best_step_index = next_idx
+
+            if best_run is None:
+                return None
+
+            claimed = PipelineRun.objects.filter(id=best_run.id, status="queued").update(status="running")
             if claimed:
-                run.status = "running"
-                return run
+                best_run.status = "running"
+                return best_run
         return None
 
     def _sync_stop_requests(self):

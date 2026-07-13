@@ -19,6 +19,16 @@
     .worker-online { background: #d9f5e8; color: #13613f; border-color: #97d7bb; }
     .worker-offline { background: #ffe5e1; color: #8a2318; border-color: #efb3ab; }
     .worker-unknown { background: #f3f4f6; color: #4f5962; border-color: #d6d9de; }
+    .discovery-pill { border-radius: 999px; padding: 5px 10px; font-size: .82rem; font-weight: 700; border: 1px solid #c6dcd3; background: #eef3f7; color: #36505f; }
+    .discovery-running { background: #fff4db; color: #7c4a03; border-color: #f2ca7f; }
+    .discovery-done { background: #e7f8ee; color: #166534; border-color: #b7e4c7; }
+    .discovery-idle { background: #f3f4f6; color: #4f5962; border-color: #d6d9de; }
+    .global-phase-pill { border-radius: 999px; padding: 5px 10px; font-size: .82rem; font-weight: 700; border: 1px solid #c6dcd3; background: #edf6f3; color: #26483d; }
+    .global-phase-active { background: #e8f2ff; color: #1e3a8a; border-color: #bfd7ff; }
+    .global-phase-idle { background: #f3f4f6; color: #4f5962; border-color: #d6d9de; }
+    .refresh-wrap { display: inline-flex; align-items: center; gap: 6px; }
+    .refresh-wrap label { font-size: .8rem; color: #49655c; font-weight: 700; }
+    .refresh-wrap select { width: auto; min-width: 120px; font-size: .78rem; padding: 4px 6px; }
     .hint { margin-left: auto; font-size: .9rem; color: #49655c; }
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d6e2dd; }
     th, td { border-bottom: 1px solid #e2ece8; padding: 12px 9px; text-align: left; vertical-align: top; font-size: .88rem; }
@@ -165,6 +175,20 @@
       <button class="btn delete" id="deleteBtn">Delete</button>
       <button class="btn stop" id="stopBtn">Stop</button>
       <span class="worker-pill worker-unknown" id="workerStatus">Worker: unknown</span>
+      <span class="discovery-pill discovery-idle" id="discoveryStatus">Last discovery: never</span>
+      <span class="global-phase-pill global-phase-idle" id="globalPhaseStatus">Fase global: idle</span>
+      <span class="refresh-wrap">
+        <label for="autoRefreshSelect">Auto-scan (sem recarregar pagina)</label>
+        <select id="autoRefreshSelect" aria-label="Auto-scan interval">
+          <option value="0" selected>Desligado</option>
+          <option value="15">15s</option>
+          <option value="30">30s</option>
+          <option value="45">45s</option>
+          <option value="60">1 min</option>
+          <option value="180">3 min</option>
+          <option value="300">5 min</option>
+        </select>
+      </span>
       <span class="hint" id="hint">Selected: 0</span>
     </div>
 
@@ -189,8 +213,8 @@
         <label for="pageSize">Por pagina</label>
         <select id="pageSize">
           <option value="10">10</option>
-          <option value="25" selected>25</option>
-          <option value="50">50</option>
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
           <option value="100">100</option>
         </select>
         <button class="btn pager-btn" id="prevPageBtn" type="button">Prev</button>
@@ -251,6 +275,9 @@
     const hint = document.getElementById('hint');
     const all = document.getElementById('all');
     const workerStatusEl = document.getElementById('workerStatus');
+    const discoveryStatusEl = document.getElementById('discoveryStatus');
+    const globalPhaseStatusEl = document.getElementById('globalPhaseStatus');
+    const autoRefreshSelect = document.getElementById('autoRefreshSelect');
     const logTailOverlay = document.getElementById('logTailOverlay');
     const logTailTitle = document.getElementById('logTailTitle');
     const logTailContent = document.getElementById('logTailContent');
@@ -276,12 +303,35 @@
       youtube: '{% static "pipeline_ui/icons/youtube.svg" %}',
       warning: '{% static "pipeline_ui/icons/exclamation-triangle-fill.svg" %}'
     };
+    const orderedStepNames = ['download', 'extract', 'transcribe', 'translate', 'audiobook', 'remux'];
+    const phaseLabelByStep = {
+      download: 'Download',
+      extract: 'Extract',
+      transcribe: 'Transcribe',
+      translate: 'Translate',
+      audiobook: 'Audiobook',
+      remux: 'Remux'
+    };
 
     let items = [];
     let currentPage = 1;
+    let autoScanTimer = null;
+    let autoScanInFlight = false;
 
     function pageSize() {
-      return Number(pageSizeEl.value || 25);
+      return Number(pageSizeEl.value || 50);
+    }
+
+    function normalizedDurationHms(value) {
+      const raw = String(value || '').trim();
+      if (!raw || raw === '--') {
+        return '--:--:--';
+      }
+
+      if (/^\d{2}:\d{2}:\d{2}$/.test(raw)) {
+        return raw;
+      }
+      return '--:--:--';
     }
 
     function totalPages() {
@@ -447,6 +497,10 @@
         return 'nllb_fast';
       }
 
+      if (profile.backend === 'nllb_hf') {
+        return 'nllb_hf';
+      }
+
       if (profile.backend === 'deepl_doc') {
         return profile.deepl_endpoint === 'pro' ? 'deepl_pro' : 'deepl_free';
       }
@@ -514,7 +568,6 @@
     }
 
     function buildDisplayStepMap(run) {
-      const orderedStepNames = ['download', 'extract', 'transcribe', 'translate', 'audiobook', 'remux'];
       const stepMap = new Map();
 
       (run?.steps || []).forEach((step) => {
@@ -522,6 +575,55 @@
       });
 
       return Object.fromEntries(orderedStepNames.map((stepName) => [stepName, stepMap.get(stepName) || 'pending']));
+    }
+
+    function nextStepIndexFromMap(stepMap) {
+      for (let i = 0; i < orderedStepNames.length; i += 1) {
+        const stepName = orderedStepNames[i];
+        const rawStatus = String(stepMap[stepName] || 'pending').trim().toLowerCase();
+        if (rawStatus !== 'success' && rawStatus !== 'skipped') {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    function renderGlobalPhaseStatusFromItems(allItems) {
+      globalPhaseStatusEl.classList.remove('global-phase-active', 'global-phase-idle');
+
+      const candidates = [];
+      for (const item of allItems || []) {
+        const run = item?.latest_run;
+        const runStatus = String(run?.status || '').trim().toLowerCase();
+        if (!['queued', 'running', 'stopping'].includes(runStatus)) {
+          continue;
+        }
+        const stepMap = buildDisplayStepMap(run);
+        const nextStepIndex = nextStepIndexFromMap(stepMap);
+        if (nextStepIndex >= 0) {
+          candidates.push({
+            itemId: item.id,
+            runStatus,
+            nextStepIndex,
+            nextStepName: orderedStepNames[nextStepIndex]
+          });
+        }
+      }
+
+      if (!candidates.length) {
+        globalPhaseStatusEl.classList.add('global-phase-idle');
+        globalPhaseStatusEl.textContent = 'Fase global: idle';
+        return;
+      }
+
+      const globalStepIndex = Math.min(...candidates.map((c) => c.nextStepIndex));
+      const globalStepName = orderedStepNames[globalStepIndex];
+      const runningCount = candidates.filter((c) => c.nextStepName === globalStepName && c.runStatus === 'running').length;
+      const queuedCount = candidates.filter((c) => c.nextStepName === globalStepName && c.runStatus !== 'running').length;
+      const phaseLabel = phaseLabelByStep[globalStepName] || globalStepName;
+
+      globalPhaseStatusEl.classList.add('global-phase-active');
+      globalPhaseStatusEl.textContent = `Fase global ativa: ${phaseLabel} | running ${runningCount} | queued ${queuedCount}`;
     }
 
     function mapStepStatus(rawStatus, runStatus = '') {
@@ -589,6 +691,7 @@
           ? `data-preview-src="${escapeHtml(thumbnailUrl)}" data-file-name="${escapeHtml(item.file_name)}"`
           : '';
         const originalLanguageHtml = renderTitleLine('Idioma original', formatOriginalLanguage(item.original_language));
+        const durationHtml = renderTitleLine('Duracao', normalizedDurationHms(item.duration_hms));
         const youtubeTitleOriginalHtml = renderTitleLine('Original', item.youtube_title_original);
         const youtubeTitlePtBrHtml = renderTitleLine('PT-BR', item.youtube_title_pt_br);
         const fileIconsHtml = renderFileIcons(item);
@@ -596,21 +699,12 @@
           ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
           : '-';
 
-        const translateHtml = selectField(item.id, 'translate', translateOptionValue(profile), [
-          // { value: 'libretranslate', label: 'LibreTranslate (local)' },
-          { value: 'google', label: 'Google' },
-          { value: 'nllb_fast', label: 'NLLB - Fast' },
-          { value: 'nllb_legacy', label: 'NLLB - Legacy' },
-          { value: 'nllb_custom', label: 'NLLB - Custom' },
-          { value: 'gemini', label: 'Gemini' },
-          { value: 'deepl_free', label: 'DeepL (free)' },
-          { value: 'deepl_pro', label: 'DeepL (pro)' }
-        ]);
+        const translateHtml = '<div class="translate-mode-note">Ollama</div>';
 
         return `
           <tr>
             <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
-            <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
+            <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
             <td>${phaseTimelineHtml}</td>
             <td>${translateHtml}${translateNoteHtml}</td>
             <td class="mono">${logActions}</td>
@@ -650,6 +744,36 @@
       }
     }
 
+    function formatDiscoveryTimestamp(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return String(value).replace('T', ' ').replace(/\.\d+.*$/, '');
+      }
+      const pad = (num) => String(num).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    function renderDiscoveryStatus(discovery) {
+      discoveryStatusEl.classList.remove('discovery-running', 'discovery-done', 'discovery-idle');
+
+      if (discovery && discovery.in_progress) {
+        discoveryStatusEl.classList.add('discovery-running');
+        discoveryStatusEl.textContent = 'Scanning: In progress';
+        return;
+      }
+
+      const formatted = formatDiscoveryTimestamp(discovery?.last_completed_at || '');
+      if (formatted) {
+        discoveryStatusEl.classList.add('discovery-done');
+        discoveryStatusEl.textContent = `Last discovery on ${formatted}`;
+        return;
+      }
+
+      discoveryStatusEl.classList.add('discovery-idle');
+      discoveryStatusEl.textContent = 'Last discovery: never';
+    }
+
     async function loadStatus(includeLogTail = false) {
       const statusUrl = includeLogTail ? '/api/status?include_log_tail=true' : '/api/status';
       const [statusRes, workerRes] = await Promise.all([
@@ -661,7 +785,48 @@
       items = statusData.items || [];
       currentPage = Math.min(currentPage, totalPages());
       renderWorkerStatus(workerData.worker || null);
+      renderDiscoveryStatus(statusData.discovery || null);
+      renderGlobalPhaseStatusFromItems(items);
       render();
+    }
+
+    function autoScanIntervalMs() {
+      const seconds = Number(autoRefreshSelect.value || 0);
+      return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+    }
+
+    function clearAutoScanTimer() {
+      if (autoScanTimer) {
+        window.clearTimeout(autoScanTimer);
+        autoScanTimer = null;
+      }
+    }
+
+    function scheduleAutoScan() {
+      clearAutoScanTimer();
+      const intervalMs = autoScanIntervalMs();
+      if (!intervalMs) {
+        return;
+      }
+      autoScanTimer = window.setTimeout(runAutoScanTick, intervalMs);
+    }
+
+    async function runAutoScanTick() {
+      if (autoScanInFlight) {
+        scheduleAutoScan();
+        return;
+      }
+
+      autoScanInFlight = true;
+      try {
+        await fetch('/api/scan', {method: 'POST'});
+        await loadStatus(true);
+      } catch (error) {
+        // Ignore transient polling failures and keep the timer alive.
+      } finally {
+        autoScanInFlight = false;
+        scheduleAutoScan();
+      }
     }
 
     async function onOptionChange(evt) {
@@ -710,8 +875,10 @@
     }
 
     document.getElementById('scanBtn').addEventListener('click', async () => {
+      renderDiscoveryStatus({in_progress: true});
       await fetch('/api/scan', {method: 'POST'});
       await loadStatus(true);
+      scheduleAutoScan();
     });
 
     document.getElementById('runBtn').addEventListener('click', async () => {
@@ -841,6 +1008,10 @@
       render();
     });
 
+    autoRefreshSelect.addEventListener('change', () => {
+      scheduleAutoScan();
+    });
+
     logTailClose.addEventListener('click', closeLogTailOverlay);
     logTailOverlay.addEventListener('click', (evt) => {
       if (evt.target === logTailOverlay) {
@@ -866,7 +1037,9 @@
       }
     });
 
-    loadStatus(false);
+    loadStatus(false).then(() => {
+      scheduleAutoScan();
+    });
   </script>
 </body>
 </html>
