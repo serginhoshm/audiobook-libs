@@ -190,9 +190,58 @@ def load_download_dir() -> Path:
     return load_work_exec_dir()
 
 
+def _legacy_thumbnail_dir() -> Path:
+    return project_root() / "video-thumbs"
+
+
+def _migrate_legacy_thumbnail_dir(target_dir: Path) -> None:
+    legacy_dir = _legacy_thumbnail_dir()
+    if not legacy_dir.exists() or not legacy_dir.is_dir():
+        return
+
+    if legacy_dir == target_dir:
+        return
+
+    for candidate in legacy_dir.iterdir():
+        if not candidate.is_file():
+            continue
+        destination = target_dir / candidate.name
+        if destination.exists():
+            continue
+        try:
+            shutil.move(str(candidate), str(destination))
+        except Exception:
+            continue
+
+    try:
+        if not any(legacy_dir.iterdir()):
+            legacy_dir.rmdir()
+    except Exception:
+        pass
+
+
+def _remap_legacy_thumbnail_path(current_path: str) -> str:
+    raw = str(current_path or "").strip()
+    if not raw:
+        return ""
+
+    legacy_dir = _legacy_thumbnail_dir()
+    candidate = Path(raw)
+    try:
+        relative = candidate.relative_to(legacy_dir)
+    except Exception:
+        return raw
+
+    migrated_path = load_thumbnail_dir() / relative
+    if migrated_path.exists():
+        return str(migrated_path)
+    return raw
+
+
 def load_thumbnail_dir() -> Path:
-    path = project_root() / "video-thumbs"
+    path = load_data_root() / "thumbs"
     path.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_thumbnail_dir(path)
     return path
 
 
@@ -279,8 +328,12 @@ def _download_thumbnail_from_url(url: str, target_stem: str) -> Path | None:
 
 def ensure_asset_thumbnail(asset: VideoAsset, metadata: dict[str, Any] | None = None) -> str:
     current = str(asset.thumbnail_path or "").strip()
-    if current and Path(current).exists():
-        return current
+    if current:
+        migrated_current = _remap_legacy_thumbnail_path(current)
+        if migrated_current and Path(migrated_current).exists():
+            return migrated_current
+        if Path(current).exists():
+            return current
 
     if not _is_youtube_source(asset.source_url):
         return ""

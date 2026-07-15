@@ -93,12 +93,13 @@ Gemini local key file:
 
 Ollama local backend:
 
+- Linux (Debian/Ubuntu/Zorin) setup script: `bash setup/setup-ollama-linux.sh`
 - Bluefin setup script: `bash setup/setup-ollama-bluefin.sh`
 - Versioned template: `config/translation/ollama.env.template`
 - Local runtime file (gitignored): `config/translation/ollama.env`
 - Default model: `qwen2.5:14b`
 - Backend name in webapp/pipeline: `ollama`
-- `bash workflows/webapp.sh setup` executa bootstrap do Ollama automaticamente quando `TRANSLATION_BACKEND=ollama` (ou quando `config/translation/ollama.env` existe).
+- `bash workflows/webapp.sh setup` executa bootstrap do Ollama automaticamente quando `TRANSLATION_BACKEND=ollama` (ou quando `config/translation/ollama.env` existe), escolhendo script por ambiente.
 
 DeepL key template and runtime key rotation:
 

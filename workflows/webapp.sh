@@ -199,6 +199,7 @@ run_django_migrate() {
 maybe_setup_ollama() {
   local backend="${TRANSLATION_BACKEND:-}"
   local auto_detected="0"
+  local setup_script=""
 
   # Load local Ollama settings if available so setup uses project-specific host/model.
   if [ -f "$OLLAMA_ENV_FILE" ]; then
@@ -216,17 +217,25 @@ maybe_setup_ollama() {
     return 0
   fi
 
-  if [ ! -x "$ROOT_DIR/setup/setup-ollama-bluefin.sh" ]; then
-    echo "[webapp] ollama backend selected, but setup/setup-ollama-bluefin.sh is not executable"
+  if has_cmd apt-get || has_cmd ollama; then
+    setup_script="$ROOT_DIR/setup/setup-ollama-linux.sh"
+  elif has_cmd podman; then
+    setup_script="$ROOT_DIR/setup/setup-ollama-bluefin.sh"
+  else
+    setup_script="$ROOT_DIR/setup/setup-ollama-linux.sh"
+  fi
+
+  if [ ! -x "$setup_script" ] && [ ! -f "$setup_script" ]; then
+    echo "[webapp] ollama backend selected, but no compatible setup script was found"
     return 1
   fi
 
   if [ "$auto_detected" = "1" ]; then
-    echo "[webapp] detected local Ollama container; running model bootstrap"
+    echo "[webapp] detected local Ollama environment; running model bootstrap"
   else
-    echo "[webapp] ollama backend detected; running Ollama setup with model bootstrap"
+    echo "[webapp] ollama backend detected; running setup with model bootstrap"
   fi
-  bash "$ROOT_DIR/setup/setup-ollama-bluefin.sh"
+  bash "$setup_script"
 }
 
 usage() {
