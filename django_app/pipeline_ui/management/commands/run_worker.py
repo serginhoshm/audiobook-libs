@@ -11,18 +11,36 @@ from django.db import transaction
 from django.utils import timezone
 
 from pipeline_ui.models import PipelineRun
-from pipeline_ui.runner import PIPELINE_STEP_ORDER, _persist_download_result, execute_run, request_stop
+from pipeline_ui.runner import (
+    PIPELINE_STEP_ORDER,
+    _next_pending_step_name,
+    _persist_download_result,
+    execute_run,
+    request_stop,
+)
+from pipeline_ui.services import resolve_asset_video_path
 
 
 class Command(BaseCommand):
     help = "Run local worker to consume queued runs"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--scope", choices=["general", "transcribe"], default="general")
+        parser.add_argument("--slot", type=int, default=1)
+
+    def _worker_suffix(self) -> str:
+        scope = getattr(self, "scope", "general")
+        slot = getattr(self, "slot", 1)
+        if scope == "general" and slot == 1:
+            return "worker"
+        return f"worker-{scope}-{slot}"
 
     def _worker_run_dir(self) -> Path:
         root = Path(settings.WEBAPP["ROOT_DIR"])
         return root / ".run" / "webapp"
 
     def _worker_pid_file(self) -> Path:
-        return self._worker_run_dir() / "worker.pid"
+        return self._worker_run_dir() / f"{self._worker_suffix()}.pid"
 
     # Legacy LibreTranslate lifecycle helpers are intentionally disabled.
     # Keep this code for future reactivation if local LT orchestration returns.
@@ -117,7 +135,7 @@ class Command(BaseCommand):
             return
 
     def _worker_lock_file(self) -> Path:
-        return self._worker_run_dir() / "worker.lock"
+        return self._worker_run_dir() / f"{self._worker_suffix()}.lock"
 
     def _acquire_singleton_lock(self):
         lock_file = self._worker_lock_file()
@@ -133,9 +151,16 @@ class Command(BaseCommand):
         return handle
 
     def handle(self, *args, **options):
+        self.scope = str(options.get("scope") or "general")
+        self.slot = max(1, int(options.get("slot") or 1))
+
         lock_handle = self._acquire_singleton_lock()
         if lock_handle is None:
-            self.stdout.write(self.style.WARNING("[worker] another run_worker instance is already active; exiting"))
+            self.stdout.write(
+                self.style.WARNING(
+                    f"[worker:{self.scope}:{self.slot}] another matching run_worker instance is already active; exiting"
+                )
+            )
             return
 
         poll_seconds = int(settings.WEBAPP["WORKER_POLL_SECONDS"])
@@ -146,7 +171,7 @@ class Command(BaseCommand):
         idle_started_at = time.monotonic()
 
         self._write_pid_file()
-        self.stdout.write(self.style.SUCCESS("[worker] started"))
+        self.stdout.write(self.style.SUCCESS(f"[worker:{self.scope}:{self.slot}] started"))
         self._with_db_retry(self._reconcile_inflight_runs)
 
         try:
@@ -164,7 +189,8 @@ class Command(BaseCommand):
                 idle_started_at = time.monotonic()
 
                 self.stdout.write(
-                    f"[worker] processing run id={run.id} mode={run.run_mode} video={run.video_asset.file_name}"
+                    f"[worker:{self.scope}:{self.slot}] processing run id={run.id} "
+                    f"mode={run.run_mode} video={run.video_asset.file_name}"
                 )
                 try:
                     # if manage_libretranslate:
@@ -178,7 +204,7 @@ class Command(BaseCommand):
                     #     self._stop_libretranslate_for_run(lt_proc)
                     pass
         except KeyboardInterrupt:
-            self.stdout.write("[worker] shutting down...")
+            self.stdout.write(f"[worker:{self.scope}:{self.slot}] shutting down...")
         finally:
             self._cleanup_pid_file()
             try:
@@ -203,6 +229,15 @@ class Command(BaseCommand):
                 )
                 time.sleep(wait_seconds)
 
+    def _run_process_is_alive(self, run: PipelineRun) -> bool:
+        if not run.pid:
+            return False
+        try:
+            os.kill(run.pid, 0)
+            return True
+        except Exception:
+            return False
+
     def _mark_run_failed(self, run, message: str):
         def _update():
             run.refresh_from_db()
@@ -215,8 +250,17 @@ class Command(BaseCommand):
     def _reconcile_inflight_runs(self):
         running_like = PipelineRun.objects.select_related("video_asset").filter(status__in=["running", "stopping"])
         for run in running_like:
+            if self._run_process_is_alive(run):
+                continue
+
+            if run.status == "running" and run.started_at is not None:
+                handoff_grace = max(10, int(settings.WEBAPP.get("WORKER_GRACE_SECONDS", 8)) + 2)
+                running_for = (timezone.now() - run.started_at).total_seconds()
+                if running_for < handoff_grace:
+                    continue
+
             download_step = run.steps.filter(step_name="download").first()
-            video_path = Path(run.video_asset.file_path)
+            video_path = resolve_asset_video_path(run.video_asset)
             if download_step and run.video_asset.source_url and video_path.exists():
                 try:
                     ok, detail = _persist_download_result(run, video_path)
@@ -270,18 +314,18 @@ class Command(BaseCommand):
             best_run = None
             best_step_index = None
             for candidate in queued_runs:
-                step_status_map = {step.step_name: step.status for step in candidate.steps.all()}
-                next_idx = None
-                for idx, step_name in enumerate(PIPELINE_STEP_ORDER):
-                    status = step_status_map.get(step_name, "pending")
-                    if status not in {"success", "skipped"}:
-                        next_idx = idx
-                        break
-
-                # Nothing left to execute for this run.
-                if next_idx is None:
+                next_step_name = _next_pending_step_name(candidate)
+                if next_step_name is None:
                     continue
 
+                if self.scope == "transcribe" and next_step_name != "transcribe":
+                    continue
+                if self.scope != "transcribe" and next_step_name == "transcribe":
+                    continue
+
+                next_idx = PIPELINE_STEP_ORDER.index(next_step_name)
+
+                # Nothing left to execute for this run.
                 if best_run is None or next_idx < best_step_index:
                     best_run = candidate
                     best_step_index = next_idx

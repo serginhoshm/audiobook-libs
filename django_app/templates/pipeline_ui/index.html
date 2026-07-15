@@ -199,7 +199,6 @@
             <th><input type="checkbox" id="all"></th>
             <th>File</th>
             <th class="phase-col">Phases</th>
-            <th>Translate</th>
             <th>Logs</th>
           </tr>
         </thead>
@@ -446,15 +445,6 @@
       return `<span class="file-icons">${icons.join('')}</span>`;
     }
 
-    function selectField(videoId, key, value, options) {
-      const opts = options.map((option) => {
-        const optionValue = typeof option === 'string' ? option : option.value;
-        const optionLabel = typeof option === 'string' ? option : option.label;
-        return `<option value="${optionValue}" ${String(value) === String(optionValue) ? 'selected' : ''}>${optionLabel}</option>`;
-      }).join('');
-      return `<select data-id="${videoId}" data-key="${key}" class="opt">${opts}</select>`;
-    }
-
     function openDownloadOverlay() {
       downloadError.textContent = '';
       downloadUrl.value = '';
@@ -480,49 +470,6 @@
       thumbPreviewImage.removeAttribute('src');
       thumbPreviewImage.alt = 'Thumbnail preview';
       thumbTitle.textContent = 'Thumbnail';
-    }
-
-    function translateOptionValue(profile) {
-      if (profile.backend === 'libretranslate') {
-        return 'google';
-      }
-
-      if (profile.backend === 'nllb_local') {
-        if (profile.nllb_legacy || profile.nllb_profile === 'legacy') {
-          return 'nllb_legacy';
-        }
-        if (profile.nllb_profile === 'custom') {
-          return 'nllb_custom';
-        }
-        return 'nllb_fast';
-      }
-
-      if (profile.backend === 'nllb_hf') {
-        return 'nllb_hf';
-      }
-
-      if (profile.backend === 'deepl_doc') {
-        return profile.deepl_endpoint === 'pro' ? 'deepl_pro' : 'deepl_free';
-      }
-
-      return profile.backend;
-    }
-
-    function translateModeNote(profile, run) {
-      const backend = String(profile?.backend || '').toLowerCase();
-      const endpoint = String(profile?.deepl_endpoint || 'free').toLowerCase();
-      const logTail = String(run?.log_tail || '').toLowerCase();
-
-      if (backend !== 'deepl_doc') {
-        return '';
-      }
-
-      if (logTail.includes('[deepl_fallback_exhausted_keys]')) {
-        return '<div class="translate-mode-note warn">DeepL exhausted: Google fallback active</div>';
-      }
-
-      const endpointLabel = endpoint === 'pro' ? 'pro' : 'free';
-      return `<div class="translate-mode-note">DeepL (${endpointLabel}) with key rotation</div>`;
     }
 
     function escapeHtml(text) {
@@ -665,8 +612,6 @@
       syncPager();
       tbody.innerHTML = pageItems().map(item => {
         const run = item.latest_run;
-        const profile = item.profile;
-        const translateNoteHtml = translateModeNote(profile, run);
         const runStatus = run?.status || '';
         const stepMap = buildDisplayStepMap(run);
         const downloadStatus = mapStepStatus(stepMap.download, runStatus);
@@ -699,21 +644,17 @@
           ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
           : '-';
 
-        const translateHtml = '<div class="translate-mode-note">Ollama</div>';
-
         return `
           <tr>
             <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
             <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
             <td>${phaseTimelineHtml}</td>
-            <td>${translateHtml}${translateNoteHtml}</td>
             <td class="mono">${logActions}</td>
           </tr>
         `;
       }).join('');
 
       document.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', updateHint));
-      document.querySelectorAll('.opt').forEach(el => el.addEventListener('change', onOptionChange));
       document.querySelectorAll('.tail-link').forEach(el => el.addEventListener('click', () => showLogTail(el.dataset.logUrl, el.dataset.fileName)));
       document.querySelectorAll('.video-thumb-clickable').forEach((el) => {
         el.addEventListener('click', () => openThumbOverlay(el.dataset.previewSrc, el.dataset.fileName));
@@ -733,7 +674,10 @@
       const queue = worker.queue || {};
       const queued = Number(queue.queued || 0);
       const running = Number(queue.running || 0);
-      const suffix = ` | queue: ${queued} | running: ${running}`;
+      const scopeCounts = worker.worker_scope_counts || {};
+      const general = Number(scopeCounts.general || 0);
+      const transcribe = Number(scopeCounts.transcribe || 0);
+      const suffix = ` | gen: ${general} | tr: ${transcribe} | queue: ${queued} | running: ${running}`;
 
       if (worker.running) {
         workerStatusEl.classList.add('worker-online');
@@ -827,51 +771,6 @@
         autoScanInFlight = false;
         scheduleAutoScan();
       }
-    }
-
-    async function onOptionChange(evt) {
-      const id = Number(evt.target.dataset.id);
-      const key = evt.target.dataset.key;
-      let value = evt.target.value;
-
-      if (key === 'translate') {
-        const payload = {};
-
-        if (value === 'deepl_free') {
-          payload.backend = 'deepl_doc';
-          payload.deepl_endpoint = 'free';
-        } else if (value === 'deepl_pro') {
-          payload.backend = 'deepl_doc';
-          payload.deepl_endpoint = 'pro';
-        } else if (value === 'nllb_fast') {
-          payload.backend = 'nllb_local';
-          payload.nllb_profile = 'fast';
-          payload.nllb_legacy = false;
-        } else if (value === 'nllb_legacy') {
-          payload.backend = 'nllb_local';
-          payload.nllb_profile = 'legacy';
-          payload.nllb_legacy = true;
-        } else if (value === 'nllb_custom') {
-          payload.backend = 'nllb_local';
-          payload.nllb_profile = 'custom';
-          payload.nllb_legacy = false;
-        } else {
-          payload.backend = value;
-        }
-
-        await fetch(`/api/videos/${id}/options`, {
-          method: 'PATCH',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-        return;
-      }
-
-      await fetch(`/api/videos/${id}/options`, {
-        method: 'PATCH',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({[key]: value})
-      });
     }
 
     document.getElementById('scanBtn').addEventListener('click', async () => {

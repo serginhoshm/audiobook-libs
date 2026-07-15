@@ -22,6 +22,8 @@ from .services import (
     set_discovery_status,
     update_execution_profile,
     worker_health_status,
+    resolve_run_log_path,
+    resolve_asset_thumbnail_path,
 )
 
 
@@ -147,7 +149,9 @@ def api_run_log(request: HttpRequest, run_id: int) -> HttpResponse:
     if not log_file_path:
         return HttpResponse("Log is unavailable for this run\n", status=404, content_type="text/plain; charset=utf-8")
 
-    path = Path(log_file_path)
+    path = resolve_run_log_path(log_file_path)
+    if path is None:
+        return HttpResponse("Log is unavailable for this run\n", status=404, content_type="text/plain; charset=utf-8")
     if not path.exists() or (not path.is_file()):
         return HttpResponse("Log file not found\n", status=404, content_type="text/plain; charset=utf-8")
 
@@ -168,8 +172,8 @@ def api_video_thumbnail(request: HttpRequest, video_id: int) -> HttpResponse:
     target = placeholder
 
     if asset is not None:
-        candidate = Path(str(asset.thumbnail_path or "").strip())
-        if candidate.exists() and candidate.is_file():
+        candidate = resolve_asset_thumbnail_path(asset)
+        if candidate is not None and candidate.exists() and candidate.is_file():
             target = candidate
 
     if (not target.exists()) or (not target.is_file()):

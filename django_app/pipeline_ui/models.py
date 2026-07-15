@@ -3,7 +3,7 @@ from django.utils import timezone
 
 
 class VideoAsset(models.Model):
-    file_path = models.CharField(max_length=1024, unique=True)
+    file_path = models.CharField(max_length=1024)
     file_name = models.CharField(max_length=255)
     source_url = models.CharField(max_length=2048, blank=True, default="")
     youtube_title_original = models.CharField(max_length=255, blank=True, default="")
