@@ -8,7 +8,7 @@ import sys
 import time
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
@@ -23,6 +23,10 @@ from .services import (
     ffprobe_duration_seconds,
     infer_language_from_srt,
     load_data_root,
+    load_log_dir,
+    load_work_exec_dir,
+    load_work_remux_dir,
+    load_work_temp_dir,
 )
 
 
@@ -34,6 +38,13 @@ VIDEO_SRT_REUSE_TOLERANCE_SECONDS = 4.0
 TRANSLATION_REUSE_TOLERANCE_SECONDS = 1.5
 LANGUAGE_SAMPLE_MAX_CHARS = 100
 LANGUAGE_DETECT_TIMEOUT_SECONDS = 8
+PROGRESS_BUCKET_PERCENT = 5
+_YT_DLP_HELP_CACHE: str | None = None
+DOWNLOAD_FORMAT_PROFILES: list[tuple[str, str]] = [
+    ("720p-preferred", "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]"),
+    ("av-best", "bv*+ba/b"),
+    ("mp4-or-best", "best[ext=mp4]/best"),
+]
 
 NLLB_LANG_MAP = {
     "ar": "arb_Arab",
@@ -81,7 +92,10 @@ def _bool_to_on_off(value: bool) -> str:
 
 
 def _resolve_video_path_for_run(run: PipelineRun) -> str:
-    return run.video_asset.file_path
+    name = str(run.video_asset.file_name or "").strip()
+    if not name:
+        name = Path(str(run.video_asset.file_path or "")).name
+    return str(load_work_exec_dir() / name)
 
 
 def build_exec_command(profile: ExecutionProfile) -> list[str]:
@@ -221,15 +235,80 @@ def _whisper_lang_from_source(source_lang: str) -> str:
     return "auto"
 
 
+def _yt_dlp_supports_option(option: str) -> bool:
+    global _YT_DLP_HELP_CACHE
+
+    if _YT_DLP_HELP_CACHE is None:
+        try:
+            _YT_DLP_HELP_CACHE = subprocess.check_output(
+                ["yt-dlp", "--help"], stderr=subprocess.STDOUT, text=True
+            )
+        except Exception:
+            _YT_DLP_HELP_CACHE = ""
+
+    return option in _YT_DLP_HELP_CACHE
+
+
 def _yt_dlp_js_runtime_args() -> list[str]:
+    if not _yt_dlp_supports_option("--js-runtimes"):
+        return []
+
     for runtime in ("deno", "node"):
         runtime_path = shutil.which(runtime)
         if runtime_path:
             return ["--js-runtimes", f"{runtime}:{runtime_path}"]
-    raise RuntimeError(
-        "yt-dlp requires a JavaScript runtime for YouTube extraction. "
-        "Install deno or node, then try again."
-    )
+    return []
+
+
+def _yt_dlp_extractor_args() -> list[str]:
+    if not _yt_dlp_supports_option("--extractor-args"):
+        return []
+    # Prefer web client first to avoid API 400 precondition failures seen on ios/android.
+    return ["--extractor-args", "youtube:player_client=web"]
+
+
+def _yt_dlp_temp_path_args(temp_dir: Path) -> list[str]:
+    if not _yt_dlp_supports_option("--paths"):
+        return []
+    return ["--paths", f"temp:{temp_dir}"]
+
+
+def _build_download_command_candidates(
+    source_url: str,
+    video_path: Path,
+    temp_dir: Path,
+) -> list[tuple[str, list[str]]]:
+    base = [
+        "yt-dlp",
+        "--no-playlist",
+        "--continue",
+        "--merge-output-format",
+        "mp4",
+        *_yt_dlp_js_runtime_args(),
+        *_yt_dlp_temp_path_args(temp_dir),
+        *_yt_dlp_extractor_args(),
+        "-o",
+        f"{video_path.with_suffix('')}.%(ext)s",
+        source_url,
+    ]
+
+    commands: list[tuple[str, list[str]]] = []
+    for profile_name, format_filter in DOWNLOAD_FORMAT_PROFILES:
+        commands.append(
+            (
+                profile_name,
+                [
+                    *base[:-1],
+                    "-f",
+                    format_filter,
+                    base[-1],
+                ],
+            )
+        )
+
+    # Final fallback lets yt-dlp choose any available A/V stream.
+    commands.append(("auto-format", base))
+    return commands
 
 
 def _download_target_is_valid(run: PipelineRun, video_path: Path) -> tuple[bool, str]:
@@ -264,7 +343,8 @@ def _persist_download_result(run: PipelineRun, video_path: Path) -> tuple[bool, 
             run.video_asset.duration_seconds = ffprobe_duration_seconds(video_path)
             run.video_asset.size_bytes = video_path.stat().st_size
             run.video_asset.file_name = video_path.name
-            run.video_asset.file_path = str(video_path)
+            # Keep file_path as canonical filename-only storage.
+            run.video_asset.file_path = video_path.name
             run.video_asset.extension = video_path.suffix.lower()
             run.video_asset.is_present = True
             run.video_asset.last_seen_at = timezone.now()
@@ -304,6 +384,69 @@ def _srt_last_end_seconds(path: Path) -> float | None:
         return None
 
     return last_end
+
+
+def _srt_range_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+
+    count = 0
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                if SRT_RANGE_PATTERN.search(line):
+                    count += 1
+    except Exception:
+        return 0
+    return count
+
+
+def _build_progress_reporter(
+    step_name: str,
+    percent_supplier: Callable[[], int | None],
+    bucket_size: int = PROGRESS_BUCKET_PERCENT,
+) -> Callable[[], str | None]:
+    emitted_bucket = -1
+
+    def _report() -> str | None:
+        nonlocal emitted_bucket
+        raw_percent = percent_supplier()
+        if raw_percent is None:
+            return None
+
+        percent = max(0, min(100, int(raw_percent)))
+        bucket = 100 if percent >= 100 else (percent // bucket_size) * bucket_size
+        if bucket <= emitted_bucket:
+            return None
+
+        emitted_bucket = bucket
+        return f"[progress] step={step_name} {bucket}%"
+
+    return _report
+
+
+def _build_transcribe_progress_reporter(video_path: Path, srt_path: Path) -> Callable[[], str | None] | None:
+    total_seconds = ffprobe_duration_seconds(video_path)
+    if not total_seconds or total_seconds <= 0:
+        return None
+
+    def _percent_supplier() -> int | None:
+        current_seconds = _srt_last_end_seconds(srt_path) or 0.0
+        return int((current_seconds / total_seconds) * 100)
+
+    return _build_progress_reporter("transcribe", _percent_supplier)
+
+
+def _build_translate_progress_reporter(srt_path: Path, srtpt_path: Path) -> Callable[[], str | None] | None:
+    total_lines = _srt_range_count(srt_path)
+    if total_lines <= 0:
+        return None
+
+    def _percent_supplier() -> int | None:
+        translated_lines = _srt_range_count(srtpt_path)
+        return int((translated_lines / total_lines) * 100)
+
+    return _build_progress_reporter("translate", _percent_supplier)
 
 
 def _can_reuse_transcript(video_path: Path, srt_path: Path) -> tuple[bool, str]:
@@ -353,12 +496,21 @@ def _run_subprocess_with_streaming(
     command: list[str],
     log_fh: Any,
     cwd: Path,
+    progress_reporter: Callable[[], str | None] | None = None,
 ) -> int:
     grace = int(settings.WEBAPP["WORKER_GRACE_SECONDS"])
+    temp_dir = load_work_temp_dir()
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    proc_env = os.environ.copy()
+    temp_dir_str = str(temp_dir)
+    proc_env["TMPDIR"] = temp_dir_str
+    proc_env["TMP"] = temp_dir_str
+    proc_env["TEMP"] = temp_dir_str
 
     proc = subprocess.Popen(
         command,
         cwd=str(cwd),
+        env=proc_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -375,6 +527,13 @@ def _run_subprocess_with_streaming(
 
     stdout_stream = proc.stdout
     rc: int | None = None
+    last_progress_check = 0.0
+
+    if progress_reporter is not None:
+        initial_progress = progress_reporter()
+        if initial_progress:
+            log_fh.write(f"{initial_progress}\n")
+            log_fh.flush()
 
     while True:
         if stdout_stream:
@@ -386,6 +545,15 @@ def _run_subprocess_with_streaming(
                     log_fh.flush()
 
         rc = proc.poll()
+
+        now = time.time()
+        if progress_reporter is not None and (now - last_progress_check) >= 1.5:
+            last_progress_check = now
+            progress_line = progress_reporter()
+            if progress_line:
+                log_fh.write(f"{progress_line}\n")
+                log_fh.flush()
+
         run.refresh_from_db(fields=["stop_requested", "status"])
         if rc is not None:
             break
@@ -407,6 +575,12 @@ def _run_subprocess_with_streaming(
     if stdout_stream:
         for line in stdout_stream:
             log_fh.write(line)
+            log_fh.flush()
+
+    if progress_reporter is not None:
+        final_progress = progress_reporter()
+        if final_progress:
+            log_fh.write(f"{final_progress}\n")
             log_fh.flush()
 
     return int(rc if rc is not None else 1)
@@ -434,6 +608,7 @@ def _execute_pipeline_steps(
 
     base_name = video_path.stem
     work_dir = video_path.parent
+    temp_dir = load_work_temp_dir()
     wav_path = work_dir / f"{base_name}.wav"
     srt_path = work_dir / f"{base_name}.srt"
     srtpt_path = work_dir / f"{base_name}.srtpt"
@@ -457,26 +632,17 @@ def _execute_pipeline_steps(
         log_fh.write("step 0 - download\n")
         log_fh.flush()
         _set_step_status(run.id, "download", "running", "step 0 - download")
-        try:
-            download_cmd = [
-                "yt-dlp",
-                "--no-playlist",
-                "--continue",
-                "--merge-output-format",
-                "mp4",
-                "--remote-components",
-                "ejs:github",
-                *_yt_dlp_js_runtime_args(),
-                "-f",
-                "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]",
-                "-o",
-                f"{video_path.with_suffix('')}.%(ext)s",
-                run.video_asset.source_url,
-            ]
-        except RuntimeError as exc:
-            _set_step_status(run.id, "download", "failed", str(exc))
-            return 2, str(exc)
-        rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
+        rc = 1
+        candidates = _build_download_command_candidates(run.video_asset.source_url, video_path, temp_dir)
+        for idx, (profile_name, download_cmd) in enumerate(candidates, start=1):
+            log_fh.write(
+                f"[download] attempt {idx}/{len(candidates)} profile={profile_name}\n"
+            )
+            log_fh.flush()
+            rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
+            if rc == 0:
+                break
+
         if rc != 0:
             _set_step_status(run.id, "download", "failed", "Download failed")
             return rc, "Download failed"
@@ -540,7 +706,14 @@ def _execute_pipeline_steps(
             "medium",
             base_name,
         ]
-        rc = _run_subprocess_with_streaming(run, transcribe_cmd, log_fh, root_dir)
+        transcribe_progress = _build_transcribe_progress_reporter(video_path, srt_path)
+        rc = _run_subprocess_with_streaming(
+            run,
+            transcribe_cmd,
+            log_fh,
+            root_dir,
+            progress_reporter=transcribe_progress,
+        )
         if rc != 0:
             _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
             return rc, "Transcription failed"
@@ -591,7 +764,14 @@ def _execute_pipeline_steps(
         if profile.nllb_legacy:
             translate_cmd.append("--nllb-legacy-generation")
 
-        rc = _run_subprocess_with_streaming(run, translate_cmd, log_fh, root_dir)
+        translate_progress = _build_translate_progress_reporter(srt_path, srtpt_path)
+        rc = _run_subprocess_with_streaming(
+            run,
+            translate_cmd,
+            log_fh,
+            root_dir,
+            progress_reporter=translate_progress,
+        )
         if rc != 0:
             _set_step_status(run.id, "translate", "failed", "Translation failed")
             return rc, "Translation failed"
@@ -628,7 +808,8 @@ def _execute_pipeline_steps(
     _set_step_status(run.id, "remux", "running", "step 5 - remux generation")
 
     video_ext = video_path.suffix if video_path.suffix else ".mp4"
-    remux_out = video_path.with_name(f"{base_name} (remux){video_ext}")
+    remux_dir = load_work_remux_dir()
+    remux_out = remux_dir / f"{base_name} (remux){video_ext}"
 
     remux_cmd = [
         "ffmpeg",
@@ -665,7 +846,7 @@ def _execute_pipeline_steps(
 
 
 def ensure_webapp_log_dir() -> Path:
-    log_dir = Path(settings.WEBAPP["WEBAPP_LOG_DIR"])
+    log_dir = load_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 
@@ -735,6 +916,7 @@ def _execute_pipeline_single_step(
 
     base_name = video_path.stem
     work_dir = video_path.parent
+    temp_dir = load_work_temp_dir()
     wav_path = work_dir / f"{base_name}.wav"
     srt_path = work_dir / f"{base_name}.srt"
     srtpt_path = work_dir / f"{base_name}.srtpt"
@@ -762,27 +944,17 @@ def _execute_pipeline_single_step(
         log_fh.write("step 0 - download\n")
         log_fh.flush()
         _set_step_status(run.id, "download", "running", "step 0 - download")
-        try:
-            download_cmd = [
-                "yt-dlp",
-                "--no-playlist",
-                "--continue",
-                "--merge-output-format",
-                "mp4",
-                "--remote-components",
-                "ejs:github",
-                *_yt_dlp_js_runtime_args(),
-                "-f",
-                "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]",
-                "-o",
-                f"{video_path.with_suffix('')}.%(ext)s",
-                run.video_asset.source_url,
-            ]
-        except RuntimeError as exc:
-            _set_step_status(run.id, "download", "failed", str(exc))
-            return 2, str(exc)
+        rc = 1
+        candidates = _build_download_command_candidates(run.video_asset.source_url, video_path, temp_dir)
+        for idx, (profile_name, download_cmd) in enumerate(candidates, start=1):
+            log_fh.write(
+                f"[download] attempt {idx}/{len(candidates)} profile={profile_name}\n"
+            )
+            log_fh.flush()
+            rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
+            if rc == 0:
+                break
 
-        rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
         if rc != 0:
             _set_step_status(run.id, "download", "failed", "Download failed")
             return rc, "Download failed"
@@ -853,7 +1025,14 @@ def _execute_pipeline_single_step(
             "medium",
             base_name,
         ]
-        rc = _run_subprocess_with_streaming(run, transcribe_cmd, log_fh, root_dir)
+        transcribe_progress = _build_transcribe_progress_reporter(video_path, srt_path)
+        rc = _run_subprocess_with_streaming(
+            run,
+            transcribe_cmd,
+            log_fh,
+            root_dir,
+            progress_reporter=transcribe_progress,
+        )
         if rc != 0:
             _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
             return rc, "Transcription failed"
@@ -909,7 +1088,14 @@ def _execute_pipeline_single_step(
         if profile.nllb_legacy:
             translate_cmd.append("--nllb-legacy-generation")
 
-        rc = _run_subprocess_with_streaming(run, translate_cmd, log_fh, root_dir)
+        translate_progress = _build_translate_progress_reporter(srt_path, srtpt_path)
+        rc = _run_subprocess_with_streaming(
+            run,
+            translate_cmd,
+            log_fh,
+            root_dir,
+            progress_reporter=translate_progress,
+        )
         if rc != 0:
             _set_step_status(run.id, "translate", "failed", "Translation failed")
             return rc, "Translation failed"
@@ -962,7 +1148,8 @@ def _execute_pipeline_single_step(
         _set_step_status(run.id, "remux", "running", "step 5 - remux generation")
 
         video_ext = video_path.suffix if video_path.suffix else ".mp4"
-        remux_out = video_path.with_name(f"{base_name} (remux){video_ext}")
+        remux_dir = load_work_remux_dir()
+        remux_out = remux_dir / f"{base_name} (remux){video_ext}"
 
         remux_cmd = [
             "ffmpeg",
@@ -1121,7 +1308,7 @@ def execute_run(run: PipelineRun) -> None:
 
     run.status = "running"
     run.started_at = timezone.now()
-    run.log_file_path = str(log_file)
+    run.log_file_path = log_file.name
     run.error_message = ""
     run.save(update_fields=["status", "started_at", "log_file_path", "error_message", "updated_at"])
 
@@ -1169,7 +1356,7 @@ def execute_run(run: PipelineRun) -> None:
     else:
         run.status = "failed"
         run.finished_at = timezone.now()
-        run.error_message = f"Process failed with code {rc}. See log: {run.log_file_path}"
+        run.error_message = f"Process failed with code {rc}. See log: {log_file.name}"
 
     run.save(update_fields=[
         "status",

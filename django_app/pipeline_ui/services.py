@@ -34,6 +34,10 @@ DOWNLOAD_DURATION_TOLERANCE_SECONDS = 2.5
 DOWNLOAD_FORMAT_FILTER = "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]"
 MAX_FILESYSTEM_NAME_BYTES = 255
 THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
+_YT_DLP_HELP_CACHE: str | None = None
+WORKER_SCOPE_GENERAL = "general"
+WORKER_SCOPE_TRANSCRIBE = "transcribe"
+TRANSLATION_BACKEND_FIXED = "ollama"
 
 
 def _with_sqlite_lock_retry(fn, *args, **kwargs):
@@ -49,35 +53,77 @@ def _with_sqlite_lock_retry(fn, *args, **kwargs):
             time.sleep(base_wait * attempt)
 
 
-def _discover_worker_pids() -> list[int]:
+def _worker_role_specs() -> list[tuple[str, int]]:
+    specs = [(WORKER_SCOPE_GENERAL, 1)]
+    transcribe_slots = max(0, int(settings.WEBAPP.get("WORKER_TRANSCRIBE_CONCURRENCY", 2)))
+    specs.extend((WORKER_SCOPE_TRANSCRIBE, slot) for slot in range(1, transcribe_slots + 1))
+    return specs
+
+
+def _worker_file_name(kind: str, scope: str, slot: int) -> str:
+    if scope == WORKER_SCOPE_GENERAL and slot == 1:
+        return f"worker.{kind}"
+    return f"worker-{scope}-{slot}.{kind}"
+
+
+def _discover_worker_processes() -> list[dict[str, Any]]:
     root = project_root()
     script_hint = str(root / "django_app" / "manage.py")
     try:
         output = subprocess.check_output(
-            ["pgrep", "-f", f"{script_hint} run_worker"],
+            ["pgrep", "-fa", f"{script_hint} run_worker"],
             text=True,
             stderr=subprocess.DEVNULL,
         )
-        pids = [int(line.strip()) for line in output.splitlines() if line.strip().isdigit()]
-        return sorted(set(pids))
+        processes: list[dict[str, Any]] = []
+        seen_pids: set[int] = set()
+        for line in output.splitlines():
+            raw = line.strip()
+            if not raw:
+                continue
+            pid_text, _, command = raw.partition(" ")
+            if not pid_text.isdigit():
+                continue
+            pid = int(pid_text)
+            if pid in seen_pids:
+                continue
+
+            scope_match = re.search(r"(?:^|\s)--scope(?:=|\s+)(general|transcribe)(?:\s|$)", command)
+            slot_match = re.search(r"(?:^|\s)--slot(?:=|\s+)(\d+)(?:\s|$)", command)
+            scope = scope_match.group(1) if scope_match else WORKER_SCOPE_GENERAL
+            slot = int(slot_match.group(1)) if slot_match else 1
+
+            processes.append({
+                "pid": pid,
+                "scope": scope,
+                "slot": slot,
+                "command": command,
+            })
+            seen_pids.add(pid)
+
+        return sorted(processes, key=lambda proc: (proc["scope"], proc["slot"], proc["pid"]))
     except Exception:
         return []
+
+
+def _discover_worker_pids() -> list[int]:
+    return [proc["pid"] for proc in _discover_worker_processes()]
 
 
 def _worker_run_dir() -> Path:
     return project_root() / ".run" / "webapp"
 
 
-def _worker_pid_file() -> Path:
-    return _worker_run_dir() / "worker.pid"
+def _worker_pid_file(scope: str = WORKER_SCOPE_GENERAL, slot: int = 1) -> Path:
+    return _worker_run_dir() / _worker_file_name("pid", scope, slot)
 
 
 def _discovery_status_file() -> Path:
     return _worker_run_dir() / "discovery-status.json"
 
 
-def _worker_log_file() -> Path:
-    return Path(settings.WEBAPP["WEBAPP_LOG_DIR"]) / "worker.log"
+def _worker_log_file(scope: str = WORKER_SCOPE_GENERAL, slot: int = 1) -> Path:
+    return load_log_dir() / _worker_file_name("log", scope, slot)
 
 
 def _worker_python_executable() -> str:
@@ -88,11 +134,11 @@ def _worker_python_executable() -> str:
     return sys.executable
 
 
-def _spawn_worker_process() -> int:
+def _spawn_worker_process(scope: str, slot: int) -> int:
     run_dir = _worker_run_dir()
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    log_file = _worker_log_file()
+    log_file = _worker_log_file(scope, slot)
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     root = project_root()
@@ -100,10 +146,14 @@ def _spawn_worker_process() -> int:
         _worker_python_executable(),
         str(root / "django_app" / "manage.py"),
         "run_worker",
+        "--scope",
+        scope,
+        "--slot",
+        str(slot),
     ]
 
     with open(log_file, "a", encoding="utf-8") as out:
-        out.write("[webapp] auto-starting worker process\n")
+        out.write(f"[webapp] auto-starting worker process scope={scope} slot={slot}\n")
 
     log_handle = open(log_file, "a", encoding="utf-8")
     proc = subprocess.Popen(
@@ -115,38 +165,37 @@ def _spawn_worker_process() -> int:
     )
     log_handle.close()
 
-    _worker_pid_file().write_text(f"{proc.pid}\n", encoding="utf-8")
+    _worker_pid_file(scope, slot).write_text(f"{proc.pid}\n", encoding="utf-8")
     return proc.pid
 
 
 def ensure_worker_running() -> dict[str, Any]:
-    discovered_pids = _discover_worker_pids()
-    if discovered_pids:
-        run_dir = _worker_run_dir()
-        run_dir.mkdir(parents=True, exist_ok=True)
-        _worker_pid_file().write_text(f"{discovered_pids[0]}\n", encoding="utf-8")
-        return {
-            "started": False,
-            "pid": discovered_pids[0],
-            "reason": "already_running_process_scan",
-            "worker_pids": discovered_pids,
-        }
+    discovered = _discover_worker_processes()
+    active_slots = {(proc["scope"], proc["slot"]) for proc in discovered}
+    started_pids: list[int] = []
 
-    status = worker_health_status()
-    if status["running"]:
+    for scope, slot in _worker_role_specs():
+        if (scope, slot) in active_slots:
+            continue
+        started_pids.append(_spawn_worker_process(scope, slot))
+
+    worker_pids = sorted({proc["pid"] for proc in discovered} | set(started_pids))
+    if not started_pids:
+        primary_pid = worker_pids[0] if worker_pids else None
         return {
             "started": False,
-            "pid": status["pid"],
+            "pid": primary_pid,
             "reason": "already_running",
-            "worker_pids": status.get("worker_pids", []),
+            "worker_pids": worker_pids,
         }
 
-    pid = _spawn_worker_process()
+    primary_pid = started_pids[0]
     return {
         "started": True,
-        "pid": pid,
-        "reason": "auto_started",
-        "worker_pids": [pid],
+        "pid": primary_pid,
+        "reason": "auto_started_missing_workers",
+        "worker_pids": worker_pids,
+        "started_worker_pids": started_pids,
     }
 
 
@@ -170,6 +219,56 @@ def load_data_root() -> Path:
 
 def load_work_exec_dir() -> Path:
     return load_data_root() / "exec"
+
+
+def load_work_temp_dir() -> Path:
+    path = load_data_root() / "temp"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def load_work_remux_dir() -> Path:
+    path = load_data_root() / "remux"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def canonical_asset_file_name(asset: VideoAsset) -> str:
+    name = str(asset.file_name or "").strip()
+    if name:
+        return Path(name).name
+
+    legacy_path = str(asset.file_path or "").strip()
+    if legacy_path:
+        return Path(legacy_path).name
+    return ""
+
+
+def resolve_asset_video_path(asset: VideoAsset) -> Path:
+    return load_work_exec_dir() / canonical_asset_file_name(asset)
+
+
+def normalize_asset_storage_fields(asset: VideoAsset) -> bool:
+    canonical_name = canonical_asset_file_name(asset)
+    if not canonical_name:
+        return False
+
+    update_fields: list[str] = []
+    if asset.file_name != canonical_name:
+        asset.file_name = canonical_name
+        update_fields.append("file_name")
+
+    # Keep file_path column as canonical filename only when it does not violate
+    # the historical unique constraint in legacy datasets.
+    conflict_exists = VideoAsset.objects.filter(file_path=canonical_name).exclude(id=asset.id).exists()
+    if (not conflict_exists) and asset.file_path != canonical_name:
+        asset.file_path = canonical_name
+        update_fields.append("file_path")
+
+    if update_fields:
+        _with_sqlite_lock_retry(asset.save, update_fields=update_fields)
+        return True
+    return False
 
 
 def is_generated_remux_sibling(video_path: Path) -> bool:
@@ -243,6 +342,79 @@ def load_thumbnail_dir() -> Path:
     path.mkdir(parents=True, exist_ok=True)
     _migrate_legacy_thumbnail_dir(path)
     return path
+
+
+def load_log_dir() -> Path:
+    path = load_data_root() / "logs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def canonical_run_log_name(log_file_path: str | None) -> str:
+    raw = str(log_file_path or "").strip()
+    if not raw:
+        return ""
+    return Path(raw).name
+
+
+def resolve_run_log_path(log_file_path: str | None) -> Path | None:
+    raw = str(log_file_path or "").strip()
+    if not raw:
+        return None
+
+    candidate = Path(raw)
+    if candidate.is_absolute() and candidate.exists() and candidate.is_file():
+        return candidate
+
+    normalized_name = candidate.name
+    if not normalized_name:
+        return None
+    return load_log_dir() / normalized_name
+
+
+def normalize_run_log_storage(run: PipelineRun) -> bool:
+    canonical = canonical_run_log_name(run.log_file_path)
+    if canonical == str(run.log_file_path or ""):
+        return False
+    run.log_file_path = canonical
+    _with_sqlite_lock_retry(run.save, update_fields=["log_file_path"])
+    return True
+
+
+def _canonical_thumbnail_name(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return Path(raw).name
+
+
+def resolve_asset_thumbnail_path(asset: VideoAsset) -> Path | None:
+    raw = str(asset.thumbnail_path or "").strip()
+    if not raw:
+        return None
+
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        migrated = _remap_legacy_thumbnail_path(raw)
+        migrated_path = Path(migrated)
+        if migrated_path.exists() and migrated_path.is_file():
+            return migrated_path
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    normalized_name = _canonical_thumbnail_name(raw)
+    if not normalized_name:
+        return None
+    return load_thumbnail_dir() / normalized_name
+
+
+def normalize_asset_thumbnail_field(asset: VideoAsset) -> bool:
+    canonical = _canonical_thumbnail_name(asset.thumbnail_path)
+    if canonical == str(asset.thumbnail_path or ""):
+        return False
+    asset.thumbnail_path = canonical
+    _with_sqlite_lock_retry(asset.save, update_fields=["thumbnail_path"])
+    return True
 
 
 def get_discovery_status() -> dict[str, Any]:
@@ -329,11 +501,13 @@ def _download_thumbnail_from_url(url: str, target_stem: str) -> Path | None:
 def ensure_asset_thumbnail(asset: VideoAsset, metadata: dict[str, Any] | None = None) -> str:
     current = str(asset.thumbnail_path or "").strip()
     if current:
-        migrated_current = _remap_legacy_thumbnail_path(current)
-        if migrated_current and Path(migrated_current).exists():
-            return migrated_current
-        if Path(current).exists():
-            return current
+        resolved = resolve_asset_thumbnail_path(asset)
+        if resolved is not None and resolved.exists() and resolved.is_file():
+            canonical_name = resolved.name
+            if asset.thumbnail_path != canonical_name:
+                asset.thumbnail_path = canonical_name
+                _with_sqlite_lock_retry(asset.save, update_fields=["thumbnail_path"])
+            return canonical_name
 
     if not _is_youtube_source(asset.source_url):
         return ""
@@ -353,7 +527,7 @@ def ensure_asset_thumbnail(asset: VideoAsset, metadata: dict[str, Any] | None = 
     saved_path = _download_thumbnail_from_url(thumb_url, f"{stem}-{asset.id}")
     if saved_path is None:
         return ""
-    return str(saved_path)
+    return saved_path.name
 
 
 def infer_language_from_name(file_name: str) -> str:
@@ -509,15 +683,36 @@ def _download_date_prefix(now=None) -> str:
     return current.strftime("%Y-%m-%d")
 
 
+def _yt_dlp_supports_option(option: str) -> bool:
+    global _YT_DLP_HELP_CACHE
+
+    if _YT_DLP_HELP_CACHE is None:
+        try:
+            _YT_DLP_HELP_CACHE = subprocess.check_output(
+                ["yt-dlp", "--help"], stderr=subprocess.STDOUT, text=True
+            )
+        except Exception:
+            _YT_DLP_HELP_CACHE = ""
+
+    return option in _YT_DLP_HELP_CACHE
+
+
 def _yt_dlp_js_runtime_args() -> list[str]:
+    if not _yt_dlp_supports_option("--js-runtimes"):
+        return []
+
     for runtime in ("deno", "node"):
         runtime_path = shutil.which(runtime)
         if runtime_path:
             return ["--js-runtimes", f"{runtime}:{runtime_path}"]
-    raise RuntimeError(
-        "yt-dlp requires a JavaScript runtime for YouTube extraction. "
-        "Install deno or node, then try again."
-    )
+    return []
+
+
+def _yt_dlp_extractor_args() -> list[str]:
+    if not _yt_dlp_supports_option("--extractor-args"):
+        return []
+    # Prefer web client first to avoid API 400 precondition failures seen on ios/android.
+    return ["--extractor-args", "youtube:player_client=web"]
 
 
 def _next_download_basename(for_date=None) -> str:
@@ -546,21 +741,29 @@ def _next_download_basename(for_date=None) -> str:
 
 
 def _probe_youtube_metadata(url: str) -> dict[str, Any]:
-    command = [
+    base = [
         "yt-dlp",
         "--no-playlist",
-        "--remote-components",
-        "ejs:github",
         "--skip-download",
         "--dump-single-json",
         *_yt_dlp_js_runtime_args(),
-        url,
     ]
-    try:
-        output = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.output or "").strip() or str(exc)
-        raise RuntimeError(f"yt-dlp failed to read metadata: {detail}") from exc
+
+    attempts = [
+        [*base, *_yt_dlp_extractor_args(), url],
+        [*base, url],
+    ]
+
+    output = ""
+    last_detail = ""
+    for command in attempts:
+        try:
+            output = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
+            break
+        except subprocess.CalledProcessError as exc:
+            last_detail = (exc.output or "").strip() or str(exc)
+    else:
+        raise RuntimeError(f"yt-dlp failed to read metadata: {last_detail}")
 
     try:
         data = json.loads(output)
@@ -588,11 +791,10 @@ def _download_command(source_url: str, target_path: Path) -> list[str]:
         "--continue",
         "--merge-output-format",
         "mp4",
-        "--remote-components",
-        "ejs:github",
         *_yt_dlp_js_runtime_args(),
+        *_yt_dlp_extractor_args(),
         "-f",
-        DOWNLOAD_FORMAT_FILTER,
+        "bv*+ba/b/best[ext=mp4]/best",
         "-o",
         f"{target_path.with_suffix('')}.%(ext)s",
         source_url,
@@ -643,7 +845,7 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
     youtube_title_pt_br = _translate_title_pt_br(youtube_title_original, metadata.get("language"))
 
     asset = VideoAsset.objects.create(
-        file_path=str(target_path),
+        file_path=target_path.name,
         file_name=target_path.name,
         source_url=source_url,
         youtube_title_original=youtube_title_original,
@@ -680,22 +882,39 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
 
 def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
     profile, _ = ExecutionProfile.objects.get_or_create(video_asset=asset)
+    if profile.backend != TRANSLATION_BACKEND_FIXED:
+        profile.backend = TRANSLATION_BACKEND_FIXED
+        _with_sqlite_lock_retry(profile.save, update_fields=["backend", "updated_at"])
     return profile
 
 
 def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
-    video_path = Path(asset.file_path)
+    video_path = resolve_asset_video_path(asset)
     stem_path = video_path.with_suffix("")
-    remux_video_path = video_path.with_name(f"{video_path.stem} (remux){video_path.suffix}")
+    remux_video_path = load_work_remux_dir() / f"{video_path.stem} (remux){video_path.suffix}"
 
     def _find_remux_evidence_path() -> Path:
         source_stem = video_path.stem.lower()
         source_ext = video_path.suffix.lower()
+        remux_dir = load_work_remux_dir()
         exec_dir = video_path.parent
 
         preferred = remux_video_path
         if preferred.exists():
             return preferred
+
+        if remux_dir.exists():
+            try:
+                for candidate in remux_dir.iterdir():
+                    if not candidate.is_file():
+                        continue
+                    name_lower = candidate.name.lower()
+                    if candidate.suffix.lower() != source_ext:
+                        continue
+                    if source_stem in name_lower and "remux" in name_lower:
+                        return candidate
+            except Exception:
+                pass
 
         if exec_dir.exists():
             try:
@@ -752,7 +971,7 @@ def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
         "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
         "translate": (has_srtpt or has_pt_wav, "Evidence: .srtpt file found"),
         "audiobook": (has_pt_wav, "Evidence: .pt.wav file found"),
-        "remux": (artifacts["remux_video"].exists(), "Evidence: remuxed video found in exec"),
+        "remux": (artifacts["remux_video"].exists(), "Evidence: remuxed video found in workdir/remux"),
     }
 
 
@@ -841,11 +1060,26 @@ def scan_videos() -> dict[str, int]:
             "last_seen_at": now,
             "is_present": True,
         }
-        asset, created = _with_sqlite_lock_retry(
-            VideoAsset.objects.update_or_create,
-            file_path=str(path),
-            defaults=defaults,
-        )
+
+        def _find_existing_asset() -> VideoAsset | None:
+            return (
+                VideoAsset.objects.filter(
+                    Q(file_name=path.name) | Q(file_path=path.name) | Q(file_path=str(path))
+                )
+                .order_by("id")
+                .first()
+            )
+
+        asset = _with_sqlite_lock_retry(_find_existing_asset)
+        created = False
+        if asset is None:
+            asset = _with_sqlite_lock_retry(VideoAsset.objects.create, file_path=path.name, **defaults)
+            created = True
+        else:
+            normalize_asset_storage_fields(asset)
+            for field_name, field_value in defaults.items():
+                setattr(asset, field_name, field_value)
+            _with_sqlite_lock_retry(asset.save, update_fields=list(defaults.keys()))
         title_updates = _title_fields_for_asset(asset, path.name)
         if title_updates:
             for field_name, field_value in title_updates.items():
@@ -888,6 +1122,7 @@ def scan_videos() -> dict[str, int]:
 
     unresolved_language_values = {"", "auto", "unknown"}
     for asset in _with_sqlite_lock_retry(lambda: list(VideoAsset.objects.filter(is_deleted=False))):
+        storage_changed = normalize_asset_storage_fields(asset)
         update_fields: list[str] = []
 
         current_thumb = str(asset.thumbnail_path or "").strip()
@@ -899,13 +1134,15 @@ def scan_videos() -> dict[str, int]:
 
         current_language = (asset.original_language or "").strip().lower()
         if current_language in unresolved_language_values:
-            inferred_lang = infer_language_from_srt(Path(asset.file_path))
+            inferred_lang = infer_language_from_srt(resolve_asset_video_path(asset))
             if inferred_lang and inferred_lang != asset.original_language:
                 asset.original_language = inferred_lang
                 update_fields.append("original_language")
 
         if update_fields:
             _with_sqlite_lock_retry(asset.save, update_fields=update_fields)
+            updated += 1
+        elif storage_changed:
             updated += 1
 
     return {"discovered": discovered, "updated": updated, "missing": 0}
@@ -939,7 +1176,7 @@ def run_evidence_worker(
     if video_paths:
         path_set = {str(Path(path)) for path in video_paths}
         file_names = {Path(path).name for path in video_paths}
-        qs = qs.filter(Q(file_path__in=path_set) | Q(file_name__in=file_names))
+        qs = qs.filter(Q(file_name__in=file_names) | Q(file_path__in=file_names) | Q(file_path__in=path_set))
 
     synced = 0
     for asset in qs:
@@ -961,35 +1198,30 @@ def run_evidence_worker(
 
 
 def worker_health_status() -> dict[str, Any]:
-    pid_file = _worker_pid_file()
-    discovered_pids = _discover_worker_pids()
+    discovered = _discover_worker_processes()
+    discovered_pids = [proc["pid"] for proc in discovered]
 
     queued = PipelineRun.objects.filter(status="queued").count()
     running = PipelineRun.objects.filter(status="running").count()
     stopping = PipelineRun.objects.filter(status="stopping").count()
 
-    pid = None
-    process_running = False
-    source = "pid_file"
-
-    if pid_file.exists():
-        try:
-            raw = pid_file.read_text(encoding="utf-8").strip()
-            if raw:
-                pid = int(raw)
-                os.kill(pid, 0)
-                process_running = True
-        except Exception:
-            process_running = False
-    else:
-        source = "pid_file_missing"
+    pid = discovered_pids[0] if discovered_pids else None
+    scope_counts = {
+        WORKER_SCOPE_GENERAL: 0,
+        WORKER_SCOPE_TRANSCRIBE: 0,
+    }
+    for proc in discovered:
+        scope = str(proc.get("scope") or WORKER_SCOPE_GENERAL)
+        scope_counts[scope] = scope_counts.get(scope, 0) + 1
 
     return {
-        "running": process_running or bool(discovered_pids),
+        "running": bool(discovered_pids),
         "pid": pid,
-        "source": source,
+        "source": "process_scan",
         "worker_pids": discovered_pids,
         "worker_count": len(discovered_pids),
+        "worker_scope_counts": scope_counts,
+        "workers": discovered,
         "queue": {
             "queued": queued,
             "running": running,
@@ -1064,7 +1296,6 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
     profile = ensure_execution_profile(asset)
 
     allowed = {
-        "backend",
         "nllb_profile",
         "nllb_max_input_length",
         "nllb_max_new_tokens",
@@ -1085,6 +1316,7 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
             value = parse_bool(value, default=getattr(profile, key))
         setattr(profile, key, value)
 
+    profile.backend = TRANSLATION_BACKEND_FIXED
     profile.save()
     return profile
 
@@ -1119,11 +1351,11 @@ def latest_run_for_asset(asset: VideoAsset, run_mode: str | None = None) -> Pipe
 
 
 def _safe_log_tail(log_file_path: str | None) -> str:
-    if not log_file_path:
+    path = resolve_run_log_path(log_file_path)
+    if path is None:
         return ""
 
     try:
-        path = Path(log_file_path)
         if not path.exists() or (not path.is_file()):
             return ""
 
@@ -1141,6 +1373,8 @@ def _safe_log_tail(log_file_path: str | None) -> str:
 
 
 def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[str, Any]:
+    normalize_asset_storage_fields(asset)
+    normalize_asset_thumbnail_field(asset)
     profile = ensure_execution_profile(asset)
     latest_run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
 
@@ -1157,17 +1391,12 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
         ]
 
     latest_log_tail = _safe_log_tail(latest_run.log_file_path) if latest_run and include_log_tail else ""
-    has_real_thumbnail = False
-    thumb_path = str(asset.thumbnail_path or "").strip()
-    if thumb_path:
-        try:
-            has_real_thumbnail = Path(thumb_path).exists()
-        except Exception:
-            has_real_thumbnail = False
+    resolved_thumb = resolve_asset_thumbnail_path(asset)
+    has_real_thumbnail = bool(resolved_thumb and resolved_thumb.exists() and resolved_thumb.is_file())
 
     return {
         "id": asset.id,
-        "file_path": asset.file_path,
+        "file_path": str(resolve_asset_video_path(asset)),
         "file_name": asset.file_name,
         "source_url": asset.source_url,
         "thumbnail_url": f"/api/videos/{asset.id}/thumbnail",
@@ -1190,7 +1419,7 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
             "finished_at": latest_run.finished_at.isoformat() if latest_run.finished_at else None,
             "exit_code": latest_run.exit_code,
             "error_message": latest_run.error_message,
-            "log_file_path": latest_run.log_file_path,
+            "log_file_path": str(resolve_run_log_path(latest_run.log_file_path) or ""),
             "log_url": f"/api/runs/{latest_run.id}/log",
             "log_tail": latest_log_tail,
             "steps": steps,
@@ -1209,7 +1438,7 @@ def list_assets(
 
     items = []
     for asset in qs:
-        if is_generated_remux_sibling(Path(asset.file_path)):
+        if is_generated_remux_sibling(Path(canonical_asset_file_name(asset))):
             continue
         items.append(serialize_asset(asset, include_log_tail=include_log_tail))
     return items

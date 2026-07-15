@@ -90,7 +90,10 @@ def normalize_output_duration_with_ffmpeg(output_wav, target_ms, current_ms, thr
 
     speed_factor = ratio
     atempo_filter = build_atempo_chain(speed_factor)
-    tmp_out = output_wav.with_suffix(".normalized.wav")
+    fd, tmp_path = tempfile.mkstemp(prefix="piper-normalized-", suffix=".wav")
+    os.close(fd)
+    tmp_out = Path(tmp_path)
+    tmp_out.unlink(missing_ok=True)
 
     logging.info(
         "Normalizando duracao final (ratio=%.4f, speed=%.4f, filter=%s)",
