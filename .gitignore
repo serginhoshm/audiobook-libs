@@ -42,3 +42,6 @@ django_app/db.sqlite3.prewipe-*.bak
 video-thumbs/20*-*.jpg
 video-thumbs/20*-*.webp
 video-thumbs/20*-*.png
+
+# Editor-local settings
+.vscode/
