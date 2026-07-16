@@ -9,6 +9,20 @@
     body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f4f7f8; color: #173026; }
     .container { width: min(1280px, 96vw); margin: 18px auto; }
     .top { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .tabs { display: flex; gap: 8px; margin: 12px 0 14px; border-bottom: 1px solid #d6e2dd; }
+    .tab-btn {
+      border: 1px solid #c7d6d0;
+      border-bottom: 0;
+      border-radius: 12px 12px 0 0;
+      padding: 10px 16px;
+      background: #edf6f3;
+      color: #34554b;
+      font-weight: 800;
+      cursor: pointer;
+      margin-bottom: -1px;
+    }
+    .tab-btn.is-active { background: #fff; color: #173026; border-color: #b8cdc5; }
+    .tab-panel { margin-top: 0; }
     .btn { border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 700; cursor: pointer; }
     .scan { background: #d8e7ff; color: #1f3c7f; }
     .add { background: #f1dfb6; color: #6d4a00; }
@@ -170,59 +184,103 @@
 <body>
   <div class="container">
     <h2>Pipeline Local Webapp</h2>
-    <div class="top">
-      <button class="btn scan" id="scanBtn">Refresh</button>
-      <button class="btn run" id="runBtn">Start</button>
-      <button class="btn add" id="addBtn">Add</button>
-      <button class="btn delete" id="deleteBtn">Delete</button>
-      <button class="btn stop" id="stopBtn">Stop</button>
-      <span class="worker-pill worker-unknown" id="workerStatus">Worker: unknown</span>
-      <span class="discovery-pill discovery-idle" id="discoveryStatus">Last discovery: never</span>
-      <span class="global-phase-pill global-phase-idle" id="globalPhaseStatus">Fase global: idle</span>
-      <span class="refresh-wrap">
-        <label for="autoRefreshSelect">Auto-scan (sem recarregar pagina)</label>
-        <select id="autoRefreshSelect" aria-label="Auto-scan interval">
-          <option value="0">Desligado</option>
-          <option value="15">15s</option>
-          <option value="30">30s</option>
-          <option value="45">45s</option>
-          <option value="60">1 min</option>
-          <option value="180" selected>3 min</option>
-          <option value="300">5 min</option>
-        </select>
-      </span>
-      <span class="hint" id="hint">Selected: 0</span>
+    <div class="tabs" role="tablist" aria-label="Pipeline tabs">
+      <button class="tab-btn is-active" id="pipelineTabBtn" type="button" role="tab" aria-selected="true" aria-controls="pipelinePanel">Pipeline</button>
+      <button class="tab-btn" id="libraryTabBtn" type="button" role="tab" aria-selected="false" aria-controls="libraryPanel">Library</button>
     </div>
 
-    <div style="overflow:auto; max-height: 78vh; border:1px solid #d6e2dd;">
-      <table>
-        <thead>
-          <tr>
-            <th><input type="checkbox" id="all"></th>
-            <th>File</th>
-            <th class="phase-col">Phases</th>
-            <th>Logs</th>
-          </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-      </table>
-    </div>
-
-    <div class="pager">
-      <div class="pager-info" id="pagerInfo">0 registros</div>
-      <div class="pager-actions">
-        <label for="pageSize">Por pagina</label>
-        <select id="pageSize">
-          <option value="10">10</option>
-          <option value="25">25</option>
-          <option value="50" selected>50</option>
-          <option value="100">100</option>
-        </select>
-        <button class="btn pager-btn" id="prevPageBtn" type="button">Prev</button>
-        <span class="pager-info" id="pageIndicator">Pagina 1 de 1</span>
-        <button class="btn pager-btn" id="nextPageBtn" type="button">Next</button>
+    <section class="tab-panel" id="pipelinePanel" role="tabpanel" aria-labelledby="pipelineTabBtn">
+      <div class="top">
+        <button class="btn scan" id="scanBtn">Refresh</button>
+        <button class="btn run" id="runBtn">Start</button>
+        <button class="btn add" id="addBtn">Add</button>
+        <button class="btn delete" id="deleteBtn">Delete</button>
+        <button class="btn stop" id="stopBtn">Stop</button>
+        <span class="worker-pill worker-unknown" id="workerStatus">Worker: unknown</span>
+        <span class="discovery-pill discovery-idle" id="discoveryStatus">Last discovery: never</span>
+        <span class="global-phase-pill global-phase-idle" id="globalPhaseStatus">Fase global: idle</span>
+        <span class="refresh-wrap">
+          <label for="autoRefreshSelect">Auto-scan (sem recarregar pagina)</label>
+          <select id="autoRefreshSelect" aria-label="Auto-scan interval">
+            <option value="0">Desligado</option>
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+            <option value="45">45s</option>
+            <option value="60">1 min</option>
+            <option value="180" selected>3 min</option>
+            <option value="300">5 min</option>
+          </select>
+        </span>
+        <span class="hint" id="pipelineHint">Selected: 0</span>
       </div>
-    </div>
+
+      <div style="overflow:auto; max-height: 78vh; border:1px solid #d6e2dd;">
+        <table>
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="pipelineAll"></th>
+              <th>File</th>
+              <th class="phase-col">Phases</th>
+              <th>Logs</th>
+            </tr>
+          </thead>
+          <tbody id="pipelineTbody"></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <div class="pager-info" id="pipelinePagerInfo">0 registros</div>
+        <div class="pager-actions">
+          <label for="pipelinePageSize">Por pagina</label>
+          <select id="pipelinePageSize" class="page-size-select">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+          <button class="btn pager-btn" id="pipelinePrevPageBtn" type="button">Prev</button>
+          <span class="pager-info" id="pipelinePageIndicator">Pagina 1 de 1</span>
+          <button class="btn pager-btn" id="pipelineNextPageBtn" type="button">Next</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="libraryPanel" role="tabpanel" aria-labelledby="libraryTabBtn" hidden>
+      <div class="top">
+        <button class="btn scan" id="libraryRefreshBtn">Refresh</button>
+        <button class="btn run" id="restoreBtn">Restore</button>
+        <button class="btn delete" id="libraryDeleteBtn">Delete</button>
+        <span class="hint" id="libraryHint">Selected: 0</span>
+      </div>
+
+      <div style="overflow:auto; max-height: 78vh; border:1px solid #d6e2dd;">
+        <table>
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="libraryAll"></th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody id="libraryTbody"></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <div class="pager-info" id="libraryPagerInfo">0 registros</div>
+        <div class="pager-actions">
+          <label for="libraryPageSize">Por pagina</label>
+          <select id="libraryPageSize" class="page-size-select">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+          <button class="btn pager-btn" id="libraryPrevPageBtn" type="button">Prev</button>
+          <span class="pager-info" id="libraryPageIndicator">Pagina 1 de 1</span>
+          <button class="btn pager-btn" id="libraryNextPageBtn" type="button">Next</button>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div class="overlay" id="logTailOverlay" hidden>
@@ -272,13 +330,33 @@
   </div>
 
   <script>
-    const tbody = document.getElementById('tbody');
-    const hint = document.getElementById('hint');
-    const all = document.getElementById('all');
+    const TAB_PIPELINE = 'pipeline';
+    const TAB_LIBRARY = 'library';
+
+    const pipelineTabBtn = document.getElementById('pipelineTabBtn');
+    const libraryTabBtn = document.getElementById('libraryTabBtn');
+    const pipelinePanel = document.getElementById('pipelinePanel');
+    const libraryPanel = document.getElementById('libraryPanel');
+    const pipelineTbody = document.getElementById('pipelineTbody');
+    const libraryTbody = document.getElementById('libraryTbody');
+    const pipelineHint = document.getElementById('pipelineHint');
+    const libraryHint = document.getElementById('libraryHint');
+    const pipelineAll = document.getElementById('pipelineAll');
+    const libraryAll = document.getElementById('libraryAll');
     const workerStatusEl = document.getElementById('workerStatus');
     const discoveryStatusEl = document.getElementById('discoveryStatus');
     const globalPhaseStatusEl = document.getElementById('globalPhaseStatus');
     const autoRefreshSelect = document.getElementById('autoRefreshSelect');
+    const pipelinePageSizeEl = document.getElementById('pipelinePageSize');
+    const libraryPageSizeEl = document.getElementById('libraryPageSize');
+    const pipelinePrevPageBtn = document.getElementById('pipelinePrevPageBtn');
+    const libraryPrevPageBtn = document.getElementById('libraryPrevPageBtn');
+    const pipelineNextPageBtn = document.getElementById('pipelineNextPageBtn');
+    const libraryNextPageBtn = document.getElementById('libraryNextPageBtn');
+    const pipelinePageIndicator = document.getElementById('pipelinePageIndicator');
+    const libraryPageIndicator = document.getElementById('libraryPageIndicator');
+    const pipelinePagerInfo = document.getElementById('pipelinePagerInfo');
+    const libraryPagerInfo = document.getElementById('libraryPagerInfo');
     const logTailOverlay = document.getElementById('logTailOverlay');
     const logTailTitle = document.getElementById('logTailTitle');
     const logTailContent = document.getElementById('logTailContent');
@@ -293,12 +371,14 @@
     const thumbTitle = document.getElementById('thumbTitle');
     const thumbClose = document.getElementById('thumbClose');
     const thumbPreviewImage = document.getElementById('thumbPreviewImage');
+    const scanBtn = document.getElementById('scanBtn');
+    const runBtn = document.getElementById('runBtn');
+    const addBtn = document.getElementById('addBtn');
     const deleteBtn = document.getElementById('deleteBtn');
-    const pageSizeEl = document.getElementById('pageSize');
-    const prevPageBtn = document.getElementById('prevPageBtn');
-    const nextPageBtn = document.getElementById('nextPageBtn');
-    const pageIndicator = document.getElementById('pageIndicator');
-    const pagerInfo = document.getElementById('pagerInfo');
+    const stopBtn = document.getElementById('stopBtn');
+    const restoreBtn = document.getElementById('restoreBtn');
+    const libraryDeleteBtn = document.getElementById('libraryDeleteBtn');
+    const libraryRefreshBtn = document.getElementById('libraryRefreshBtn');
     const iconPaths = {
       disk: '{% static "pipeline_ui/icons/hdd-fill.svg" %}',
       youtube: '{% static "pipeline_ui/icons/youtube.svg" %}',
@@ -315,13 +395,18 @@
     };
 
     let items = [];
-    let currentPage = 1;
+    let currentTab = TAB_PIPELINE;
+    let currentPageByTab = {
+      [TAB_PIPELINE]: 1,
+      [TAB_LIBRARY]: 1
+    };
     let autoScanTimer = null;
     let autoScanInFlight = false;
     const phasePercentByItem = new Map();
 
-    function pageSize() {
-      return Number(pageSizeEl.value || 50);
+    function pageSizeForTab(tab) {
+      const select = tab === TAB_LIBRARY ? libraryPageSizeEl : pipelinePageSizeEl;
+      return Number(select?.value || 50);
     }
 
     function normalizedDurationHms(value) {
@@ -336,44 +421,66 @@
       return '--:--:--';
     }
 
-    function totalPages() {
-      return Math.max(1, Math.ceil(items.length / pageSize()));
+    function itemTab(item) {
+      return String(item?.storage_location || 'exec').toLowerCase() === TAB_LIBRARY ? TAB_LIBRARY : TAB_PIPELINE;
     }
 
-    function pageItems() {
-      const size = pageSize();
+    function itemsForTab(tab) {
+      return items.filter((item) => itemTab(item) === tab);
+    }
+
+    function totalPages(tab) {
+      const total = itemsForTab(tab).length;
+      return Math.max(1, Math.ceil(total / pageSizeForTab(tab)));
+    }
+
+    function pageItems(tab) {
+      const tabItems = itemsForTab(tab);
+      const size = pageSizeForTab(tab);
+      const currentPage = currentPageByTab[tab] || 1;
       const start = (currentPage - 1) * size;
-      return items.slice(start, start + size);
+      return tabItems.slice(start, start + size);
     }
 
-    function syncPager() {
-      const total = items.length;
-      const pages = totalPages();
-      if (currentPage > pages) {
-        currentPage = pages;
+    function syncPager(tab) {
+      const tabItems = itemsForTab(tab);
+      const total = tabItems.length;
+      const pages = totalPages(tab);
+      if (!currentPageByTab[tab]) {
+        currentPageByTab[tab] = 1;
       }
-      if (currentPage < 1) {
-        currentPage = 1;
+      if (currentPageByTab[tab] > pages) {
+        currentPageByTab[tab] = pages;
       }
 
-      const start = total === 0 ? 0 : ((currentPage - 1) * pageSize()) + 1;
-      const end = total === 0 ? 0 : Math.min(currentPage * pageSize(), total);
-      pagerInfo.textContent = `${total} registros | exibindo ${start}-${end}`;
-      pageIndicator.textContent = `Pagina ${currentPage} de ${pages}`;
-      prevPageBtn.disabled = currentPage <= 1;
-      nextPageBtn.disabled = currentPage >= pages;
+      const currentPage = currentPageByTab[tab];
+      const size = pageSizeForTab(tab);
+      const start = total === 0 ? 0 : ((currentPage - 1) * size) + 1;
+      const end = total === 0 ? 0 : Math.min(currentPage * size, total);
+      const pagerInfoEl = tab === TAB_LIBRARY ? libraryPagerInfo : pipelinePagerInfo;
+      const pageIndicatorEl = tab === TAB_LIBRARY ? libraryPageIndicator : pipelinePageIndicator;
+      const prevBtn = tab === TAB_LIBRARY ? libraryPrevPageBtn : pipelinePrevPageBtn;
+      const nextBtn = tab === TAB_LIBRARY ? libraryNextPageBtn : pipelineNextPageBtn;
+      pagerInfoEl.textContent = `${total} registros | exibindo ${start}-${end}`;
+      pageIndicatorEl.textContent = `Pagina ${currentPage} de ${pages}`;
+      prevBtn.disabled = currentPage <= 1;
+      nextBtn.disabled = currentPage >= pages;
     }
 
-    function selectedIds() {
-      return Array.from(document.querySelectorAll('.row-check:checked')).map(el => Number(el.dataset.id));
+    function selectedIds(tab) {
+      const panel = tab === TAB_LIBRARY ? libraryPanel : pipelinePanel;
+      return Array.from(panel.querySelectorAll('.row-check:checked')).map((el) => Number(el.dataset.id));
     }
 
-    function updateHint() {
-      const sel = selectedIds();
-      hint.textContent = `Selected: ${sel.length}`;
-      const total = document.querySelectorAll('.row-check').length;
-      all.checked = total > 0 && sel.length === total;
-      all.indeterminate = sel.length > 0 && sel.length < total;
+    function updateHint(tab) {
+      const panel = tab === TAB_LIBRARY ? libraryPanel : pipelinePanel;
+      const hintEl = tab === TAB_LIBRARY ? libraryHint : pipelineHint;
+      const allEl = tab === TAB_LIBRARY ? libraryAll : pipelineAll;
+      const sel = selectedIds(tab);
+      hintEl.textContent = `Selected: ${sel.length}`;
+      const total = panel.querySelectorAll('.row-check').length;
+      allEl.checked = total > 0 && sel.length === total;
+      allEl.indeterminate = sel.length > 0 && sel.length < total;
     }
 
     function statusBadge(label, className) {
@@ -655,9 +762,29 @@
       return { label: 'Unknown', className: 'status-unknown' };
     }
 
-    function render() {
-      syncPager();
-      tbody.innerHTML = pageItems().map(item => {
+    function renderFileCell(item) {
+      const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
+      const thumbnailUrl = item.thumbnail_url || `/api/videos/${item.id}/thumbnail`;
+      const canPreviewThumb = Boolean(item.has_real_thumbnail);
+      const thumbClass = canPreviewThumb ? 'video-thumb video-thumb-clickable' : 'video-thumb';
+      const thumbAttrs = canPreviewThumb
+        ? `data-preview-src="${escapeHtml(thumbnailUrl)}" data-file-name="${escapeHtml(item.file_name)}"`
+        : '';
+      const originalLanguageHtml = renderTitleLine('Idioma original', formatOriginalLanguage(item.original_language));
+      const durationHtml = renderTitleLine('Duracao', normalizedDurationHms(item.duration_hms));
+      const youtubeTitleOriginalHtml = renderTitleLine('Original', item.youtube_title_original);
+      const youtubeTitlePtBrHtml = renderTitleLine('PT-BR', item.youtube_title_pt_br);
+      const fileIconsHtml = renderFileIcons(item);
+
+      return `
+        <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
+        <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
+      `;
+    }
+
+    function renderPipelinePanel() {
+      syncPager(TAB_PIPELINE);
+      pipelineTbody.innerHTML = pageItems(TAB_PIPELINE).map(item => {
         const run = item.latest_run;
         const runStatus = run?.status || '';
         const stepMap = buildDisplayStepMap(run);
@@ -684,38 +811,57 @@
           audiobook: audiobookStatus,
           remux: remuxStatus
         }, phasePercentSnapshot);
-        const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
-        const thumbnailUrl = item.thumbnail_url || `/api/videos/${item.id}/thumbnail`;
-        const canPreviewThumb = Boolean(item.has_real_thumbnail);
-        const thumbClass = canPreviewThumb ? 'video-thumb video-thumb-clickable' : 'video-thumb';
-        const thumbAttrs = canPreviewThumb
-          ? `data-preview-src="${escapeHtml(thumbnailUrl)}" data-file-name="${escapeHtml(item.file_name)}"`
-          : '';
-        const originalLanguageHtml = renderTitleLine('Idioma original', formatOriginalLanguage(item.original_language));
-        const durationHtml = renderTitleLine('Duracao', normalizedDurationHms(item.duration_hms));
-        const youtubeTitleOriginalHtml = renderTitleLine('Original', item.youtube_title_original);
-        const youtubeTitlePtBrHtml = renderTitleLine('PT-BR', item.youtube_title_pt_br);
-        const fileIconsHtml = renderFileIcons(item);
         const logActions = run?.log_url
           ? `<a href="${run.log_url}" target="_blank" rel="noopener noreferrer">Log</a> <button type="button" class="tail-link" data-log-url="${run.log_url}" data-file-name="${escapeHtml(item.file_name)}">Tail</button>`
           : '-';
 
         return `
           <tr>
-            <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
-            <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
+            ${renderFileCell(item)}
             <td>${phaseTimelineHtml}</td>
             <td class="mono">${logActions}</td>
           </tr>
         `;
       }).join('');
 
-      document.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', updateHint));
-      document.querySelectorAll('.tail-link').forEach(el => el.addEventListener('click', () => showLogTail(el.dataset.logUrl, el.dataset.fileName)));
-      document.querySelectorAll('.video-thumb-clickable').forEach((el) => {
+      pipelinePanel.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', () => updateHint(TAB_PIPELINE)));
+      pipelinePanel.querySelectorAll('.tail-link').forEach(el => el.addEventListener('click', () => showLogTail(el.dataset.logUrl, el.dataset.fileName)));
+      pipelinePanel.querySelectorAll('.video-thumb-clickable').forEach((el) => {
         el.addEventListener('click', () => openThumbOverlay(el.dataset.previewSrc, el.dataset.fileName));
       });
-      updateHint();
+      updateHint(TAB_PIPELINE);
+    }
+
+    function renderLibraryPanel() {
+      syncPager(TAB_LIBRARY);
+      libraryTbody.innerHTML = pageItems(TAB_LIBRARY).map(item => `
+        <tr>
+          ${renderFileCell(item)}
+        </tr>
+      `).join('');
+
+      libraryPanel.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', () => updateHint(TAB_LIBRARY)));
+      libraryPanel.querySelectorAll('.video-thumb-clickable').forEach((el) => {
+        el.addEventListener('click', () => openThumbOverlay(el.dataset.previewSrc, el.dataset.fileName));
+      });
+      updateHint(TAB_LIBRARY);
+    }
+
+    function renderTabState() {
+      const isPipeline = currentTab === TAB_PIPELINE;
+      pipelineTabBtn.classList.toggle('is-active', isPipeline);
+      libraryTabBtn.classList.toggle('is-active', !isPipeline);
+      pipelineTabBtn.setAttribute('aria-selected', String(isPipeline));
+      libraryTabBtn.setAttribute('aria-selected', String(!isPipeline));
+      pipelinePanel.hidden = !isPipeline;
+      libraryPanel.hidden = isPipeline;
+    }
+
+    function render() {
+      renderTabState();
+      renderPipelinePanel();
+      renderLibraryPanel();
+      renderGlobalPhaseStatusFromItems(itemsForTab(TAB_PIPELINE));
     }
 
     function renderWorkerStatus(worker) {
@@ -802,10 +948,8 @@
         });
       }
 
-      currentPage = Math.min(currentPage, totalPages());
       renderWorkerStatus(workerData.worker || null);
       renderDiscoveryStatus(statusData.discovery || null);
-      renderGlobalPhaseStatusFromItems(items);
       render();
     }
 
@@ -856,7 +1000,7 @@
     });
 
     document.getElementById('runBtn').addEventListener('click', async () => {
-      const ids = selectedIds();
+      const ids = selectedIds(TAB_PIPELINE);
       if (!ids.length) return;
       await fetch('/api/runs/start', {
         method: 'POST',
@@ -869,7 +1013,7 @@
     document.getElementById('addBtn').addEventListener('click', openDownloadOverlay);
 
     deleteBtn.addEventListener('click', async () => {
-      const ids = selectedIds();
+      const ids = selectedIds(TAB_PIPELINE);
       if (!ids.length) return;
       if (!window.confirm(`Excluir ${ids.length} linha(s) selecionada(s)?`)) {
         return;
@@ -889,6 +1033,55 @@
       }
 
       await loadStatus(false);
+    });
+
+    libraryDeleteBtn.addEventListener('click', async () => {
+      const ids = selectedIds(TAB_LIBRARY);
+      if (!ids.length) return;
+      if (!window.confirm(`Excluir ${ids.length} linha(s) selecionada(s)?`)) {
+        return;
+      }
+
+      const response = await fetch('/api/videos/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_ids: ids})
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const detail = payload?.error || `Falha ao excluir linhas (${response.status}).`;
+        window.alert(detail);
+        return;
+      }
+
+      await loadStatus(false);
+    });
+
+    restoreBtn.addEventListener('click', async () => {
+      const ids = selectedIds(TAB_LIBRARY);
+      if (!ids.length) return;
+
+      const response = await fetch('/api/videos/restore', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_ids: ids})
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const detail = payload?.error || `Falha ao restaurar linhas (${response.status}).`;
+        window.alert(detail);
+        return;
+      }
+
+      await loadStatus(false);
+    });
+
+    libraryRefreshBtn.addEventListener('click', async () => {
+      renderDiscoveryStatus({in_progress: true});
+      await fetch('/api/scan', {method: 'POST'});
+      await loadStatus(true);
     });
 
     async function submitDownload() {
@@ -950,7 +1143,7 @@
     });
 
     document.getElementById('stopBtn').addEventListener('click', async () => {
-      const ids = selectedIds();
+      const ids = selectedIds(TAB_PIPELINE);
       if (!ids.length) return;
       await fetch('/api/runs/stop', {
         method: 'POST',
@@ -960,30 +1153,62 @@
       await loadStatus(false);
     });
 
-    all.addEventListener('change', () => {
-      document.querySelectorAll('.row-check').forEach(el => el.checked = all.checked);
-      updateHint();
+    pipelineAll.addEventListener('change', () => {
+      pipelinePanel.querySelectorAll('.row-check').forEach(el => { el.checked = pipelineAll.checked; });
+      updateHint(TAB_PIPELINE);
     });
 
-    pageSizeEl.addEventListener('change', () => {
-      currentPage = 1;
-      render();
+    libraryAll.addEventListener('change', () => {
+      libraryPanel.querySelectorAll('.row-check').forEach(el => { el.checked = libraryAll.checked; });
+      updateHint(TAB_LIBRARY);
     });
 
-    prevPageBtn.addEventListener('click', () => {
-      if (currentPage <= 1) return;
-      currentPage -= 1;
-      render();
+    pipelinePageSizeEl.addEventListener('change', () => {
+      currentPageByTab[TAB_PIPELINE] = 1;
+      renderPipelinePanel();
     });
 
-    nextPageBtn.addEventListener('click', () => {
-      if (currentPage >= totalPages()) return;
-      currentPage += 1;
-      render();
+    libraryPageSizeEl.addEventListener('change', () => {
+      currentPageByTab[TAB_LIBRARY] = 1;
+      renderLibraryPanel();
+    });
+
+    pipelinePrevPageBtn.addEventListener('click', () => {
+      if (currentPageByTab[TAB_PIPELINE] <= 1) return;
+      currentPageByTab[TAB_PIPELINE] -= 1;
+      renderPipelinePanel();
+    });
+
+    pipelineNextPageBtn.addEventListener('click', () => {
+      if (currentPageByTab[TAB_PIPELINE] >= totalPages(TAB_PIPELINE)) return;
+      currentPageByTab[TAB_PIPELINE] += 1;
+      renderPipelinePanel();
+    });
+
+    libraryPrevPageBtn.addEventListener('click', () => {
+      if (currentPageByTab[TAB_LIBRARY] <= 1) return;
+      currentPageByTab[TAB_LIBRARY] -= 1;
+      renderLibraryPanel();
+    });
+
+    libraryNextPageBtn.addEventListener('click', () => {
+      if (currentPageByTab[TAB_LIBRARY] >= totalPages(TAB_LIBRARY)) return;
+      currentPageByTab[TAB_LIBRARY] += 1;
+      renderLibraryPanel();
     });
 
     autoRefreshSelect.addEventListener('change', () => {
       scheduleAutoScan();
+    });
+
+    pipelineTabBtn.addEventListener('click', () => {
+      currentTab = TAB_PIPELINE;
+      renderTabState();
+    });
+
+    libraryTabBtn.addEventListener('click', () => {
+      currentTab = TAB_LIBRARY;
+      renderTabState();
     });
 
     logTailClose.addEventListener('click', closeLogTailOverlay);

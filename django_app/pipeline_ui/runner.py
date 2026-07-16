@@ -20,6 +20,7 @@ from .models import ExecutionProfile, PipelineRun, PipelineStepStatus
 from .services import (
     DOWNLOAD_DURATION_TOLERANCE_SECONDS,
     RUN_MODE_PIPELINE,
+    archive_asset,
     ffprobe_duration_seconds,
     infer_language_from_srt,
     load_data_root,
@@ -1567,3 +1568,9 @@ def execute_run(run: PipelineRun) -> None:
 
     if run.status in {"success", "failed", "stopped"}:
         _finalize_step_states(run.id, run.status, run.error_message)
+
+    if run.status == "success":
+        try:
+            archive_asset(run.video_asset)
+        except Exception:
+            logger.exception("Failed to archive asset %s after successful run", run.video_asset_id)

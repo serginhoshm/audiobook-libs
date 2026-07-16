@@ -24,6 +24,7 @@ from .services import (
     worker_health_status,
     resolve_run_log_path,
     resolve_asset_thumbnail_path,
+    restore_assets,
 )
 
 
@@ -123,9 +124,29 @@ def api_videos_delete(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "deleted": deleted})
 
 
+@csrf_exempt
+@require_POST
+def api_videos_restore(request: HttpRequest) -> JsonResponse:
+    payload = _json_payload(request)
+    video_ids = payload.get("video_ids") or []
+    if not isinstance(video_ids, list) or not video_ids:
+        return _json_error("video_ids is empty", status=400)
+
+    try:
+        restored = restore_assets([int(video_id) for video_id in video_ids])
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+
+    return JsonResponse({"ok": True, "restored": restored})
+
+
 @require_GET
 def api_status(request: HttpRequest) -> JsonResponse:
     include_log_tail = request.GET.get("include_log_tail", "false").lower() in {"1", "true", "yes", "on"}
+    try:
+        scan_videos()
+    except Exception:
+        pass
     return JsonResponse(
         {
             "ok": True,

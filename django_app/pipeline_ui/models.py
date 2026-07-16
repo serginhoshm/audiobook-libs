@@ -3,6 +3,11 @@ from django.utils import timezone
 
 
 class VideoAsset(models.Model):
+    STORAGE_LOCATION_CHOICES = [
+        ("exec", "exec"),
+        ("library", "library"),
+    ]
+
     file_path = models.CharField(max_length=1024)
     file_name = models.CharField(max_length=255)
     source_url = models.CharField(max_length=2048, blank=True, default="")
@@ -14,6 +19,7 @@ class VideoAsset(models.Model):
     duration_seconds = models.FloatField(null=True, blank=True)
     source_duration_seconds = models.FloatField(null=True, blank=True)
     original_language = models.CharField(max_length=24, default="auto")
+    storage_location = models.CharField(max_length=16, default="exec", choices=STORAGE_LOCATION_CHOICES)
     discovered_at = models.DateTimeField(default=timezone.now)
     last_seen_at = models.DateTimeField(default=timezone.now)
     is_present = models.BooleanField(default=True)

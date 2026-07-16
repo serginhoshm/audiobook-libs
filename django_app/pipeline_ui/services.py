@@ -34,6 +34,8 @@ except Exception:  # pragma: no cover - optional dependency fallback
 VIDEO_EXTENSIONS = {".mp4"}
 PIPELINE_STEP_ORDER = ["download", "extract", "transcribe", "translate", "audiobook", "remux"]
 RUN_MODE_PIPELINE = "pipeline"
+STORAGE_LOCATION_EXEC = "exec"
+STORAGE_LOCATION_LIBRARY = "library"
 DOWNLOAD_DURATION_TOLERANCE_SECONDS = 2.5
 DOWNLOAD_FORMAT_FILTER = "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]"
 MAX_FILESYSTEM_NAME_BYTES = 255
@@ -223,6 +225,12 @@ def load_work_exec_dir() -> Path:
     return load_data_root() / "exec"
 
 
+def load_library_dir() -> Path:
+    path = load_data_root() / "library"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def load_work_temp_dir() -> Path:
     path = load_data_root() / "temp"
     path.mkdir(parents=True, exist_ok=True)
@@ -246,8 +254,19 @@ def canonical_asset_file_name(asset: VideoAsset) -> str:
     return ""
 
 
+def _asset_storage_location(asset: VideoAsset) -> str:
+    location = str(asset.storage_location or STORAGE_LOCATION_EXEC).strip().lower()
+    if location not in {STORAGE_LOCATION_EXEC, STORAGE_LOCATION_LIBRARY}:
+        return STORAGE_LOCATION_EXEC
+    return location
+
+
+def _asset_storage_dir(asset: VideoAsset) -> Path:
+    return load_library_dir() if _asset_storage_location(asset) == STORAGE_LOCATION_LIBRARY else load_work_exec_dir()
+
+
 def resolve_asset_video_path(asset: VideoAsset) -> Path:
-    return load_work_exec_dir() / canonical_asset_file_name(asset)
+    return _asset_storage_dir(asset) / canonical_asset_file_name(asset)
 
 
 def normalize_asset_storage_fields(asset: VideoAsset) -> bool:
@@ -266,6 +285,11 @@ def normalize_asset_storage_fields(asset: VideoAsset) -> bool:
     if (not conflict_exists) and asset.file_path != canonical_name:
         asset.file_path = canonical_name
         update_fields.append("file_path")
+
+    normalized_location = _asset_storage_location(asset)
+    if asset.storage_location != normalized_location:
+        asset.storage_location = normalized_location
+        update_fields.append("storage_location")
 
     if update_fields:
         _with_sqlite_lock_retry(asset.save, update_fields=update_fields)
@@ -1105,12 +1129,16 @@ def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
 def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
     video_path = resolve_asset_video_path(asset)
     stem_path = video_path.with_suffix("")
-    remux_video_path = load_work_remux_dir() / f"{video_path.stem} (remux){video_path.suffix}"
+    remux_video_path = (
+        load_library_dir() / f"{video_path.stem} (remux){video_path.suffix}"
+        if _asset_storage_location(asset) == STORAGE_LOCATION_LIBRARY
+        else load_work_remux_dir() / f"{video_path.stem} (remux){video_path.suffix}"
+    )
 
     def _find_remux_evidence_path() -> Path:
         source_stem = video_path.stem.lower()
         source_ext = video_path.suffix.lower()
-        remux_dir = load_work_remux_dir()
+        remux_dir = load_library_dir() if _asset_storage_location(asset) == STORAGE_LOCATION_LIBRARY else load_work_remux_dir()
         exec_dir = video_path.parent
 
         preferred = remux_video_path
@@ -1252,72 +1280,92 @@ def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
 
 
 def scan_videos() -> dict[str, int]:
-    work_exec = load_work_exec_dir()
-    work_exec.mkdir(parents=True, exist_ok=True)
-
     now = timezone.now()
     discovered = 0
     updated = 0
+    work_exec = load_work_exec_dir()
 
-    for path in sorted(work_exec.iterdir()):
-        if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
-            continue
-        if is_generated_remux_sibling(path):
-            continue
+    def _scan_directory(scan_dir: Path, storage_location: str, allow_archive: bool) -> None:
+        nonlocal discovered, updated
 
-        defaults = {
-            "file_name": path.name,
-            "extension": path.suffix.lower(),
-            "size_bytes": path.stat().st_size,
-            "duration_seconds": ffprobe_duration_seconds(path),
-            "discovered_at": now,
-            "last_seen_at": now,
-            "is_present": True,
-        }
+        scan_dir.mkdir(parents=True, exist_ok=True)
 
-        def _find_existing_asset() -> VideoAsset | None:
-            return (
-                VideoAsset.objects.filter(
-                    Q(file_name=path.name) | Q(file_path=path.name) | Q(file_path=str(path))
+        for path in sorted(scan_dir.iterdir()):
+            if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
+                continue
+            if is_generated_remux_sibling(path):
+                continue
+
+            defaults = {
+                "file_name": path.name,
+                "extension": path.suffix.lower(),
+                "size_bytes": path.stat().st_size,
+                "duration_seconds": ffprobe_duration_seconds(path),
+                "discovered_at": now,
+                "last_seen_at": now,
+                "is_present": True,
+                "storage_location": storage_location,
+            }
+
+            def _find_existing_asset() -> VideoAsset | None:
+                return (
+                    VideoAsset.objects.filter(
+                        Q(file_name=path.name) | Q(file_path=path.name) | Q(file_path=str(path))
+                    )
+                    .order_by("id")
+                    .first()
                 )
-                .order_by("id")
-                .first()
-            )
 
-        asset = _with_sqlite_lock_retry(_find_existing_asset)
-        created = False
-        if asset is None:
-            asset = _with_sqlite_lock_retry(VideoAsset.objects.create, file_path=path.name, **defaults)
-            created = True
-        else:
-            normalize_asset_storage_fields(asset)
-            for field_name, field_value in defaults.items():
-                setattr(asset, field_name, field_value)
-            _with_sqlite_lock_retry(asset.save, update_fields=list(defaults.keys()))
-        title_updates = _title_fields_for_asset(asset, path.name)
-        if title_updates:
-            for field_name, field_value in title_updates.items():
-                setattr(asset, field_name, field_value)
-            _with_sqlite_lock_retry(asset.save, update_fields=list(title_updates.keys()))
+            asset = _with_sqlite_lock_retry(_find_existing_asset)
+            created = False
+            if asset is None:
+                asset = _with_sqlite_lock_retry(VideoAsset.objects.create, file_path=path.name, **defaults)
+                created = True
+            else:
+                normalize_asset_storage_fields(asset)
+                if asset.storage_location != storage_location:
+                    asset.storage_location = storage_location
+                    _with_sqlite_lock_retry(asset.save, update_fields=["storage_location"])
+                if asset.is_deleted:
+                    asset.is_deleted = False
+                    _with_sqlite_lock_retry(asset.save, update_fields=["is_deleted"])
+                for field_name, field_value in defaults.items():
+                    setattr(asset, field_name, field_value)
+                _with_sqlite_lock_retry(asset.save, update_fields=list(defaults.keys()))
 
-        thumbnail_path = ensure_asset_thumbnail(asset)
-        if thumbnail_path and thumbnail_path != asset.thumbnail_path:
-            asset.thumbnail_path = thumbnail_path
-            _with_sqlite_lock_retry(asset.save, update_fields=["thumbnail_path"])
+            title_updates = _title_fields_for_asset(asset, path.name)
+            if title_updates:
+                for field_name, field_value in title_updates.items():
+                    setattr(asset, field_name, field_value)
+                _with_sqlite_lock_retry(asset.save, update_fields=list(title_updates.keys()))
 
-        current_language = (asset.original_language or "").strip().lower()
-        if current_language in {"", "auto", "unknown"}:
-            inferred_lang = infer_language_from_srt(path)
-            if inferred_lang and inferred_lang != asset.original_language:
-                asset.original_language = inferred_lang
-                _with_sqlite_lock_retry(asset.save, update_fields=["original_language"])
+            thumbnail_path = ensure_asset_thumbnail(asset)
+            if thumbnail_path and thumbnail_path != asset.thumbnail_path:
+                asset.thumbnail_path = thumbnail_path
+                _with_sqlite_lock_retry(asset.save, update_fields=["thumbnail_path"])
 
-        _with_sqlite_lock_retry(ensure_execution_profile, asset)
-        _with_sqlite_lock_retry(sync_run_steps_with_artifacts, asset)
-        if created:
-            discovered += 1
-        else:
-            updated += 1
+            current_language = (asset.original_language or "").strip().lower()
+            if current_language in {"", "auto", "unknown"}:
+                inferred_lang = infer_language_from_srt(path)
+                if inferred_lang and inferred_lang != asset.original_language:
+                    asset.original_language = inferred_lang
+                    _with_sqlite_lock_retry(asset.save, update_fields=["original_language"])
+
+            _with_sqlite_lock_retry(ensure_execution_profile, asset)
+            _with_sqlite_lock_retry(sync_run_steps_with_artifacts, asset)
+
+            latest_run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
+            if allow_archive and storage_location == STORAGE_LOCATION_EXEC and latest_run and latest_run.status == "success":
+                if archive_asset(asset):
+                    updated += 1
+
+            if created:
+                discovered += 1
+            else:
+                updated += 1
+
+    _scan_directory(work_exec, STORAGE_LOCATION_EXEC, allow_archive=True)
+    _scan_directory(load_library_dir(), STORAGE_LOCATION_LIBRARY, allow_archive=False)
 
     for asset in _with_sqlite_lock_retry(
         lambda: list(
@@ -1380,7 +1428,133 @@ def delete_assets(video_ids: list[int]) -> int:
     if active_asset_ids:
         raise ValueError("Nao e possivel excluir linhas com processamento ativo.")
 
-    return VideoAsset.objects.filter(id__in=video_ids).update(is_deleted=True)
+    deleted = 0
+    for asset in VideoAsset.objects.filter(id__in=video_ids, is_deleted=False):
+        for candidate in related_asset_files(asset):
+            try:
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink()
+            except Exception:
+                continue
+        asset.is_deleted = True
+        _with_sqlite_lock_retry(asset.save, update_fields=["is_deleted"])
+        deleted += 1
+    return deleted
+
+
+def related_asset_files(asset: VideoAsset) -> list[Path]:
+    canonical_name = canonical_asset_file_name(asset)
+    if not canonical_name:
+        return []
+
+    stem = Path(canonical_name).stem
+    suffix = Path(canonical_name).suffix
+    stem_lower = stem.lower()
+    suffix_lower = suffix.lower()
+    storage_location = _asset_storage_location(asset)
+    source_dirs = [load_library_dir()] if storage_location == STORAGE_LOCATION_LIBRARY else [load_work_exec_dir(), load_work_remux_dir()]
+    matches: list[Path] = []
+    seen: set[str] = set()
+
+    for source_dir in source_dirs:
+        if not source_dir.exists():
+            continue
+        try:
+            for candidate in source_dir.iterdir():
+                if not candidate.is_file():
+                    continue
+                candidate_key = str(candidate)
+                if candidate_key in seen:
+                    continue
+
+                name_lower = candidate.name.lower()
+                related = False
+                if candidate.name == canonical_name:
+                    related = True
+                elif source_dir == load_work_exec_dir() and candidate.name.startswith(f"{stem}."):
+                    related = True
+                elif candidate.suffix.lower() == suffix_lower and stem_lower in name_lower and "remux" in name_lower:
+                    related = True
+
+                if related:
+                    matches.append(candidate)
+                    seen.add(candidate_key)
+        except Exception:
+            continue
+
+    return matches
+
+
+def archive_asset(asset: VideoAsset) -> bool:
+    if _asset_storage_location(asset) == STORAGE_LOCATION_LIBRARY:
+        return False
+
+    destination_dir = load_library_dir()
+    moved_any = False
+    for candidate in related_asset_files(asset):
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        destination = destination_dir / candidate.name
+        if destination.exists() and destination.resolve() != candidate.resolve():
+            stem = destination.stem
+            suffix = destination.suffix
+            index = 1
+            while True:
+                if suffix:
+                    alternative = destination_dir / f"{stem}.migrated-{index}{suffix}"
+                else:
+                    alternative = destination_dir / f"{stem}.migrated-{index}"
+                if not alternative.exists():
+                    destination = alternative
+                    break
+                index += 1
+        shutil.move(str(candidate), str(destination))
+        moved_any = True
+
+    if moved_any:
+        asset.storage_location = STORAGE_LOCATION_LIBRARY
+        asset.is_present = True
+        asset.last_seen_at = timezone.now()
+        _with_sqlite_lock_retry(asset.save, update_fields=["storage_location", "is_present", "last_seen_at"])
+    return moved_any
+
+
+def restore_assets(video_ids: list[int]) -> int:
+    if not video_ids:
+        return 0
+
+    restored = 0
+    destination_dir = load_work_exec_dir()
+    for asset in VideoAsset.objects.filter(id__in=video_ids, is_deleted=False):
+        if _asset_storage_location(asset) != STORAGE_LOCATION_LIBRARY:
+            continue
+
+        source = load_library_dir() / canonical_asset_file_name(asset)
+        if not source.exists() or not source.is_file():
+            continue
+
+        destination = destination_dir / source.name
+        if destination.exists() and destination.resolve() != source.resolve():
+            stem = destination.stem
+            suffix = destination.suffix
+            index = 1
+            while True:
+                if suffix:
+                    alternative = destination_dir / f"{stem}.migrated-{index}{suffix}"
+                else:
+                    alternative = destination_dir / f"{stem}.migrated-{index}"
+                if not alternative.exists():
+                    destination = alternative
+                    break
+                index += 1
+
+        shutil.move(str(source), str(destination))
+        asset.storage_location = STORAGE_LOCATION_EXEC
+        asset.is_present = True
+        asset.last_seen_at = timezone.now()
+        _with_sqlite_lock_retry(asset.save, update_fields=["storage_location", "is_present", "last_seen_at"])
+        restored += 1
+    return restored
 
 
 def run_evidence_worker(
@@ -1665,6 +1839,7 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
         "source_duration_seconds": asset.source_duration_seconds,
         "duration_hms": format_duration(asset.duration_seconds),
         "original_language": asset.original_language,
+        "storage_location": asset.storage_location,
         "is_present": asset.is_present,
         "is_deleted": asset.is_deleted,
         "last_seen_at": asset.last_seen_at.isoformat() if asset.last_seen_at else None,
