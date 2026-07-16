@@ -169,14 +169,30 @@ def main():
     final_params = None
     current_clock_ms = 0  # Exact timeline position currently covered by audio.
     total_legendas = len(legendas)
+    emitted_progress_bucket = -1
     
     logging.info(f"Processing {total_legendas} SRT entries...")
+
+    def emit_progress(current_index):
+        nonlocal emitted_progress_bucket
+        if total_legendas <= 0:
+            return
+
+        raw_percent = int((current_index / total_legendas) * 100)
+        percent = max(0, min(100, raw_percent))
+        bucket = 100 if percent >= 100 else (percent // 5) * 5
+        if bucket <= emitted_progress_bucket:
+            return
+
+        emitted_progress_bucket = bucket
+        logging.info("[progress] step=audiobook %s%%", bucket)
 
     try:
         for i, leg in enumerate(
             tqdm(legendas, total=total_legendas, desc="[piper]", unit="subtitle", leave=False, disable=not sys.stderr.isatty()),
             start=1,
         ):
+            emit_progress(i)
             texto = leg.text.replace('\r', '').replace('\n', ' ').strip()
             if not texto:
                 continue
@@ -293,6 +309,7 @@ def main():
             current_clock_ms,
             max(0.0, float(args.normalize_drift_threshold)),
         )
+        emit_progress(total_legendas)
     finally:
         if temp_wav.exists():
             os.remove(temp_wav)

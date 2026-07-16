@@ -36,6 +36,7 @@ SRT_RANGE_PATTERN = re.compile(
 )
 VIDEO_SRT_REUSE_TOLERANCE_SECONDS = 4.0
 TRANSLATION_REUSE_TOLERANCE_SECONDS = 1.5
+AUDIOBOOK_REUSE_TOLERANCE_SECONDS = 4.0
 LANGUAGE_SAMPLE_MAX_CHARS = 100
 LANGUAGE_DETECT_TIMEOUT_SECONDS = 8
 PROGRESS_BUCKET_PERCENT = 5
@@ -425,16 +426,35 @@ def _build_progress_reporter(
     return _report
 
 
-def _build_transcribe_progress_reporter(video_path: Path, srt_path: Path) -> Callable[[], str | None] | None:
+def _build_whisper_progress_reporter(video_path: Path, srt_path: Path) -> Callable[[], str | None] | None:
     total_seconds = ffprobe_duration_seconds(video_path)
     if not total_seconds or total_seconds <= 0:
         return None
+
+    emitted_bucket = -1
 
     def _percent_supplier() -> int | None:
         current_seconds = _srt_last_end_seconds(srt_path) or 0.0
         return int((current_seconds / total_seconds) * 100)
 
-    return _build_progress_reporter("transcribe", _percent_supplier)
+    def _report() -> str | None:
+        nonlocal emitted_bucket
+        raw_percent = _percent_supplier()
+        if raw_percent is None:
+            return None
+
+        percent = max(0, min(100, int(raw_percent)))
+        bucket = 100 if percent >= 100 else (percent // PROGRESS_BUCKET_PERCENT) * PROGRESS_BUCKET_PERCENT
+        if bucket <= emitted_bucket:
+            return None
+
+        emitted_bucket = bucket
+        return (
+            f"[progress] step=whisper {bucket}%\n"
+            f"[progress] step=transcribe {bucket}%"
+        )
+
+    return _report
 
 
 def _build_translate_progress_reporter(srt_path: Path, srtpt_path: Path) -> Callable[[], str | None] | None:
@@ -445,6 +465,73 @@ def _build_translate_progress_reporter(srt_path: Path, srtpt_path: Path) -> Call
     def _percent_supplier() -> int | None:
         translated_lines = _srt_range_count(srtpt_path)
         return int((translated_lines / total_lines) * 100)
+
+    return _build_progress_reporter("translate", _percent_supplier)
+
+
+def _build_audiobook_progress_reporter(srtpt_path: Path, out_wav_path: Path) -> Callable[[], str | None] | None:
+    total_seconds = _srt_last_end_seconds(srtpt_path)
+    if not total_seconds or total_seconds <= 0:
+        return None
+
+    def _percent_supplier() -> int | None:
+        current_seconds = ffprobe_duration_seconds(out_wav_path)
+        if current_seconds is None:
+            return 0
+        return int((current_seconds / total_seconds) * 100)
+
+    return _build_progress_reporter("audiobook", _percent_supplier)
+
+
+def _log_audiobook_duration_summary(log_fh: Any, srtpt_path: Path, out_wav_path: Path) -> None:
+    target_seconds = _srt_last_end_seconds(srtpt_path)
+    generated_seconds = ffprobe_duration_seconds(out_wav_path)
+
+    if target_seconds is None and generated_seconds is None:
+        log_fh.write("[audiobook] duration_summary unavailable (target=na generated=na)\n")
+        log_fh.flush()
+        return
+
+    if target_seconds is None:
+        log_fh.write(
+            f"[audiobook] duration_summary target=na generated={generated_seconds:.3f}s delta=na\n"
+        )
+        log_fh.flush()
+        return
+
+    if generated_seconds is None:
+        log_fh.write(
+            f"[audiobook] duration_summary target={target_seconds:.3f}s generated=na delta=na\n"
+        )
+        log_fh.flush()
+        return
+
+    delta_seconds = generated_seconds - target_seconds
+    log_fh.write(
+        f"[audiobook] duration_summary target={target_seconds:.3f}s "
+        f"generated={generated_seconds:.3f}s delta={delta_seconds:+.3f}s\n"
+    )
+    log_fh.flush()
+
+
+def _build_translate_checkpoint_progress_reporter(
+    srt_path: Path,
+    checkpoint_path: Path,
+) -> Callable[[], str | None] | None:
+    total_lines = _srt_range_count(srt_path)
+    if total_lines <= 0:
+        return None
+
+    def _percent_supplier() -> int | None:
+        if not checkpoint_path.exists():
+            return 0
+        try:
+            payload = json.loads(checkpoint_path.read_text(encoding="utf-8", errors="replace"))
+            translated = payload.get("translated_blocks", {})
+            translated_lines = len(translated) if isinstance(translated, dict) else 0
+            return int((translated_lines / total_lines) * 100)
+        except Exception:
+            return None
 
     return _build_progress_reporter("translate", _percent_supplier)
 
@@ -488,6 +575,40 @@ def _can_reuse_translation(srt_path: Path, srtpt_path: Path) -> tuple[bool, str]
     return False, (
         "Translation regeneration required: "
         f"SRTPT end {translated_srt_end:.1f}s < SRT {source_srt_end:.1f}s - {TRANSLATION_REUSE_TOLERANCE_SECONDS:.1f}s"
+    )
+
+
+def _can_reuse_audiobook(srt_path: Path, srtpt_path: Path, out_wav_path: Path) -> tuple[bool, str]:
+    if not out_wav_path.exists():
+        return False, "Audiobook check skipped: PT WAV not found"
+
+    translation_ok, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
+    if not translation_ok:
+        return False, (
+            "Audiobook regeneration required: "
+            f"translation artifact check failed ({translation_detail})"
+        )
+
+    target_seconds = _srt_last_end_seconds(srtpt_path)
+    generated_seconds = ffprobe_duration_seconds(out_wav_path)
+
+    if target_seconds is None:
+        return False, "Audiobook check skipped: translated SRTPT not found or invalid"
+    if generated_seconds is None:
+        return False, "Audiobook check skipped: unable to read PT WAV duration"
+
+    delta_seconds = generated_seconds - target_seconds
+    if abs(delta_seconds) <= AUDIOBOOK_REUSE_TOLERANCE_SECONDS:
+        return True, (
+            "Reused existing audiobook: "
+            f"PT WAV {generated_seconds:.1f}s vs SRTPT {target_seconds:.1f}s "
+            f"(delta {delta_seconds:+.1f}s, tolerance {AUDIOBOOK_REUSE_TOLERANCE_SECONDS:.1f}s)"
+        )
+
+    return False, (
+        "Audiobook regeneration required: "
+        f"PT WAV {generated_seconds:.1f}s vs SRTPT {target_seconds:.1f}s "
+        f"(delta {delta_seconds:+.1f}s exceeds tolerance {AUDIOBOOK_REUSE_TOLERANCE_SECONDS:.1f}s)"
     )
 
 
@@ -706,13 +827,11 @@ def _execute_pipeline_steps(
             "medium",
             base_name,
         ]
-        transcribe_progress = _build_transcribe_progress_reporter(video_path, srt_path)
         rc = _run_subprocess_with_streaming(
             run,
             transcribe_cmd,
             log_fh,
             root_dir,
-            progress_reporter=transcribe_progress,
         )
         if rc != 0:
             _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
@@ -721,50 +840,54 @@ def _execute_pipeline_steps(
         _persist_detected_language_from_srt(run, srt_path, log_fh)
 
     source_lang = _infer_translation_source_lang(run, video_path, srt_path)
+    if source_lang in {"", "auto", "unknown"}:
+        detail = "Translation failed: unresolved source language; explicit source language is required"
+        log_fh.write(f"[translation] {detail}\n")
+        log_fh.flush()
+        _set_step_status(run.id, "translate", "failed", detail)
+        return 2, detail
+
     reuse_translation, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
-    if reuse_translation and source_lang != "auto":
+    if reuse_translation:
         log_fh.write(f"step 2 - translate skipped ({translation_detail})\n")
-        log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
+        log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain profile_backend={backend}\n")
         log_fh.flush()
         _set_step_status(run.id, "translate", "success", translation_detail)
     else:
-        if reuse_translation and source_lang == "auto":
-            log_fh.write(
-                "[translation] source language unresolved; forcing translator detection before reuse\n"
-            )
         log_fh.write(f"{translation_detail}\n")
         log_fh.write("step 3 - translate\n")
-        log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
-        if backend == "deepl_doc":
-            log_fh.write(
-                f"[DEEPL_ROTATION_MODE] profile_backend=deepl_doc endpoint={profile.deepl_endpoint} "
-                "fallback=google_on_exhausted_keys\n"
-            )
+        log_fh.write(
+            f"[translation] source_lang={source_lang} strategy=robust_chain "
+            f"profile_backend={backend} (profile kept for compatibility)\n"
+        )
         log_fh.flush()
         _set_step_status(run.id, "translate", "running", "step 3 - translate")
+        translation_checkpoint = temp_dir / f"{base_name}.translate.checkpoint.json"
+        translation_report = load_log_dir() / f"translation-run-{run.id}.json"
         translate_cmd = [
             *python_cmd,
-            str(scripts_dir / "traduzir.py"),
+            str(scripts_dir / "translate_pipeline.py"),
+            "--in",
             str(srt_path),
+            "--out",
             str(srtpt_path),
+            "--src",
             source_lang,
-            "--backend",
-            backend,
-            "--deepl-endpoint",
-            profile.deepl_endpoint,
-            "--deepl-keys-ini",
-            str(root_dir / "config" / "translation" / "deepl_keys.ini"),
-            "--deepl-keys-state-ini",
-            str(root_dir / "config" / "translation" / "deepl_keys_state.ini"),
-            "--nllb-max-input-length",
-            str(profile.nllb_max_input_length),
-            "--nllb-max-new-tokens",
-            str(profile.nllb_max_new_tokens),
+            "--tgt",
+            "pt",
+            "--checkpoint",
+            str(translation_checkpoint),
+            "--report",
+            str(translation_report),
         ]
-        if profile.nllb_legacy:
-            translate_cmd.append("--nllb-legacy-generation")
 
-        translate_progress = _build_translate_progress_reporter(srt_path, srtpt_path)
+        if str(os.environ.get("WEBAPP_TRANSLATION_OFFLINE_ONLY", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+            translate_cmd.append("--offline")
+            log_fh.write("[translation] offline_only=1 -> forcing Ollama local fallback only\n")
+
+        translate_progress = _build_translate_checkpoint_progress_reporter(srt_path, translation_checkpoint)
+        if translate_progress is None:
+            translate_progress = _build_translate_progress_reporter(srt_path, srtpt_path)
         rc = _run_subprocess_with_streaming(
             run,
             translate_cmd,
@@ -775,33 +898,67 @@ def _execute_pipeline_steps(
         if rc != 0:
             _set_step_status(run.id, "translate", "failed", "Translation failed")
             return rc, "Translation failed"
+
+        if translation_report.exists():
+            try:
+                report_data = json.loads(translation_report.read_text(encoding="utf-8", errors="replace"))
+                usage_by_backend = report_data.get("usage_by_backend", {})
+                fallback_count = report_data.get("fallback_count", 0)
+                suspicious_blocks = report_data.get("suspicious_blocks", 0)
+                reprocessed_blocks = report_data.get("reprocessed_blocks", 0)
+                log_fh.write(
+                    "[translation] backend_usage="
+                    f"{json.dumps(usage_by_backend, ensure_ascii=False)} "
+                    f"fallback_count={fallback_count} "
+                    f"suspicious_blocks={suspicious_blocks} "
+                    f"reprocessed_blocks={reprocessed_blocks}\n"
+                )
+                log_fh.flush()
+            except Exception:
+                pass
         _set_step_status(run.id, "translate", "success", "Completed successfully")
 
-    log_fh.write("step 4 - wav generation (piper)\n")
-    log_fh.flush()
-    _set_step_status(run.id, "audiobook", "running", "step 4 - wav generation (piper)")
-    synth_cmd = [
-        *python_cmd,
-        str(scripts_dir / "gerar-sincronizado.py"),
-        "--srt",
-        str(srtpt_path),
-        "--output",
-        str(out_wav_path),
-        "--model",
-        str(model_path),
-        "--piper",
-        str(piper_bin),
-        "--source_lang",
-        source_lang,
-        "--pause_duration",
-        "0.1",
-    ]
+    reuse_audiobook, audiobook_detail = _can_reuse_audiobook(srt_path, srtpt_path, out_wav_path)
+    if reuse_audiobook:
+        log_fh.write(f"step 4 - wav generation skipped ({audiobook_detail})\n")
+        log_fh.flush()
+        _log_audiobook_duration_summary(log_fh, srtpt_path, out_wav_path)
+        _set_step_status(run.id, "audiobook", "success", audiobook_detail)
+    else:
+        log_fh.write(f"{audiobook_detail}\n")
+        log_fh.write("step 4 - wav generation (piper)\n")
+        log_fh.flush()
+        _set_step_status(run.id, "audiobook", "running", "step 4 - wav generation (piper)")
+        synth_cmd = [
+            *python_cmd,
+            str(scripts_dir / "gerar-sincronizado.py"),
+            "--srt",
+            str(srtpt_path),
+            "--output",
+            str(out_wav_path),
+            "--model",
+            str(model_path),
+            "--piper",
+            str(piper_bin),
+            "--source_lang",
+            source_lang,
+            "--pause_duration",
+            "0.1",
+        ]
 
-    rc = _run_subprocess_with_streaming(run, synth_cmd, log_fh, root_dir)
-    if rc != 0:
-        _set_step_status(run.id, "audiobook", "failed", "Audiobook synthesis failed")
-        return rc, "Audiobook synthesis failed"
-    _set_step_status(run.id, "audiobook", "success", "Completed successfully")
+        audiobook_progress = _build_audiobook_progress_reporter(srtpt_path, out_wav_path)
+        rc = _run_subprocess_with_streaming(
+            run,
+            synth_cmd,
+            log_fh,
+            root_dir,
+            progress_reporter=audiobook_progress,
+        )
+        if rc != 0:
+            _set_step_status(run.id, "audiobook", "failed", "Audiobook synthesis failed")
+            return rc, "Audiobook synthesis failed"
+        _log_audiobook_duration_summary(log_fh, srtpt_path, out_wav_path)
+        _set_step_status(run.id, "audiobook", "success", "Completed successfully")
 
     log_fh.write("step 5 - remux generation\n")
     log_fh.flush()
@@ -1025,13 +1182,11 @@ def _execute_pipeline_single_step(
             "medium",
             base_name,
         ]
-        transcribe_progress = _build_transcribe_progress_reporter(video_path, srt_path)
         rc = _run_subprocess_with_streaming(
             run,
             transcribe_cmd,
             log_fh,
             root_dir,
-            progress_reporter=transcribe_progress,
         )
         if rc != 0:
             _set_step_status(run.id, "transcribe", "failed", "Transcription failed")
@@ -1042,10 +1197,17 @@ def _execute_pipeline_single_step(
 
     if target_step == "translate":
         source_lang = _infer_translation_source_lang(run, video_path, srt_path)
+        if source_lang in {"", "auto", "unknown"}:
+            detail = "Translation failed: unresolved source language; explicit source language is required"
+            log_fh.write(f"[translation] {detail}\n")
+            log_fh.flush()
+            _set_step_status(run.id, "translate", "failed", detail)
+            return 2, detail
+
         reuse_translation, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
-        if reuse_translation and source_lang != "auto":
+        if reuse_translation:
             log_fh.write(f"step 3 - translate skipped ({translation_detail})\n")
-            log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
+            log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain profile_backend={backend}\n")
             log_fh.flush()
             _set_step_status(run.id, "translate", "success", translation_detail)
             return 0, ""
@@ -1054,41 +1216,41 @@ def _execute_pipeline_single_step(
             _set_step_status(run.id, "translate", "failed", "Source SRT missing: run transcribe first")
             return 2, "Source SRT missing: run transcribe first"
 
-        if reuse_translation and source_lang == "auto":
-            log_fh.write("[translation] source language unresolved; forcing translator detection before reuse\n")
         log_fh.write(f"{translation_detail}\n")
         log_fh.write("step 3 - translate\n")
-        log_fh.write(f"[translation] source_lang={source_lang} backend={backend}\n")
-        if backend == "deepl_doc":
-            log_fh.write(
-                f"[DEEPL_ROTATION_MODE] profile_backend=deepl_doc endpoint={profile.deepl_endpoint} "
-                "fallback=google_on_exhausted_keys\n"
-            )
+        log_fh.write(
+            f"[translation] source_lang={source_lang} strategy=robust_chain "
+            f"profile_backend={backend} (profile kept for compatibility)\n"
+        )
         log_fh.flush()
         _set_step_status(run.id, "translate", "running", "step 3 - translate")
+
+        translation_checkpoint = temp_dir / f"{base_name}.translate.checkpoint.json"
+        translation_report = load_log_dir() / f"translation-run-{run.id}.json"
         translate_cmd = [
             *python_cmd,
-            str(scripts_dir / "traduzir.py"),
+            str(scripts_dir / "translate_pipeline.py"),
+            "--in",
             str(srt_path),
+            "--out",
             str(srtpt_path),
+            "--src",
             source_lang,
-            "--backend",
-            backend,
-            "--deepl-endpoint",
-            profile.deepl_endpoint,
-            "--deepl-keys-ini",
-            str(root_dir / "config" / "translation" / "deepl_keys.ini"),
-            "--deepl-keys-state-ini",
-            str(root_dir / "config" / "translation" / "deepl_keys_state.ini"),
-            "--nllb-max-input-length",
-            str(profile.nllb_max_input_length),
-            "--nllb-max-new-tokens",
-            str(profile.nllb_max_new_tokens),
+            "--tgt",
+            "pt",
+            "--checkpoint",
+            str(translation_checkpoint),
+            "--report",
+            str(translation_report),
         ]
-        if profile.nllb_legacy:
-            translate_cmd.append("--nllb-legacy-generation")
 
-        translate_progress = _build_translate_progress_reporter(srt_path, srtpt_path)
+        if str(os.environ.get("WEBAPP_TRANSLATION_OFFLINE_ONLY", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+            translate_cmd.append("--offline")
+            log_fh.write("[translation] offline_only=1 -> forcing Ollama local fallback only\n")
+
+        translate_progress = _build_translate_checkpoint_progress_reporter(srt_path, translation_checkpoint)
+        if translate_progress is None:
+            translate_progress = _build_translate_progress_reporter(srt_path, srtpt_path)
         rc = _run_subprocess_with_streaming(
             run,
             translate_cmd,
@@ -1099,6 +1261,24 @@ def _execute_pipeline_single_step(
         if rc != 0:
             _set_step_status(run.id, "translate", "failed", "Translation failed")
             return rc, "Translation failed"
+
+        if translation_report.exists():
+            try:
+                report_data = json.loads(translation_report.read_text(encoding="utf-8", errors="replace"))
+                usage_by_backend = report_data.get("usage_by_backend", {})
+                fallback_count = report_data.get("fallback_count", 0)
+                suspicious_blocks = report_data.get("suspicious_blocks", 0)
+                reprocessed_blocks = report_data.get("reprocessed_blocks", 0)
+                log_fh.write(
+                    "[translation] backend_usage="
+                    f"{json.dumps(usage_by_backend, ensure_ascii=False)} "
+                    f"fallback_count={fallback_count} "
+                    f"suspicious_blocks={suspicious_blocks} "
+                    f"reprocessed_blocks={reprocessed_blocks}\n"
+                )
+                log_fh.flush()
+            except Exception:
+                pass
         _set_step_status(run.id, "translate", "success", "Completed successfully")
         return 0, ""
 
@@ -1112,6 +1292,15 @@ def _execute_pipeline_single_step(
             return 2, "Translated SRTPT missing: run translate first"
 
         source_lang = _infer_translation_source_lang(run, video_path, srt_path)
+        reuse_audiobook, audiobook_detail = _can_reuse_audiobook(srt_path, srtpt_path, out_wav_path)
+        if reuse_audiobook:
+            log_fh.write(f"step 4 - wav generation skipped ({audiobook_detail})\n")
+            log_fh.flush()
+            _log_audiobook_duration_summary(log_fh, srtpt_path, out_wav_path)
+            _set_step_status(run.id, "audiobook", "success", audiobook_detail)
+            return 0, ""
+
+        log_fh.write(f"{audiobook_detail}\n")
         log_fh.write("step 4 - wav generation (piper)\n")
         log_fh.flush()
         _set_step_status(run.id, "audiobook", "running", "step 4 - wav generation (piper)")
@@ -1131,10 +1320,18 @@ def _execute_pipeline_single_step(
             "--pause_duration",
             "0.1",
         ]
-        rc = _run_subprocess_with_streaming(run, synth_cmd, log_fh, root_dir)
+        audiobook_progress = _build_audiobook_progress_reporter(srtpt_path, out_wav_path)
+        rc = _run_subprocess_with_streaming(
+            run,
+            synth_cmd,
+            log_fh,
+            root_dir,
+            progress_reporter=audiobook_progress,
+        )
         if rc != 0:
             _set_step_status(run.id, "audiobook", "failed", "Audiobook synthesis failed")
             return rc, "Audiobook synthesis failed"
+        _log_audiobook_duration_summary(log_fh, srtpt_path, out_wav_path)
         _set_step_status(run.id, "audiobook", "success", "Completed successfully")
         return 0, ""
 

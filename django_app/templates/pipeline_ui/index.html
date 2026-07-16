@@ -113,7 +113,9 @@
     .phase-step.is-skipped .phase-dot { background: #dbe4ea; border-color: #aab7c5; }
     .phase-step.is-unknown .phase-dot { background: #ff8a1f; border-color: #d66a00; }
     .phase-label { font-size: .66rem; font-weight: 700; color: #486258; letter-spacing: .02em; line-height: 1.15; }
+    .phase-progress { font-size: .62rem; font-weight: 700; color: #6a7f76; line-height: 1; }
     .phase-step.is-running .phase-label { color: #7c4a03; }
+    .phase-step.is-running .phase-progress { color: #7c4a03; }
     .phase-summary { margin-top: 8px; font-size: .76rem; color: #49655c; }
     @keyframes phase-pulse {
       0% { box-shadow: 0 0 0 0 rgba(216, 145, 20, 0.45); }
@@ -180,12 +182,12 @@
       <span class="refresh-wrap">
         <label for="autoRefreshSelect">Auto-scan (sem recarregar pagina)</label>
         <select id="autoRefreshSelect" aria-label="Auto-scan interval">
-          <option value="0" selected>Desligado</option>
+          <option value="0">Desligado</option>
           <option value="15">15s</option>
           <option value="30">30s</option>
           <option value="45">45s</option>
           <option value="60">1 min</option>
-          <option value="180">3 min</option>
+          <option value="180" selected>3 min</option>
           <option value="300">5 min</option>
         </select>
       </span>
@@ -316,6 +318,7 @@
     let currentPage = 1;
     let autoScanTimer = null;
     let autoScanInFlight = false;
+    const phasePercentByItem = new Map();
 
     function pageSize() {
       return Number(pageSizeEl.value || 50);
@@ -381,7 +384,50 @@
       return String(className || '').replace(/^status-/, 'is-') || 'is-unknown';
     }
 
-    function renderPhaseTimeline(statuses) {
+    function phasePercentFromStatus(status) {
+      const className = String(status?.className || '').trim().toLowerCase();
+      if (className === 'status-completed' || className === 'status-skipped') {
+        return 100;
+      }
+      if (className === 'status-running') {
+        return 5;
+      }
+      return 0;
+    }
+
+    function normalizedBucketPercent(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) {
+        return null;
+      }
+      const bounded = Math.max(0, Math.min(100, Math.floor(num)));
+      return bounded >= 100 ? 100 : (Math.floor(bounded / 5) * 5);
+    }
+
+    function computePhasePercentSnapshot(statuses, progressByStep = null) {
+      const fromLog = progressByStep && typeof progressByStep === 'object' ? progressByStep : {};
+
+      const dlFromLog = normalizedBucketPercent(fromLog.download);
+      const exFromLog = normalizedBucketPercent(fromLog.extract);
+      const trFromLog = Math.max(
+        normalizedBucketPercent(fromLog.transcribe) ?? 0,
+        normalizedBucketPercent(fromLog.whisper) ?? 0
+      );
+      const tlFromLog = normalizedBucketPercent(fromLog.translate);
+      const abFromLog = normalizedBucketPercent(fromLog.audiobook);
+      const rxFromLog = normalizedBucketPercent(fromLog.remux);
+
+      return {
+        download: dlFromLog ?? phasePercentFromStatus(statuses.download),
+        extract: exFromLog ?? phasePercentFromStatus(statuses.extract),
+        transcribe: trFromLog > 0 ? trFromLog : phasePercentFromStatus(statuses.transcribe),
+        translate: tlFromLog ?? phasePercentFromStatus(statuses.translate),
+        audiobook: abFromLog ?? phasePercentFromStatus(statuses.audiobook),
+        remux: rxFromLog ?? phasePercentFromStatus(statuses.remux)
+      };
+    }
+
+    function renderPhaseTimeline(statuses, percentSnapshot) {
       const steps = [
         { key: 'download', label: 'DL', title: 'Download' },
         { key: 'extract', label: 'EX', title: 'Extract' },
@@ -402,7 +448,8 @@
       const timeline = steps.map((step) => {
         const state = statuses[step.key] || { label: 'Unknown', className: 'status-unknown' };
         const stateClass = phaseStateClass(state.className);
-        return `<div class="phase-step ${stateClass}" title="${step.title}: ${state.label}"><span class="phase-dot"></span><span class="phase-label">${step.label}</span></div>`;
+        const stepPercent = Number(percentSnapshot?.[step.key] ?? 0);
+        return `<div class="phase-step ${stateClass}" title="${step.title}: ${state.label}"><span class="phase-dot"></span><span class="phase-label">${step.label}</span><span class="phase-progress">${stepPercent}%</span></div>`;
       }).join('');
 
       return `<div class="phase-track">${timeline}</div><div class="phase-summary">${summary}</div>`;
@@ -620,6 +667,15 @@
         const translateStatus = mapStepStatus(stepMap.translate, runStatus);
         const audiobookStatus = mapStepStatus(stepMap.audiobook, runStatus);
         const remuxStatus = mapStepStatus(stepMap.remux, runStatus);
+        const statuses = {
+          download: downloadStatus,
+          extract: extractStatus,
+          transcribe: transcribeStatus,
+          translate: translateStatus,
+          audiobook: audiobookStatus,
+          remux: remuxStatus
+        };
+        const phasePercentSnapshot = phasePercentByItem.get(item.id) || computePhasePercentSnapshot(statuses, run?.progress_by_step || null);
         const phaseTimelineHtml = renderPhaseTimeline({
           download: downloadStatus,
           extract: extractStatus,
@@ -627,7 +683,7 @@
           translate: translateStatus,
           audiobook: audiobookStatus,
           remux: remuxStatus
-        });
+        }, phasePercentSnapshot);
         const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
         const thumbnailUrl = item.thumbnail_url || `/api/videos/${item.id}/thumbnail`;
         const canPreviewThumb = Boolean(item.has_real_thumbnail);
@@ -727,6 +783,25 @@
       const statusData = await statusRes.json();
       const workerData = await workerRes.json();
       items = statusData.items || [];
+
+      if (includeLogTail) {
+        phasePercentByItem.clear();
+        items.forEach((item) => {
+          const run = item?.latest_run;
+          const runStatus = run?.status || '';
+          const stepMap = buildDisplayStepMap(run);
+          const statuses = {
+            download: mapStepStatus(stepMap.download, runStatus),
+            extract: mapStepStatus(stepMap.extract, runStatus),
+            transcribe: mapStepStatus(stepMap.transcribe, runStatus),
+            translate: mapStepStatus(stepMap.translate, runStatus),
+            audiobook: mapStepStatus(stepMap.audiobook, runStatus),
+            remux: mapStepStatus(stepMap.remux, runStatus)
+          };
+          phasePercentByItem.set(item.id, computePhasePercentSnapshot(statuses, run?.progress_by_step || null));
+        });
+      }
+
       currentPage = Math.min(currentPage, totalPages());
       renderWorkerStatus(workerData.worker || null);
       renderDiscoveryStatus(statusData.discovery || null);
@@ -936,7 +1011,7 @@
       }
     });
 
-    loadStatus(false).then(() => {
+    loadStatus(true).then(() => {
       scheduleAutoScan();
     });
   </script>

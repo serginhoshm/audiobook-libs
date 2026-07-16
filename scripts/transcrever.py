@@ -8,7 +8,6 @@ import traceback
 from pathlib import Path
 
 from faster_whisper import WhisperModel
-from tqdm import tqdm
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
@@ -60,8 +59,20 @@ def _collect_segments(model: WhisperModel, audio: Path, language: str):
         logging.info(f"[whisper] Starting transcription for {audio.name}")
 
     collected_segments = []
-    for seg in tqdm(segments_iter, desc="[whisper]", unit="seg", leave=False, disable=not sys.stderr.isatty()):
+    emitted_bucket = -1
+    for seg in segments_iter:
         collected_segments.append(seg)
+        if not duration or duration <= 0:
+            continue
+
+        percent = max(0, min(100, int((seg.end / duration) * 100)))
+        bucket = 100 if percent >= 100 else (percent // 5) * 5
+        if bucket > emitted_bucket:
+            emitted_bucket = bucket
+            logging.info(f"[whisper] progress={bucket}%")
+
+    if duration and duration > 0 and emitted_bucket < 100:
+        logging.info("[whisper] progress=100%")
 
     return collected_segments
 

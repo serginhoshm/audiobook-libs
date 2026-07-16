@@ -12,7 +12,6 @@ from django.utils import timezone
 
 from pipeline_ui.models import PipelineRun
 from pipeline_ui.runner import (
-    PIPELINE_STEP_ORDER,
     _next_pending_step_name,
     _persist_download_result,
     execute_run,
@@ -25,7 +24,7 @@ class Command(BaseCommand):
     help = "Run local worker to consume queued runs"
 
     def add_arguments(self, parser):
-        parser.add_argument("--scope", choices=["general", "transcribe"], default="general")
+        parser.add_argument("--scope", default="general")
         parser.add_argument("--slot", type=int, default=1)
 
     def _worker_suffix(self) -> str:
@@ -151,8 +150,26 @@ class Command(BaseCommand):
         return handle
 
     def handle(self, *args, **options):
-        self.scope = str(options.get("scope") or "general")
-        self.slot = max(1, int(options.get("slot") or 1))
+        requested_scope = str(options.get("scope") or "general")
+        requested_slot = max(1, int(options.get("slot") or 1))
+
+        # Backward compatibility with older command lines that passed
+        # step-scoped worker options. Sequential mode always runs one worker.
+        if requested_scope != "general":
+            self.stdout.write(
+                self.style.WARNING(
+                    f"[worker] ignoring legacy scope '{requested_scope}' and using scope=general"
+                )
+            )
+        if requested_slot != 1:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"[worker] ignoring legacy slot '{requested_slot}' and using slot=1"
+                )
+            )
+
+        self.scope = "general"
+        self.slot = 1
 
         lock_handle = self._acquire_singleton_lock()
         if lock_handle is None:
@@ -301,42 +318,21 @@ class Command(BaseCommand):
 
     def _next_queued_run(self):
         with transaction.atomic():
-            queued_runs = list(
+            next_run = (
                 PipelineRun.objects.select_related("video_asset", "video_asset__execution_profile")
                 .filter(status="queued")
                 .prefetch_related("steps")
-                .order_by("created_at")
+                .order_by("created_at", "id")
+                .first()
             )
 
-            if not queued_runs:
+            if next_run is None:
                 return None
 
-            best_run = None
-            best_step_index = None
-            for candidate in queued_runs:
-                next_step_name = _next_pending_step_name(candidate)
-                if next_step_name is None:
-                    continue
-
-                if self.scope == "transcribe" and next_step_name != "transcribe":
-                    continue
-                if self.scope != "transcribe" and next_step_name == "transcribe":
-                    continue
-
-                next_idx = PIPELINE_STEP_ORDER.index(next_step_name)
-
-                # Nothing left to execute for this run.
-                if best_run is None or next_idx < best_step_index:
-                    best_run = candidate
-                    best_step_index = next_idx
-
-            if best_run is None:
-                return None
-
-            claimed = PipelineRun.objects.filter(id=best_run.id, status="queued").update(status="running")
+            claimed = PipelineRun.objects.filter(id=next_run.id, status="queued").update(status="running")
             if claimed:
-                best_run.status = "running"
-                return best_run
+                next_run.status = "running"
+                return next_run
         return None
 
     def _sync_stop_requests(self):

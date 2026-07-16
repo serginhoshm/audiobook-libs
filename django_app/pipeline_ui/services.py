@@ -1,5 +1,6 @@
 import configparser
 import json
+import logging
 import os
 import re
 import subprocess
@@ -8,7 +9,7 @@ import time
 import shutil
 import unicodedata
 from urllib import error as urlerror
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib import request as urlrequest
 from datetime import timedelta
 from pathlib import Path
@@ -20,6 +21,9 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsset
+
+
+logger = logging.getLogger(__name__)
 
 try:
     from deep_translator import GoogleTranslator
@@ -34,10 +38,10 @@ DOWNLOAD_DURATION_TOLERANCE_SECONDS = 2.5
 DOWNLOAD_FORMAT_FILTER = "bv*[height>=480][height<=720]+ba/b[height>=480][height<=720]"
 MAX_FILESYSTEM_NAME_BYTES = 255
 THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
+YTDLP_METADATA_TIMEOUT_SECONDS = 25
 _YT_DLP_HELP_CACHE: str | None = None
 WORKER_SCOPE_GENERAL = "general"
-WORKER_SCOPE_TRANSCRIBE = "transcribe"
-TRANSLATION_BACKEND_FIXED = "ollama"
+TRANSLATION_BACKEND_DEFAULT = os.environ.get("WEBAPP_TRANSLATION_BACKEND_DEFAULT", "google").strip().lower() or "google"
 
 
 def _with_sqlite_lock_retry(fn, *args, **kwargs):
@@ -54,10 +58,8 @@ def _with_sqlite_lock_retry(fn, *args, **kwargs):
 
 
 def _worker_role_specs() -> list[tuple[str, int]]:
-    specs = [(WORKER_SCOPE_GENERAL, 1)]
-    transcribe_slots = max(0, int(settings.WEBAPP.get("WORKER_TRANSCRIBE_CONCURRENCY", 2)))
-    specs.extend((WORKER_SCOPE_TRANSCRIBE, slot) for slot in range(1, transcribe_slots + 1))
-    return specs
+    # Sequential execution mode: keep a single general worker.
+    return [(WORKER_SCOPE_GENERAL, 1)]
 
 
 def _worker_file_name(kind: str, scope: str, slot: int) -> str:
@@ -285,6 +287,153 @@ def is_generated_remux_sibling(video_path: Path) -> bool:
     return bool(base_stem)
 
 
+def _md_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _append_markdown_table(lines: list[str], rows: list[tuple[str, Any]]) -> None:
+    lines.append("| campo | valor |")
+    lines.append("|---|---|")
+    for key, value in rows:
+        key_text = str(key).replace("\n", " ").replace("|", "\\|")
+        value_text = _md_value(value).replace("\n", "<br>").replace("|", "\\|")
+        lines.append(f"| {key_text} | {value_text} |")
+    lines.append("")
+
+
+def export_scan_index_markdown(work_exec: Path) -> None:
+    assets = list(VideoAsset.objects.all().order_by("id"))
+    profiles_by_asset_id = {
+        profile.video_asset_id: profile
+        for profile in ExecutionProfile.objects.all().order_by("video_asset_id")
+    }
+    runs_by_asset_id: dict[int, list[PipelineRun]] = {}
+    run_ids: list[int] = []
+    for run in PipelineRun.objects.select_related("video_asset").order_by("video_asset_id", "id"):
+        runs_by_asset_id.setdefault(run.video_asset_id, []).append(run)
+        run_ids.append(run.id)
+
+    steps_by_run_id: dict[int, list[PipelineStepStatus]] = {}
+    if run_ids:
+        for step in PipelineStepStatus.objects.filter(pipeline_run_id__in=run_ids).order_by("pipeline_run_id", "id"):
+            steps_by_run_id.setdefault(step.pipeline_run_id, []).append(step)
+
+    lines: list[str] = []
+    generated_at = timezone.now().isoformat()
+    lines.append("# Index do Banco")
+    lines.append("")
+    lines.append(f"Gerado em: {generated_at}")
+    lines.append("")
+    lines.append(f"Total de itens: {len(assets)}")
+    lines.append("")
+
+    if not assets:
+        lines.append("Nenhum item encontrado no banco.")
+        lines.append("")
+
+    for asset in assets:
+        lines.append(f"## Item {asset.id}: {asset.file_name}")
+        lines.append("")
+        _append_markdown_table(
+            lines,
+            [
+                ("id", asset.id),
+                ("file_path", asset.file_path),
+                ("file_name", asset.file_name),
+                ("source_url", asset.source_url),
+                ("youtube_title_original", asset.youtube_title_original),
+                ("youtube_title_pt_br", asset.youtube_title_pt_br),
+                ("thumbnail_path", asset.thumbnail_path),
+                ("extension", asset.extension),
+                ("size_bytes", asset.size_bytes),
+                ("duration_seconds", asset.duration_seconds),
+                ("source_duration_seconds", asset.source_duration_seconds),
+                ("original_language", asset.original_language),
+                ("discovered_at", asset.discovered_at),
+                ("last_seen_at", asset.last_seen_at),
+                ("is_present", asset.is_present),
+                ("is_deleted", asset.is_deleted),
+            ],
+        )
+
+        profile = profiles_by_asset_id.get(asset.id)
+        lines.append("### ExecutionProfile")
+        lines.append("")
+        if profile is None:
+            lines.append("Sem execution_profile.")
+            lines.append("")
+        else:
+            _append_markdown_table(
+                lines,
+                [
+                    ("id", profile.id),
+                    ("video_asset_id", profile.video_asset_id),
+                    ("backend", profile.backend),
+                    ("nllb_profile", profile.nllb_profile),
+                    ("nllb_max_input_length", profile.nllb_max_input_length),
+                    ("nllb_max_new_tokens", profile.nllb_max_new_tokens),
+                    ("nllb_legacy", profile.nllb_legacy),
+                    ("deepl_endpoint", profile.deepl_endpoint),
+                    ("updated_at", profile.updated_at),
+                ],
+            )
+
+        runs = runs_by_asset_id.get(asset.id, [])
+        lines.append(f"### Runs ({len(runs)})")
+        lines.append("")
+        if not runs:
+            lines.append("Sem runs.")
+            lines.append("")
+            continue
+
+        for run in runs:
+            lines.append(f"#### Run {run.id}")
+            lines.append("")
+            _append_markdown_table(
+                lines,
+                [
+                    ("id", run.id),
+                    ("video_asset_id", run.video_asset_id),
+                    ("run_mode", run.run_mode),
+                    ("status", run.status),
+                    ("started_at", run.started_at),
+                    ("finished_at", run.finished_at),
+                    ("exit_code", run.exit_code),
+                    ("error_message", run.error_message),
+                    ("log_file_path", run.log_file_path),
+                    ("pid", run.pid),
+                    ("process_group_id", run.process_group_id),
+                    ("stop_requested", run.stop_requested),
+                    ("created_at", run.created_at),
+                    ("updated_at", run.updated_at),
+                ],
+            )
+
+            steps = steps_by_run_id.get(run.id, [])
+            lines.append(f"##### Steps ({len(steps)})")
+            lines.append("")
+            if not steps:
+                lines.append("Sem steps.")
+                lines.append("")
+                continue
+
+            for step in steps:
+                lines.append(f"- Step {step.id}: {step.step_name} | status={step.status}")
+                lines.append(f"  - detail: {_md_value(step.detail)}")
+                lines.append(f"  - updated_at: {_md_value(step.updated_at)}")
+            lines.append("")
+
+    index_path = work_exec / "index.md"
+    index_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def load_download_dir() -> Path:
     return load_work_exec_dir()
 
@@ -498,6 +647,49 @@ def _download_thumbnail_from_url(url: str, target_stem: str) -> Path | None:
         return None
 
 
+def _youtube_video_id_from_url(source_url: Any) -> str:
+    raw = str(source_url or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return ""
+
+    host = parsed.netloc.lower()
+    path_parts = [part for part in parsed.path.split("/") if part]
+    candidate = ""
+
+    if "youtu.be" in host:
+        candidate = path_parts[0] if path_parts else ""
+    elif "youtube.com" in host:
+        query = parse_qs(parsed.query)
+        candidate = (query.get("v") or [""])[0]
+        if not candidate and len(path_parts) >= 2 and path_parts[0] in {"shorts", "embed", "v"}:
+            candidate = path_parts[1]
+
+    candidate = str(candidate or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", candidate):
+        return candidate
+    return ""
+
+
+def _youtube_thumbnail_fallback_urls(source_url: Any) -> list[str]:
+    video_id = _youtube_video_id_from_url(source_url)
+    if not video_id:
+        return []
+
+    # Order from best to safest so we keep quality when available.
+    return [
+        f"https://i.ytimg.com/vi_webp/{video_id}/maxresdefault.webp",
+        f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg",
+        f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+        f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+        f"https://i.ytimg.com/vi/{video_id}/default.jpg",
+    ]
+
+
 def ensure_asset_thumbnail(asset: VideoAsset, metadata: dict[str, Any] | None = None) -> str:
     current = str(asset.thumbnail_path or "").strip()
     if current:
@@ -520,14 +712,20 @@ def ensure_asset_thumbnail(asset: VideoAsset, metadata: dict[str, Any] | None = 
             details = {}
 
     thumb_url = _youtube_thumbnail_url_from_metadata(details if isinstance(details, dict) else {})
-    if not thumb_url:
-        return ""
-
     stem = Path(asset.file_name).stem or f"video-{asset.id}"
-    saved_path = _download_thumbnail_from_url(thumb_url, f"{stem}-{asset.id}")
-    if saved_path is None:
-        return ""
-    return saved_path.name
+
+    if thumb_url:
+        saved_path = _download_thumbnail_from_url(thumb_url, f"{stem}-{asset.id}")
+        if saved_path is not None:
+            return saved_path.name
+
+    # Fallback when metadata probe is flaky/rate-limited: derive thumbnail directly from video id.
+    for fallback_url in _youtube_thumbnail_fallback_urls(asset.source_url):
+        saved_path = _download_thumbnail_from_url(fallback_url, f"{stem}-{asset.id}")
+        if saved_path is not None:
+            return saved_path.name
+
+    return ""
 
 
 def infer_language_from_name(file_name: str) -> str:
@@ -743,6 +941,7 @@ def _next_download_basename(for_date=None) -> str:
 def _probe_youtube_metadata(url: str) -> dict[str, Any]:
     base = [
         "yt-dlp",
+        "--ignore-config",
         "--no-playlist",
         "--skip-download",
         "--dump-single-json",
@@ -758,8 +957,15 @@ def _probe_youtube_metadata(url: str) -> dict[str, Any]:
     last_detail = ""
     for command in attempts:
         try:
-            output = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True)
+            output = subprocess.check_output(
+                command,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=YTDLP_METADATA_TIMEOUT_SECONDS,
+            )
             break
+        except subprocess.TimeoutExpired as exc:
+            last_detail = f"timeout after {YTDLP_METADATA_TIMEOUT_SECONDS}s ({exc})"
         except subprocess.CalledProcessError as exc:
             last_detail = (exc.output or "").strip() or str(exc)
     else:
@@ -882,8 +1088,16 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
 
 def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
     profile, _ = ExecutionProfile.objects.get_or_create(video_asset=asset)
-    if profile.backend != TRANSLATION_BACKEND_FIXED:
-        profile.backend = TRANSLATION_BACKEND_FIXED
+    valid_backends = {choice for choice, _ in ExecutionProfile.BACKEND_CHOICES}
+    desired_backend = profile.backend
+
+    if desired_backend == "libretranslate":
+        desired_backend = "google"
+    elif desired_backend not in valid_backends:
+        desired_backend = TRANSLATION_BACKEND_DEFAULT if TRANSLATION_BACKEND_DEFAULT in valid_backends else "google"
+
+    if desired_backend != profile.backend:
+        profile.backend = desired_backend
         _with_sqlite_lock_retry(profile.save, update_fields=["backend", "updated_at"])
     return profile
 
@@ -1145,6 +1359,11 @@ def scan_videos() -> dict[str, int]:
         elif storage_changed:
             updated += 1
 
+    try:
+        export_scan_index_markdown(work_exec)
+    except Exception:
+        logger.exception("Failed to export scan index markdown")
+
     return {"discovered": discovered, "updated": updated, "missing": 0}
 
 
@@ -1206,10 +1425,7 @@ def worker_health_status() -> dict[str, Any]:
     stopping = PipelineRun.objects.filter(status="stopping").count()
 
     pid = discovered_pids[0] if discovered_pids else None
-    scope_counts = {
-        WORKER_SCOPE_GENERAL: 0,
-        WORKER_SCOPE_TRANSCRIBE: 0,
-    }
+    scope_counts = {WORKER_SCOPE_GENERAL: 0}
     for proc in discovered:
         scope = str(proc.get("scope") or WORKER_SCOPE_GENERAL)
         scope_counts[scope] = scope_counts.get(scope, 0) + 1
@@ -1295,7 +1511,9 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
     asset = VideoAsset.objects.get(id=video_id)
     profile = ensure_execution_profile(asset)
 
+    valid_backends = {choice for choice, _ in ExecutionProfile.BACKEND_CHOICES}
     allowed = {
+        "backend",
         "nllb_profile",
         "nllb_max_input_length",
         "nllb_max_new_tokens",
@@ -1312,11 +1530,16 @@ def update_execution_profile(video_id: int, payload: dict[str, Any]) -> Executio
                 value = int(value)
             except Exception:
                 continue
+        elif key == "backend":
+            value = str(value or "").strip().lower()
+            if value == "libretranslate":
+                value = "google"
+            if value not in valid_backends:
+                continue
         elif key in {"nllb_legacy"}:
             value = parse_bool(value, default=getattr(profile, key))
         setattr(profile, key, value)
 
-    profile.backend = TRANSLATION_BACKEND_FIXED
     profile.save()
     return profile
 
@@ -1372,6 +1595,40 @@ def _safe_log_tail(log_file_path: str | None) -> str:
     return ""
 
 
+def _progress_by_step_from_log(log_file_path: str | None) -> dict[str, int]:
+    path = resolve_run_log_path(log_file_path)
+    if path is None:
+        return {}
+
+    progress_by_step: dict[str, int] = {}
+    progress_re = re.compile(r"\[progress\]\s+step=([a-zA-Z0-9_\-]+)\s+(\d+)%")
+
+    try:
+        if not path.exists() or (not path.is_file()):
+            return {}
+
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for raw_line in fh:
+                match = progress_re.search(raw_line)
+                if not match:
+                    continue
+
+                step = match.group(1).strip().lower()
+                try:
+                    percent = int(match.group(2))
+                except Exception:
+                    continue
+
+                percent = max(0, min(100, percent))
+                current = progress_by_step.get(step, 0)
+                if percent > current:
+                    progress_by_step[step] = percent
+    except Exception:
+        return {}
+
+    return progress_by_step
+
+
 def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[str, Any]:
     normalize_asset_storage_fields(asset)
     normalize_asset_thumbnail_field(asset)
@@ -1391,6 +1648,7 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
         ]
 
     latest_log_tail = _safe_log_tail(latest_run.log_file_path) if latest_run and include_log_tail else ""
+    latest_progress_by_step = _progress_by_step_from_log(latest_run.log_file_path) if latest_run and include_log_tail else {}
     resolved_thumb = resolve_asset_thumbnail_path(asset)
     has_real_thumbnail = bool(resolved_thumb and resolved_thumb.exists() and resolved_thumb.is_file())
 
@@ -1422,6 +1680,7 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
             "log_file_path": str(resolve_run_log_path(latest_run.log_file_path) or ""),
             "log_url": f"/api/runs/{latest_run.id}/log",
             "log_tail": latest_log_tail,
+            "progress_by_step": latest_progress_by_step,
             "steps": steps,
         }
         if latest_run
