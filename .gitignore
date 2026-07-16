@@ -45,3 +45,7 @@ video-thumbs/20*-*.png
 
 # Editor-local settings
 .vscode/
+
+# Temporary execution notes (track folder only)
+temp/*
+!temp/.gitkeep
