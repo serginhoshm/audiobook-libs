@@ -156,6 +156,57 @@
       color: #8c4c09;
     }
     .tail-link { color: #1f5b99; text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+    .file-cell-wrap { position: relative; padding-right: 42px; }
+    .edit-launch {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      width: 30px;
+      height: 30px;
+      border: 1px solid #c7d6d0;
+      border-radius: 999px;
+      background: #f1f7f4;
+      color: #1f5b4d;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+    }
+    .edit-launch:hover { background: #e6f2ed; }
+    .edit-launch:focus-visible,
+    .field-clear:focus-visible,
+    .overlay-save:focus-visible,
+    .overlay-cancel:focus-visible { outline: 2px solid #5c9c8b; outline-offset: 2px; }
+    .edit-overlay-body { padding: 16px; display: grid; gap: 12px; }
+    .edit-grid { display: grid; gap: 12px; }
+    .edit-field label { display: block; font-size: .84rem; font-weight: 700; color: #335348; margin-bottom: 5px; }
+    .field-row { display: flex; gap: 8px; align-items: stretch; }
+    .edit-field input {
+      flex: 1 1 auto;
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #c7d6d0;
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: .92rem;
+    }
+    .field-clear {
+      flex: 0 0 auto;
+      width: 36px;
+      border: 1px solid #c7d6d0;
+      border-radius: 10px;
+      background: #f7faf8;
+      color: #56746b;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .edit-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+    .overlay-save { background: #117a62; color: #fff; }
+    .overlay-cancel { background: #e8eeec; color: #29473d; }
+    .edit-error { min-height: 1.2em; font-size: .82rem; color: #a61b1b; }
     .overlay[hidden] { display: none; }
     .overlay { position: fixed; inset: 0; background: rgba(10, 20, 24, 0.52); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 1000; }
     .overlay-card { width: min(920px, 94vw); max-height: 82vh; background: #fff; border-radius: 14px; border: 1px solid #cfe0da; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22); display: flex; flex-direction: column; }
@@ -191,7 +242,7 @@
 
     <section class="tab-panel" id="pipelinePanel" role="tabpanel" aria-labelledby="pipelineTabBtn">
       <div class="top">
-        <button class="btn scan" id="scanBtn">Refresh</button>
+        <button class="btn scan" id="scanBtn">Scan</button>
         <button class="btn run" id="runBtn">Start</button>
         <button class="btn add" id="addBtn">Add</button>
         <button class="btn delete" id="deleteBtn">Delete</button>
@@ -247,7 +298,7 @@
 
     <section class="tab-panel" id="libraryPanel" role="tabpanel" aria-labelledby="libraryTabBtn" hidden>
       <div class="top">
-        <button class="btn scan" id="libraryRefreshBtn">Refresh</button>
+        <button class="btn scan" id="libraryRefreshBtn">Refresh titles</button>
         <button class="btn run" id="restoreBtn">Restore</button>
         <button class="btn delete" id="libraryDeleteBtn">Delete</button>
         <span class="hint" id="libraryHint">Selected: 0</span>
@@ -329,6 +380,45 @@
     </div>
   </div>
 
+  <div class="overlay" id="editOverlay" hidden>
+    <div class="overlay-card" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <div class="overlay-head">
+        <div class="overlay-title" id="editTitle">Editar item da Library</div>
+        <button class="overlay-close" id="editClose" type="button">Cancelar</button>
+      </div>
+      <div class="overlay-body edit-overlay-body">
+        <div class="edit-grid">
+          <div class="edit-field">
+            <label for="editYoutubeUrl">Link do YouTube</label>
+            <div class="field-row">
+              <input id="editYoutubeUrl" type="url" autocomplete="off" spellcheck="false">
+              <button class="field-clear" id="clearYoutubeUrl" type="button" aria-label="Limpar link do YouTube">×</button>
+            </div>
+          </div>
+          <div class="edit-field">
+            <label for="editTitleOriginal">Título original</label>
+            <div class="field-row">
+              <input id="editTitleOriginal" type="text" autocomplete="off" spellcheck="false">
+              <button class="field-clear" id="clearTitleOriginal" type="button" aria-label="Limpar título original">×</button>
+            </div>
+          </div>
+          <div class="edit-field">
+            <label for="editTitlePtBr">Título traduzido</label>
+            <div class="field-row">
+              <input id="editTitlePtBr" type="text" autocomplete="off" spellcheck="false">
+              <button class="field-clear" id="clearTitlePtBr" type="button" aria-label="Limpar título traduzido">×</button>
+            </div>
+          </div>
+        </div>
+        <div class="edit-error" id="editError"></div>
+        <div class="edit-actions">
+          <button class="btn overlay-cancel" id="editCancel" type="button">Cancelar</button>
+          <button class="btn overlay-save" id="editSave" type="button">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const TAB_PIPELINE = 'pipeline';
     const TAB_LIBRARY = 'library';
@@ -371,6 +461,18 @@
     const thumbTitle = document.getElementById('thumbTitle');
     const thumbClose = document.getElementById('thumbClose');
     const thumbPreviewImage = document.getElementById('thumbPreviewImage');
+    const editOverlay = document.getElementById('editOverlay');
+    const editTitle = document.getElementById('editTitle');
+    const editClose = document.getElementById('editClose');
+    const editCancel = document.getElementById('editCancel');
+    const editSave = document.getElementById('editSave');
+    const editError = document.getElementById('editError');
+    const editYoutubeUrl = document.getElementById('editYoutubeUrl');
+    const editTitleOriginal = document.getElementById('editTitleOriginal');
+    const editTitlePtBr = document.getElementById('editTitlePtBr');
+    const clearYoutubeUrl = document.getElementById('clearYoutubeUrl');
+    const clearTitleOriginal = document.getElementById('clearTitleOriginal');
+    const clearTitlePtBr = document.getElementById('clearTitlePtBr');
     const scanBtn = document.getElementById('scanBtn');
     const runBtn = document.getElementById('runBtn');
     const addBtn = document.getElementById('addBtn');
@@ -402,6 +504,7 @@
     };
     let autoScanTimer = null;
     let autoScanInFlight = false;
+    let editingItemId = null;
     const phasePercentByItem = new Map();
 
     function pageSizeForTab(tab) {
@@ -584,7 +687,7 @@
       return raw;
     }
 
-    function renderFileIcons(item) {
+    function renderFileCell(item, tab = TAB_PIPELINE) {
       const icons = [];
       if (String(item.source_url || '').trim()) {
         icons.push(`<img class="file-icon" src="${iconPaths.youtube}" alt="YouTube" title="Origem YouTube">`);
@@ -596,7 +699,26 @@
         icons.push(`<img class="file-icon" src="${iconPaths.warning}" alt="Ausente" title="Arquivo ausente no disco">`);
       }
 
-      return `<span class="file-icons">${icons.join('')}</span>`;
+      const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
+      const thumbnailUrl = item.thumbnail_url || `/api/videos/${item.id}/thumbnail`;
+      const canPreviewThumb = Boolean(item.has_real_thumbnail);
+      const thumbClass = canPreviewThumb ? 'video-thumb video-thumb-clickable' : 'video-thumb';
+      const thumbAttrs = canPreviewThumb
+        ? `data-preview-src="${escapeHtml(thumbnailUrl)}" data-file-name="${escapeHtml(item.file_name)}"`
+        : '';
+      const originalLanguageHtml = renderTitleLine('Idioma original', formatOriginalLanguage(item.original_language));
+      const durationHtml = renderTitleLine('Duracao', normalizedDurationHms(item.duration_hms));
+      const youtubeTitleOriginalHtml = renderTitleLine('Original', item.youtube_title_original);
+      const youtubeTitlePtBrHtml = renderTitleLine('PT-BR', item.youtube_title_pt_br);
+      const fileIconsHtml = `<span class="file-icons">${icons.join('')}</span>`;
+      const editButtonHtml = tab === TAB_LIBRARY
+        ? `<button type="button" class="edit-launch" data-edit-id="${item.id}" aria-label="Editar item">✎</button>`
+        : '';
+
+      return `
+        <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
+        <td class="file-cell"><div class="file-cell-wrap"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}${editButtonHtml}</div></td>
+      `;
     }
 
     function openDownloadOverlay() {
@@ -624,6 +746,68 @@
       thumbPreviewImage.removeAttribute('src');
       thumbPreviewImage.alt = 'Thumbnail preview';
       thumbTitle.textContent = 'Thumbnail';
+    }
+
+    function getItemById(videoId) {
+      return items.find((item) => Number(item.id) === Number(videoId)) || null;
+    }
+
+    function normalizeInputValue(value) {
+      return String(value || '').trim();
+    }
+
+    function openEditOverlay(videoId) {
+      const item = getItemById(videoId);
+      if (!item) return;
+
+      editingItemId = item.id;
+      editTitle.textContent = `Editar item: ${item.file_name}`;
+      editYoutubeUrl.value = String(item.source_url || '');
+      editTitleOriginal.value = String(item.youtube_title_original || '');
+      editTitlePtBr.value = String(item.youtube_title_pt_br || '');
+      editError.textContent = '';
+      editOverlay.hidden = false;
+      window.setTimeout(() => editYoutubeUrl.focus(), 0);
+    }
+
+    function closeEditOverlay() {
+      editOverlay.hidden = true;
+      editingItemId = null;
+      editTitle.textContent = 'Editar item da Library';
+      editError.textContent = '';
+      editYoutubeUrl.value = '';
+      editTitleOriginal.value = '';
+      editTitlePtBr.value = '';
+    }
+
+    async function saveEditOverlay() {
+      if (!editingItemId) return;
+
+      editError.textContent = '';
+      editSave.disabled = true;
+      try {
+        const response = await fetch(`/api/videos/${editingItemId}/metadata`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            source_url: normalizeInputValue(editYoutubeUrl.value),
+            youtube_title_original: normalizeInputValue(editTitleOriginal.value),
+            youtube_title_pt_br: normalizeInputValue(editTitlePtBr.value)
+          })
+        });
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || !payload.ok) {
+          throw new Error(payload?.error || `Falha ao salvar (${response.status}).`);
+        }
+
+        closeEditOverlay();
+        await loadStatus(false);
+      } catch (error) {
+        editError.textContent = String(error?.message || error || 'Falha ao salvar as alteracoes.');
+      } finally {
+        editSave.disabled = false;
+      }
     }
 
     function escapeHtml(text) {
@@ -762,7 +946,17 @@
       return { label: 'Unknown', className: 'status-unknown' };
     }
 
-    function renderFileCell(item) {
+    function renderFileCell(item, tab = TAB_PIPELINE) {
+      const icons = [];
+      if (String(item.source_url || '').trim()) {
+        icons.push(`<img class="file-icon" src="${iconPaths.youtube}" alt="YouTube" title="Origem YouTube">`);
+      } else {
+        icons.push(`<img class="file-icon" src="${iconPaths.disk}" alt="Disco" title="Origem disco">`);
+      }
+      if (!item.is_present) {
+        icons.push(`<img class="file-icon" src="${iconPaths.warning}" alt="Ausente" title="Arquivo ausente no disco">`);
+      }
+
       const sourceUrlHtml = item.source_url ? `<div class="mono">${escapeHtml(item.source_url)}</div>` : '';
       const thumbnailUrl = item.thumbnail_url || `/api/videos/${item.id}/thumbnail`;
       const canPreviewThumb = Boolean(item.has_real_thumbnail);
@@ -774,11 +968,14 @@
       const durationHtml = renderTitleLine('Duracao', normalizedDurationHms(item.duration_hms));
       const youtubeTitleOriginalHtml = renderTitleLine('Original', item.youtube_title_original);
       const youtubeTitlePtBrHtml = renderTitleLine('PT-BR', item.youtube_title_pt_br);
-      const fileIconsHtml = renderFileIcons(item);
+      const fileIconsHtml = `<span class="file-icons">${icons.join('')}</span>`;
+      const editButtonHtml = tab === TAB_LIBRARY
+        ? `<button type="button" class="edit-launch" data-edit-id="${item.id}" aria-label="Editar item">✎</button>`
+        : '';
 
       return `
         <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
-        <td class="file-cell"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}</td>
+        <td class="file-cell"><div class="file-cell-wrap"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}${editButtonHtml}</div></td>
       `;
     }
 
@@ -836,13 +1033,16 @@
       syncPager(TAB_LIBRARY);
       libraryTbody.innerHTML = pageItems(TAB_LIBRARY).map(item => `
         <tr>
-          ${renderFileCell(item)}
+          ${renderFileCell(item, TAB_LIBRARY)}
         </tr>
       `).join('');
 
       libraryPanel.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', () => updateHint(TAB_LIBRARY)));
       libraryPanel.querySelectorAll('.video-thumb-clickable').forEach((el) => {
         el.addEventListener('click', () => openThumbOverlay(el.dataset.previewSrc, el.dataset.fileName));
+      });
+      libraryPanel.querySelectorAll('.edit-launch').forEach((el) => {
+        el.addEventListener('click', () => openEditOverlay(Number(el.dataset.editId)));
       });
       updateHint(TAB_LIBRARY);
     }
@@ -1079,9 +1279,41 @@
     });
 
     libraryRefreshBtn.addEventListener('click', async () => {
-      renderDiscoveryStatus({in_progress: true});
-      await fetch('/api/scan', {method: 'POST'});
-      await loadStatus(true);
+      const ids = selectedIds(TAB_LIBRARY);
+      if (!ids.length) return;
+
+      libraryRefreshBtn.disabled = true;
+      let shouldReload = true;
+      try {
+        const response = await fetch('/api/videos/refresh-titles', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({video_ids: ids})
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          const detail = payload?.error || `Falha ao atualizar titulos (${response.status}).`;
+          window.alert(detail);
+          shouldReload = false;
+          return;
+        }
+
+        const payload = await response.json().catch(() => null);
+        const refreshed = Number(payload?.result?.refreshed || 0);
+        const skipped = Number(payload?.result?.skipped || 0);
+        const failed = Number(payload?.result?.failed || 0);
+        window.alert(`Titulos atualizados: ${refreshed}. Ignorados: ${skipped}. Falhas: ${failed}.`);
+      } catch (error) {
+        shouldReload = false;
+        const message = String(error?.message || error || 'Falha ao atualizar titulos.');
+        window.alert(message);
+      } finally {
+        libraryRefreshBtn.disabled = false;
+      }
+      if (shouldReload) {
+        await loadStatus(true);
+      }
     });
 
     async function submitDownload() {
@@ -1227,12 +1459,27 @@
       if (evt.key === 'Escape' && !thumbOverlay.hidden) {
         closeThumbOverlay();
       }
+      if (evt.key === 'Escape' && !editOverlay.hidden) {
+        closeEditOverlay();
+      }
     });
 
     thumbClose.addEventListener('click', closeThumbOverlay);
     thumbOverlay.addEventListener('click', (evt) => {
       if (evt.target === thumbOverlay) {
         closeThumbOverlay();
+      }
+    });
+
+    editClose.addEventListener('click', closeEditOverlay);
+    editCancel.addEventListener('click', closeEditOverlay);
+    editSave.addEventListener('click', saveEditOverlay);
+    clearYoutubeUrl.addEventListener('click', () => { editYoutubeUrl.value = ''; editYoutubeUrl.focus(); });
+    clearTitleOriginal.addEventListener('click', () => { editTitleOriginal.value = ''; editTitleOriginal.focus(); });
+    clearTitlePtBr.addEventListener('click', () => { editTitlePtBr.value = ''; editTitlePtBr.focus(); });
+    editOverlay.addEventListener('click', (evt) => {
+      if (evt.target === editOverlay) {
+        closeEditOverlay();
       }
     });
 

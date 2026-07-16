@@ -16,10 +16,12 @@ from .services import (
     list_assets,
     queue_download_job,
     queue_runs,
+    refresh_youtube_title_fields,
     request_stop_for_runs,
     run_evidence_worker,
     scan_videos,
     set_discovery_status,
+    update_library_asset_fields,
     update_execution_profile,
     worker_health_status,
     resolve_run_log_path,
@@ -138,6 +140,39 @@ def api_videos_restore(request: HttpRequest) -> JsonResponse:
         return _json_error(str(exc), status=400)
 
     return JsonResponse({"ok": True, "restored": restored})
+
+
+@csrf_exempt
+@require_POST
+def api_titles_refresh(request: HttpRequest) -> JsonResponse:
+    payload = _json_payload(request)
+    video_ids = payload.get("video_ids") or []
+    if not isinstance(video_ids, list) or not video_ids:
+        return _json_error("video_ids is empty", status=400)
+
+    try:
+        result = refresh_youtube_title_fields([int(video_id) for video_id in video_ids])
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+    except Exception as exc:
+        return _json_error(str(exc), status=500)
+
+    return JsonResponse({"ok": True, "result": result})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH", "POST"])
+def api_video_metadata_patch(request: HttpRequest, video_id: int) -> JsonResponse:
+    payload = _json_payload(request)
+
+    try:
+        result = update_library_asset_fields(video_id, payload)
+    except ValueError as exc:
+        return _json_error(str(exc), status=400)
+    except Exception as exc:
+        return _json_error(str(exc), status=500)
+
+    return JsonResponse({"ok": True, "video_id": video_id, "result": result})
 
 
 @require_GET

@@ -1,4 +1,5 @@
 from pathlib import Path
+import configparser
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -78,6 +79,22 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
+def _read_pipeline_ini() -> configparser.ConfigParser:
+    cfg = configparser.ConfigParser(interpolation=None)
+    cfg.read(ROOT_DIR / "config" / "pipeline.ini", encoding="utf-8")
+    return cfg
+
+
+_PIPELINE_INI = _read_pipeline_ini()
+
+
+def _pipeline_ini_value(section: str, option: str, fallback: str = "") -> str:
+    try:
+        return _PIPELINE_INI.get(section, option, fallback=fallback).strip()
+    except Exception:
+        return fallback
+
 WEBAPP = {
     "ROOT_DIR": ROOT_DIR,
     "PIPELINE_CONFIG": ROOT_DIR / "config" / "pipeline.ini",
@@ -87,6 +104,10 @@ WEBAPP = {
     "WORKER_MANAGE_LIBRETRANSLATE": os.environ.get("WEBAPP_WORKER_MANAGE_LIBRETRANSLATE", "0"),
     "SQLITE_LOCK_RETRY_ATTEMPTS": int(os.environ.get("WEBAPP_SQLITE_LOCK_RETRY_ATTEMPTS", "5")),
     "SQLITE_LOCK_RETRY_WAIT_SECONDS": float(os.environ.get("WEBAPP_SQLITE_LOCK_RETRY_WAIT_SECONDS", "0.25")),
+    "YOUTUBE_DATA_API_KEY": os.environ.get(
+        "YOUTUBE_DATA_API_KEY",
+        _pipeline_ini_value("webapp", "youtube_data_api_key", _pipeline_ini_value("youtube", "data_api_key", "")),
+    ),
     "WEBAPP_LOG_DIR": ROOT_DIR / "logs" / "webapp",
     # Legacy LibreTranslate settings kept commented for possible future reactivation.
     # "LIBRETRANSLATE_URL": os.environ.get("LIBRETRANSLATE_URL", "http://127.0.0.1:5000"),

@@ -30,6 +30,11 @@ try:
 except Exception:  # pragma: no cover - optional dependency fallback
     GoogleTranslator = None
 
+try:
+    from googleapiclient.discovery import build as google_api_build
+except Exception:  # pragma: no cover - optional dependency fallback
+    google_api_build = None
+
 
 VIDEO_EXTENSIONS = {".mp4"}
 PIPELINE_STEP_ORDER = ["download", "extract", "transcribe", "translate", "audiobook", "remux"]
@@ -42,6 +47,7 @@ MAX_FILESYSTEM_NAME_BYTES = 255
 THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
 YTDLP_METADATA_TIMEOUT_SECONDS = 25
 _YT_DLP_HELP_CACHE: str | None = None
+_YOUTUBE_API_SERVICE = None
 WORKER_SCOPE_GENERAL = "general"
 TRANSLATION_BACKEND_DEFAULT = os.environ.get("WEBAPP_TRANSLATION_BACKEND_DEFAULT", "google").strip().lower() or "google"
 
@@ -853,6 +859,54 @@ def _is_youtube_source(source_url: Any) -> bool:
     return "youtube.com" in host or "youtu.be" in host
 
 
+def _youtube_api_service():
+    global _YOUTUBE_API_SERVICE
+
+    if _YOUTUBE_API_SERVICE is not None:
+        return _YOUTUBE_API_SERVICE
+    if google_api_build is None:
+        raise RuntimeError("google-api-python-client is not installed")
+
+    api_key = str(getattr(settings, "WEBAPP", {}).get("YOUTUBE_DATA_API_KEY", "")).strip()
+    if not api_key:
+        raise RuntimeError("YOUTUBE_DATA_API_KEY is not configured in config/pipeline.ini")
+
+    # Keep this as a lightweight read-only client; the pipeline still uses yt-dlp.
+    _YOUTUBE_API_SERVICE = google_api_build("youtube", "v3", developerKey=api_key, cache_discovery=False)
+    return _YOUTUBE_API_SERVICE
+
+
+def _youtube_metadata_from_api(video_id: str) -> dict[str, Any]:
+    service = _youtube_api_service()
+    response = service.videos().list(
+        part="snippet",
+        id=video_id,
+        fields="items(id,snippet(title,channelTitle,publishedAt,defaultAudioLanguage,defaultLanguage,tags,localized))",
+    ).execute()
+
+    items = response.get("items") or []
+    if not items:
+        return {}
+
+    item = items[0] if isinstance(items, list) else {}
+    snippet = item.get("snippet") if isinstance(item, dict) else {}
+    if not isinstance(snippet, dict):
+        return {}
+
+    return {
+        "id": str(item.get("id") or video_id),
+        "title": str(snippet.get("title") or "").strip(),
+        "channelTitle": str(snippet.get("channelTitle") or "").strip(),
+        "publishedAt": str(snippet.get("publishedAt") or "").strip(),
+        "language": str(
+            snippet.get("defaultAudioLanguage")
+            or snippet.get("defaultLanguage")
+            or ""
+        ).strip(),
+        "tags": snippet.get("tags") if isinstance(snippet.get("tags"), list) else [],
+    }
+
+
 def _translate_title_pt_br(title: str, source_language: Any = None) -> str:
     normalized = _normalize_title_text(title)
     if not normalized:
@@ -1006,6 +1060,129 @@ def _probe_youtube_metadata(url: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError("yt-dlp metadata response is invalid")
     return data
+
+
+def refresh_youtube_title_fields(video_ids: list[int] | None = None) -> dict[str, Any]:
+    ids = [int(video_id) for video_id in (video_ids or []) if str(video_id).strip()]
+    if not ids:
+        raise ValueError("video_ids is empty")
+
+    results = {"refreshed": 0, "skipped": 0, "failed": 0, "items": []}
+    assets = VideoAsset.objects.filter(id__in=ids, is_deleted=False, storage_location=STORAGE_LOCATION_LIBRARY)
+
+    for asset in assets:
+        item_result = {"video_id": asset.id, "status": "skipped", "detail": ""}
+        try:
+            if not _is_youtube_source(asset.source_url):
+                item_result["detail"] = "source is not YouTube"
+                results["skipped"] += 1
+                results["items"].append(item_result)
+                continue
+
+            video_id = _youtube_video_id_from_url(asset.source_url)
+            if not video_id:
+                item_result["detail"] = "unable to resolve YouTube video id"
+                results["skipped"] += 1
+                results["items"].append(item_result)
+                continue
+
+            updates: list[str] = []
+
+            current_original = _normalize_title_text(asset.youtube_title_original)
+            current_pt_br = _normalize_title_text(asset.youtube_title_pt_br)
+
+            if current_original:
+                if not current_pt_br:
+                    translated = _translate_title_pt_br(current_original, asset.original_language) or current_original
+                    if asset.youtube_title_pt_br != translated:
+                        asset.youtube_title_pt_br = translated
+                        updates.append("youtube_title_pt_br")
+                if updates:
+                    _with_sqlite_lock_retry(asset.save, update_fields=updates)
+                    item_result["status"] = "refreshed"
+                    item_result["detail"] = ", ".join(updates)
+                    results["refreshed"] += 1
+                else:
+                    item_result["detail"] = "title already present"
+                    results["skipped"] += 1
+                results["items"].append(item_result)
+                continue
+
+            metadata: dict[str, Any] = {}
+            try:
+                metadata = _youtube_metadata_from_api(video_id)
+            except Exception as api_exc:
+                item_result["detail"] = f"metadata unavailable: {api_exc}"
+                results["skipped"] += 1
+                results["items"].append(item_result)
+                continue
+
+            new_original = _truncate_filesystem_name(metadata.get("title"))
+            if not new_original:
+                item_result["detail"] = "title missing from API response"
+                results["skipped"] += 1
+                results["items"].append(item_result)
+                continue
+
+            asset.youtube_title_original = new_original
+            updates.append("youtube_title_original")
+
+            translated = _translate_title_pt_br(new_original, metadata.get("language")) or new_original
+            if asset.youtube_title_pt_br != translated:
+                asset.youtube_title_pt_br = translated
+                updates.append("youtube_title_pt_br")
+
+            if updates:
+                _with_sqlite_lock_retry(asset.save, update_fields=updates)
+                item_result["status"] = "refreshed"
+                item_result["detail"] = ", ".join(updates)
+                results["refreshed"] += 1
+            else:
+                item_result["status"] = "unchanged"
+                item_result["detail"] = "no changes"
+                results["skipped"] += 1
+            results["items"].append(item_result)
+        except Exception as exc:
+            item_result["status"] = "failed"
+            item_result["detail"] = str(exc)
+            results["failed"] += 1
+            results["items"].append(item_result)
+
+    return results
+
+
+def update_library_asset_fields(video_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    asset = VideoAsset.objects.filter(id=video_id, is_deleted=False, storage_location=STORAGE_LOCATION_LIBRARY).first()
+    if asset is None:
+        raise ValueError("asset not found in library")
+
+    updates: list[str] = []
+
+    source_url = str(payload.get("source_url") or "").strip()
+    if source_url != asset.source_url:
+        if source_url and not _is_youtube_source(source_url):
+            raise ValueError("source_url must be a valid YouTube URL or be empty")
+        asset.source_url = source_url
+        updates.append("source_url")
+
+    youtube_title_original = _normalize_title_text(payload.get("youtube_title_original"))
+    if youtube_title_original != _normalize_title_text(asset.youtube_title_original):
+        asset.youtube_title_original = youtube_title_original
+        updates.append("youtube_title_original")
+
+    youtube_title_pt_br = _normalize_title_text(payload.get("youtube_title_pt_br"))
+    if youtube_title_pt_br != _normalize_title_text(asset.youtube_title_pt_br):
+        asset.youtube_title_pt_br = youtube_title_pt_br
+        updates.append("youtube_title_pt_br")
+
+    if updates:
+        _with_sqlite_lock_retry(asset.save, update_fields=updates)
+
+    return {
+        "updated": bool(updates),
+        "update_fields": updates,
+        "asset": serialize_asset(asset, include_log_tail=False),
+    }
 
 
 def _normalize_download_path(target_name: str) -> Path:
