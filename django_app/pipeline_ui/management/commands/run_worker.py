@@ -5,19 +5,20 @@ import signal
 import time
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError
 from django.db import transaction
 from django.utils import timezone
 
 from pipeline_ui.models import PipelineRun
 from pipeline_ui.runner import (
+    PIPELINE_STEP_ORDER,
     _next_pending_step_name,
     _persist_download_result,
     execute_run,
     request_stop,
 )
-from pipeline_ui.services import resolve_asset_video_path
+from pipeline_ui.services import WORKER_SCOPE_GENERAL, ensure_worker_running, resolve_asset_video_path
 
 
 class Command(BaseCommand):
@@ -150,26 +151,18 @@ class Command(BaseCommand):
         return handle
 
     def handle(self, *args, **options):
-        requested_scope = str(options.get("scope") or "general")
+        requested_scope = str(options.get("scope") or WORKER_SCOPE_GENERAL).strip().lower() or WORKER_SCOPE_GENERAL
         requested_slot = max(1, int(options.get("slot") or 1))
+        supported_scopes = {WORKER_SCOPE_GENERAL, *PIPELINE_STEP_ORDER}
 
-        # Backward compatibility with older command lines that passed
-        # step-scoped worker options. Sequential mode always runs one worker.
-        if requested_scope != "general":
-            self.stdout.write(
-                self.style.WARNING(
-                    f"[worker] ignoring legacy scope '{requested_scope}' and using scope=general"
-                )
-            )
+        if requested_scope not in supported_scopes:
+            valid = ", ".join(sorted(supported_scopes))
+            raise CommandError(f"Unsupported worker scope '{requested_scope}'. Expected one of: {valid}")
         if requested_slot != 1:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"[worker] ignoring legacy slot '{requested_slot}' and using slot=1"
-                )
-            )
+            raise CommandError("Only slot=1 is supported for run_worker")
 
-        self.scope = "general"
-        self.slot = 1
+        self.scope = requested_scope
+        self.slot = requested_slot
 
         lock_handle = self._acquire_singleton_lock()
         if lock_handle is None:
@@ -194,7 +187,10 @@ class Command(BaseCommand):
         try:
             while True:
                 self._with_db_retry(self._reconcile_inflight_runs)
-                run = self._with_db_retry(self._next_queued_run)
+                if self.scope == WORKER_SCOPE_GENERAL:
+                    run = self._with_db_retry(self._next_queued_run)
+                else:
+                    run = self._with_db_retry(lambda: self._next_run_for_step(self.scope))
                 if run is None:
                     self._with_db_retry(self._sync_stop_requests)
                     if idle_exit_seconds > 0 and (time.monotonic() - idle_started_at) >= idle_exit_seconds:
@@ -217,6 +213,7 @@ class Command(BaseCommand):
                 except Exception as exc:
                     self._mark_run_failed(run, f"Worker internal error: {exc}")
                 finally:
+                    ensure_worker_running()
                     # if manage_libretranslate:
                     #     self._stop_libretranslate_for_run(lt_proc)
                     pass
@@ -333,6 +330,26 @@ class Command(BaseCommand):
             if claimed:
                 next_run.status = "running"
                 return next_run
+        return None
+
+    def _next_run_for_step(self, step_name: str):
+        with transaction.atomic():
+            queued_runs = (
+                PipelineRun.objects.select_related("video_asset", "video_asset__execution_profile")
+                .filter(status="queued")
+                .prefetch_related("steps")
+                .order_by("created_at", "id")
+            )
+
+            for queued_run in queued_runs:
+                next_step = _next_pending_step_name(queued_run)
+                if next_step != step_name:
+                    continue
+
+                claimed = PipelineRun.objects.filter(id=queued_run.id, status="queued").update(status="running")
+                if claimed:
+                    queued_run.status = "running"
+                    return queued_run
         return None
 
     def _sync_stop_requests(self):

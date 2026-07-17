@@ -504,8 +504,11 @@
     };
     let autoScanTimer = null;
     let autoScanInFlight = false;
+    let statusPollTimer = null;
+    let statusPollInFlight = false;
     let editingItemId = null;
     const phasePercentByItem = new Map();
+    const STATUS_POLL_INTERVAL_MS = 3000;
 
     function pageSizeForTab(tab) {
       const select = tab === TAB_LIBRARY ? libraryPageSizeEl : pipelinePageSizeEl;
@@ -1077,9 +1080,10 @@
       const queued = Number(queue.queued || 0);
       const running = Number(queue.running || 0);
       const scopeCounts = worker.worker_scope_counts || {};
+      const coordinator = worker.coordinator_running ? 'on' : 'off';
       const general = Number(scopeCounts.general || 0);
       const transcribe = Number(scopeCounts.transcribe || 0);
-      const suffix = ` | gen: ${general} | tr: ${transcribe} | queue: ${queued} | running: ${running}`;
+      const suffix = ` | coord: ${coordinator} | gen: ${general} | tr: ${transcribe} | queue: ${queued} | running: ${running}`;
 
       if (worker.running) {
         workerStatusEl.classList.add('worker-online');
@@ -1120,18 +1124,31 @@
       discoveryStatusEl.textContent = 'Last discovery: never';
     }
 
-    async function loadStatus(includeLogTail = false) {
+    async function loadStatus(includeLogTail = false, options = {}) {
+      const {silent = false} = options;
       const statusUrl = includeLogTail ? '/api/status?include_log_tail=true' : '/api/status';
-      const [statusRes, workerRes] = await Promise.all([
-        fetch(statusUrl),
-        fetch('/api/worker-status')
-      ]);
-      const statusData = await statusRes.json();
-      const workerData = await workerRes.json();
-      items = statusData.items || [];
 
-      if (includeLogTail) {
-        phasePercentByItem.clear();
+      try {
+        const [statusRes, workerRes] = await Promise.all([
+          fetch(statusUrl),
+          fetch('/api/worker-status')
+        ]);
+
+        if (!statusRes.ok) {
+          throw new Error(`status request failed (${statusRes.status})`);
+        }
+        if (!workerRes.ok) {
+          throw new Error(`worker-status request failed (${workerRes.status})`);
+        }
+
+        const statusData = await statusRes.json();
+        const workerData = await workerRes.json();
+        const nextItems = Array.isArray(statusData.items) ? statusData.items : [];
+        items = nextItems;
+
+        if (includeLogTail) {
+          phasePercentByItem.clear();
+        }
         items.forEach((item) => {
           const run = item?.latest_run;
           const runStatus = run?.status || '';
@@ -1146,11 +1163,17 @@
           };
           phasePercentByItem.set(item.id, computePhasePercentSnapshot(statuses, run?.progress_by_step || null));
         });
-      }
 
-      renderWorkerStatus(workerData.worker || null);
-      renderDiscoveryStatus(statusData.discovery || null);
-      render();
+        renderWorkerStatus(workerData.worker || null);
+        renderDiscoveryStatus(statusData.discovery || null);
+        render();
+        return true;
+      } catch (error) {
+        if (!silent) {
+          console.warn('Falha ao carregar status:', error);
+        }
+        return false;
+      }
     }
 
     function autoScanIntervalMs() {
@@ -1165,6 +1188,13 @@
       }
     }
 
+    function clearStatusPollTimer() {
+      if (statusPollTimer) {
+        window.clearTimeout(statusPollTimer);
+        statusPollTimer = null;
+      }
+    }
+
     function scheduleAutoScan() {
       clearAutoScanTimer();
       const intervalMs = autoScanIntervalMs();
@@ -1172,6 +1202,26 @@
         return;
       }
       autoScanTimer = window.setTimeout(runAutoScanTick, intervalMs);
+    }
+
+    function scheduleStatusPoll() {
+      clearStatusPollTimer();
+      statusPollTimer = window.setTimeout(runStatusPollTick, STATUS_POLL_INTERVAL_MS);
+    }
+
+    async function runStatusPollTick() {
+      if (statusPollInFlight || autoScanInFlight) {
+        scheduleStatusPoll();
+        return;
+      }
+
+      statusPollInFlight = true;
+      try {
+        await loadStatus(false, {silent: true});
+      } finally {
+        statusPollInFlight = false;
+        scheduleStatusPoll();
+      }
     }
 
     async function runAutoScanTick() {
@@ -1483,8 +1533,9 @@
       }
     });
 
-    loadStatus(true).then(() => {
+    loadStatus(true, {silent: false}).finally(() => {
       scheduleAutoScan();
+      scheduleStatusPoll();
     });
   </script>
 </body>

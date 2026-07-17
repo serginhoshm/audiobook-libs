@@ -49,6 +49,7 @@ YTDLP_METADATA_TIMEOUT_SECONDS = 25
 _YT_DLP_HELP_CACHE: str | None = None
 _YOUTUBE_API_SERVICE = None
 WORKER_SCOPE_GENERAL = "general"
+WORKER_STEP_SCOPES = tuple(PIPELINE_STEP_ORDER)
 TRANSLATION_BACKEND_DEFAULT = os.environ.get("WEBAPP_TRANSLATION_BACKEND_DEFAULT", "google").strip().lower() or "google"
 
 
@@ -66,8 +67,7 @@ def _with_sqlite_lock_retry(fn, *args, **kwargs):
 
 
 def _worker_role_specs() -> list[tuple[str, int]]:
-    # Sequential execution mode: keep a single general worker.
-    return [(WORKER_SCOPE_GENERAL, 1)]
+    return [(scope, 1) for scope in WORKER_STEP_SCOPES]
 
 
 def _worker_file_name(kind: str, scope: str, slot: int) -> str:
@@ -98,7 +98,8 @@ def _discover_worker_processes() -> list[dict[str, Any]]:
             if pid in seen_pids:
                 continue
 
-            scope_match = re.search(r"(?:^|\s)--scope(?:=|\s+)(general|transcribe)(?:\s|$)", command)
+            scope_pattern = "|".join(re.escape(scope) for scope in [WORKER_SCOPE_GENERAL, *WORKER_STEP_SCOPES])
+            scope_match = re.search(rf"(?:^|\s)--scope(?:=|\s+)({scope_pattern})(?:\s|$)", command)
             slot_match = re.search(r"(?:^|\s)--slot(?:=|\s+)(\d+)(?:\s|$)", command)
             scope = scope_match.group(1) if scope_match else WORKER_SCOPE_GENERAL
             slot = int(slot_match.group(1)) if slot_match else 1
@@ -122,6 +123,69 @@ def _discover_worker_pids() -> list[int]:
 
 def _worker_run_dir() -> Path:
     return project_root() / ".run" / "webapp"
+
+
+def _coordinator_pid_file() -> Path:
+    return _worker_run_dir() / "coordinator.pid"
+
+
+def _pid_is_running(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def _pid_from_file(path: Path) -> int | None:
+    if not path.exists():
+        return None
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return None
+    if not value.isdigit():
+        return None
+    return int(value)
+
+
+def _discover_coordinator_process() -> dict[str, Any] | None:
+    pid_file = _coordinator_pid_file()
+    pid = _pid_from_file(pid_file)
+    if _pid_is_running(pid):
+        return {
+            "pid": pid,
+            "source": "pid_file",
+            "command": "run_worker_coordinator",
+        }
+
+    root = project_root()
+    script_hint = str(root / "django_app" / "manage.py")
+    try:
+        output = subprocess.check_output(
+            ["pgrep", "-fa", f"{script_hint} run_worker_coordinator"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+
+    for line in output.splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        pid_text, _, command = raw.partition(" ")
+        if not pid_text.isdigit():
+            continue
+        return {
+            "pid": int(pid_text),
+            "source": "process_scan",
+            "command": command,
+        }
+
+    return None
 
 
 def _worker_pid_file(scope: str = WORKER_SCOPE_GENERAL, slot: int = 1) -> Path:
@@ -1769,6 +1833,7 @@ def run_evidence_worker(
 
 def worker_health_status() -> dict[str, Any]:
     discovered = _discover_worker_processes()
+    coordinator = _discover_coordinator_process()
     discovered_pids = [proc["pid"] for proc in discovered]
 
     queued = PipelineRun.objects.filter(status="queued").count()
@@ -1783,6 +1848,9 @@ def worker_health_status() -> dict[str, Any]:
 
     return {
         "running": bool(discovered_pids),
+        "coordinator_running": bool(coordinator),
+        "coordinator_pid": coordinator["pid"] if coordinator else None,
+        "coordinator": coordinator,
         "pid": pid,
         "source": "process_scan",
         "worker_pids": discovered_pids,
@@ -1980,7 +2048,11 @@ def _progress_by_step_from_log(log_file_path: str | None) -> dict[str, int]:
     return progress_by_step
 
 
-def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[str, Any]:
+def serialize_asset(
+    asset: VideoAsset,
+    include_log_tail: bool = False,
+    include_progress: bool = False,
+) -> dict[str, Any]:
     normalize_asset_storage_fields(asset)
     normalize_asset_thumbnail_field(asset)
     profile = ensure_execution_profile(asset)
@@ -1999,7 +2071,14 @@ def serialize_asset(asset: VideoAsset, include_log_tail: bool = False) -> dict[s
         ]
 
     latest_log_tail = _safe_log_tail(latest_run.log_file_path) if latest_run and include_log_tail else ""
-    latest_progress_by_step = _progress_by_step_from_log(latest_run.log_file_path) if latest_run and include_log_tail else {}
+    should_include_progress = bool(
+        latest_run
+        and (
+            include_log_tail
+            or (include_progress and latest_run.status in {"queued", "running", "stopping"})
+        )
+    )
+    latest_progress_by_step = _progress_by_step_from_log(latest_run.log_file_path) if should_include_progress else {}
     resolved_thumb = resolve_asset_thumbnail_path(asset)
     has_real_thumbnail = bool(resolved_thumb and resolved_thumb.exists() and resolved_thumb.is_file())
 
@@ -2044,6 +2123,7 @@ def list_assets(
     present_only: bool = True,
     include_active_runs: bool = False,
     include_log_tail: bool = False,
+    include_progress: bool = False,
 ) -> list[dict[str, Any]]:
     qs = VideoAsset.objects.filter(is_deleted=False).order_by("file_name")
 
@@ -2051,5 +2131,11 @@ def list_assets(
     for asset in qs:
         if is_generated_remux_sibling(Path(canonical_asset_file_name(asset))):
             continue
-        items.append(serialize_asset(asset, include_log_tail=include_log_tail))
+        items.append(
+            serialize_asset(
+                asset,
+                include_log_tail=include_log_tail,
+                include_progress=include_progress,
+            )
+        )
     return items

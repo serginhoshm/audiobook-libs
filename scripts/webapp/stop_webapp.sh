@@ -103,9 +103,10 @@ stop_by_pidfile() {
 }
 
 sweep_orphaned_instances() {
-  # Fallback: stop stale/untracked web/worker instances started from this repo.
+  # Fallback: stop stale/untracked web/coordinator/worker instances started from this repo.
   local patterns=(
     "$ROOT_DIR/django_app/manage.py [r]unserver"
+    "$ROOT_DIR/django_app/manage.py [r]un_worker_coordinator"
     "$ROOT_DIR/django_app/manage.py [r]un_worker"
   )
   local pattern
@@ -133,6 +134,7 @@ else
 fi
 
 stop_by_pidfile "web" "$RUN_DIR/web.pid"
+stop_by_pidfile "coordinator" "$RUN_DIR/coordinator.pid"
 stop_by_pidfile "worker" "$RUN_DIR/worker.pid"
 sweep_orphaned_instances
 

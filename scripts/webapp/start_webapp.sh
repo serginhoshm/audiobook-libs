@@ -81,6 +81,7 @@ source "$VENV_DIR/bin/activate"
 
 cleanup_stale_pidfile "web" "$RUN_DIR/web.pid"
 cleanup_stale_pidfile "worker" "$RUN_DIR/worker.pid"
+cleanup_stale_pidfile "coordinator" "$RUN_DIR/coordinator.pid"
 
 # Safer defaults for SQLite contention and disabled LibreTranslate auto-management.
 export SQLITE_TIMEOUT_SECONDS="${SQLITE_TIMEOUT_SECONDS:-90}"
@@ -99,14 +100,14 @@ else
   wait_for_process_boot "web" "$RUN_DIR/web.pid" "$LOG_DIR/web.log"
 fi
 
-if [ -f "$RUN_DIR/worker.pid" ] && kill -0 "$(cat "$RUN_DIR/worker.pid")" 2>/dev/null; then
-  echo "[start_webapp] worker is already running"
+if [ -f "$RUN_DIR/coordinator.pid" ] && kill -0 "$(cat "$RUN_DIR/coordinator.pid")" 2>/dev/null; then
+  echo "[start_webapp] coordinator is already running"
 else
-  nohup "$VENV_PY" "$MANAGE_PY" run_worker > "$LOG_DIR/worker.log" 2>&1 &
-  echo $! > "$RUN_DIR/worker.pid"
-  wait_for_process_boot "worker" "$RUN_DIR/worker.pid" "$LOG_DIR/worker.log"
+  nohup "$VENV_PY" "$MANAGE_PY" run_worker_coordinator > "$LOG_DIR/coordinator.log" 2>&1 &
+  echo $! > "$RUN_DIR/coordinator.pid"
+  wait_for_process_boot "coordinator" "$RUN_DIR/coordinator.pid" "$LOG_DIR/coordinator.log"
 fi
 
 echo "[start_webapp] URL: http://$HOST:$PORT/"
 echo "[start_webapp] web pid: $(cat "$RUN_DIR/web.pid")"
-echo "[start_webapp] worker pid: $(cat "$RUN_DIR/worker.pid")"
+echo "[start_webapp] coordinator pid: $(cat "$RUN_DIR/coordinator.pid")"

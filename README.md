@@ -53,7 +53,7 @@ Additional notes:
 - `start` and `restart` run in LAN mode (`0.0.0.0`) by default.
 - `start-lan` and `restart-lan` are available as compatibility aliases.
 - Default port is `8000` and can be changed with `WEBAPP_PORT`.
-- You can control allowed hosts using `DJANGO_ALLOWED_HOSTS`.
+- You can control allowed hosts using `DJANGO_ALLOWED_HOSTS` (when unset, `workflows/webapp.sh` auto-adds `127.0.0.1`, `localhost`, LAN IP, and local hostname).
 - Library title refresh uses the official YouTube Data API and reads `config/pipeline.ini` from `[webapp] youtube_data_api_key` or `[youtube] data_api_key`.
 - An environment variable `YOUTUBE_DATA_API_KEY` can still override the INI value if you need it.
 

@@ -178,10 +178,6 @@ def api_video_metadata_patch(request: HttpRequest, video_id: int) -> JsonRespons
 @require_GET
 def api_status(request: HttpRequest) -> JsonResponse:
     include_log_tail = request.GET.get("include_log_tail", "false").lower() in {"1", "true", "yes", "on"}
-    try:
-        scan_videos()
-    except Exception:
-        pass
     return JsonResponse(
         {
             "ok": True,
@@ -190,6 +186,7 @@ def api_status(request: HttpRequest) -> JsonResponse:
                 present_only=False,
                 include_active_runs=True,
                 include_log_tail=include_log_tail,
+                include_progress=True,
             ),
         }
     )

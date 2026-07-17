@@ -94,6 +94,15 @@ resolve_lan_ip() {
   printf '%s' "$ip_addr"
 }
 
+resolve_local_hostname() {
+  local host_name
+  host_name="$(hostname -s 2>/dev/null || true)"
+  if [ -z "$host_name" ]; then
+    host_name="$(hostname 2>/dev/null || true)"
+  fi
+  printf '%s' "$host_name"
+}
+
 ensure_lan_prereqs() {
   local os_family
   os_family="$(detect_os_family)"
@@ -174,7 +183,13 @@ configure_lan_mode() {
   export WEBAPP_PORT="$PORT"
 
   if [ -z "${DJANGO_ALLOWED_HOSTS:-}" ]; then
-    export DJANGO_ALLOWED_HOSTS="127.0.0.1,localhost,${LAN_IP}"
+    local host_name
+    host_name="$(resolve_local_hostname)"
+    if [ -n "$host_name" ]; then
+      export DJANGO_ALLOWED_HOSTS="127.0.0.1,localhost,${LAN_IP},${host_name}"
+    else
+      export DJANGO_ALLOWED_HOSTS="127.0.0.1,localhost,${LAN_IP}"
+    fi
   fi
 
   URL="http://${LAN_IP}:${PORT}/"
