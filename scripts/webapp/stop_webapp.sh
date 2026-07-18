@@ -107,6 +107,7 @@ sweep_orphaned_instances() {
   local patterns=(
     "$ROOT_DIR/django_app/manage.py [r]unserver"
     "$ROOT_DIR/django_app/manage.py [r]un_worker_coordinator"
+    "$ROOT_DIR/django_app/manage.py [r]un_worker_status_collector"
     "$ROOT_DIR/django_app/manage.py [r]un_worker"
   )
   local pattern
@@ -135,6 +136,7 @@ fi
 
 stop_by_pidfile "web" "$RUN_DIR/web.pid"
 stop_by_pidfile "coordinator" "$RUN_DIR/coordinator.pid"
+stop_by_pidfile "status-collector" "$RUN_DIR/status-collector.pid"
 stop_by_pidfile "worker" "$RUN_DIR/worker.pid"
 sweep_orphaned_instances
 

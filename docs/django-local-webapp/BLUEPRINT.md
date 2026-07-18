@@ -76,16 +76,15 @@ flowchart LR
 - `scripts/webapp/stop_webapp.sh`
 - `scripts/webapp/status_webapp.sh`
 
-## UI Option Mapping
+## Translation Runtime
 
-Target per-row options:
+The webapp uses the fixed robust translation chain implemented by `scripts/translate_pipeline.py`:
 
-- `backend`
-- `nllb_profile`
-- `nllb_max_input_length`
-- `nllb_max_new_tokens`
-- `nllb_legacy`
-- `deepl_endpoint`
+- `deep_translator`
+- `google_simple`
+- `ollama_local`
+
+Per-row legacy backend options were removed.
 
 ## Row UX
 

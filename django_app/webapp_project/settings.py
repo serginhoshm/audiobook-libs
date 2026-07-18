@@ -106,9 +106,11 @@ WEBAPP = {
     "ROOT_DIR": ROOT_DIR,
     "PIPELINE_CONFIG": ROOT_DIR / "config" / "pipeline.ini",
     "WORKER_POLL_SECONDS": int(os.environ.get("WEBAPP_WORKER_POLL_SECONDS", "2")),
+    "WORKER_MAX_SLOTS_PER_SCOPE": int(os.environ.get("WEBAPP_WORKER_MAX_SLOTS_PER_SCOPE", "1")),
+    "WORKER_STATUS_COLLECTOR_POLL_SECONDS": int(os.environ.get("WEBAPP_WORKER_STATUS_COLLECTOR_POLL_SECONDS", "3")),
+    "WORKER_STATUS_SNAPSHOT_STALE_SECONDS": int(os.environ.get("WEBAPP_WORKER_STATUS_SNAPSHOT_STALE_SECONDS", "15")),
     "WORKER_GRACE_SECONDS": int(os.environ.get("WEBAPP_WORKER_GRACE_SECONDS", "8")),
     "WORKER_IDLE_EXIT_SECONDS": int(os.environ.get("WEBAPP_WORKER_IDLE_EXIT_SECONDS", "180")),
-    "WORKER_MANAGE_LIBRETRANSLATE": os.environ.get("WEBAPP_WORKER_MANAGE_LIBRETRANSLATE", "0"),
     "SQLITE_LOCK_RETRY_ATTEMPTS": int(os.environ.get("WEBAPP_SQLITE_LOCK_RETRY_ATTEMPTS", "5")),
     "SQLITE_LOCK_RETRY_WAIT_SECONDS": float(os.environ.get("WEBAPP_SQLITE_LOCK_RETRY_WAIT_SECONDS", "0.25")),
     "YOUTUBE_DATA_API_KEY": os.environ.get(
@@ -116,14 +118,4 @@ WEBAPP = {
         _pipeline_ini_value("webapp", "youtube_data_api_key", _pipeline_ini_value("youtube", "data_api_key", "")),
     ),
     "WEBAPP_LOG_DIR": _resolve_data_root() / "logs" / "webapp",
-    # Legacy LibreTranslate settings kept commented for possible future reactivation.
-    # "LIBRETRANSLATE_URL": os.environ.get("LIBRETRANSLATE_URL", "http://127.0.0.1:5000"),
-    # "LIBRETRANSLATE_HOST": os.environ.get("LIBRETRANSLATE_HOST", "127.0.0.1"),
-    # "LIBRETRANSLATE_PORT": os.environ.get("LIBRETRANSLATE_PORT", "5000"),
-    # "LIBRETRANSLATE_EXECUTABLE": os.environ.get(
-    #     "LIBRETRANSLATE_EXECUTABLE",
-    #     str(ROOT_DIR / "external" / "LibreTranslate" / ".venv" / "bin" / "libretranslate"),
-    # ),
-    # "LIBRETRANSLATE_LOAD_ONLY_LANG_CODES": os.environ.get("LIBRETRANSLATE_LOAD_ONLY_LANG_CODES", "en,es,zh,pt"),
-    # "LIBRETRANSLATE_START_TIMEOUT_SECONDS": int(os.environ.get("LIBRETRANSLATE_START_TIMEOUT_SECONDS", "60")),
 }

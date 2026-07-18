@@ -258,8 +258,10 @@
             <option value="30">30s</option>
             <option value="45">45s</option>
             <option value="60">1 min</option>
-            <option value="180" selected>3 min</option>
+            <option value="180">3 min</option>
             <option value="300">5 min</option>
+            <option value="900" selected>15 min</option>
+            <option value="1800">30 min</option>
           </select>
         </span>
         <span class="hint" id="pipelineHint">Selected: 0</span>
@@ -509,6 +511,30 @@
     let editingItemId = null;
     const phasePercentByItem = new Map();
     const STATUS_POLL_INTERVAL_MS = 3000;
+    const selectedIdsByTab = {
+      [TAB_PIPELINE]: new Set(),
+      [TAB_LIBRARY]: new Set()
+    };
+
+    function selectionSetForTab(tab) {
+      return selectedIdsByTab[tab] || new Set();
+    }
+
+    function syncSelectionWithItems() {
+      const validIdsByTab = {
+        [TAB_PIPELINE]: new Set(itemsForTab(TAB_PIPELINE).map((item) => Number(item.id))),
+        [TAB_LIBRARY]: new Set(itemsForTab(TAB_LIBRARY).map((item) => Number(item.id)))
+      };
+
+      [TAB_PIPELINE, TAB_LIBRARY].forEach((tab) => {
+        const selection = selectionSetForTab(tab);
+        Array.from(selection).forEach((id) => {
+          if (!validIdsByTab[tab].has(Number(id))) {
+            selection.delete(Number(id));
+          }
+        });
+      });
+    }
 
     function pageSizeForTab(tab) {
       const select = tab === TAB_LIBRARY ? libraryPageSizeEl : pipelinePageSizeEl;
@@ -574,19 +600,20 @@
     }
 
     function selectedIds(tab) {
-      const panel = tab === TAB_LIBRARY ? libraryPanel : pipelinePanel;
-      return Array.from(panel.querySelectorAll('.row-check:checked')).map((el) => Number(el.dataset.id));
+      return Array.from(selectionSetForTab(tab));
     }
 
     function updateHint(tab) {
       const panel = tab === TAB_LIBRARY ? libraryPanel : pipelinePanel;
       const hintEl = tab === TAB_LIBRARY ? libraryHint : pipelineHint;
       const allEl = tab === TAB_LIBRARY ? libraryAll : pipelineAll;
-      const sel = selectedIds(tab);
-      hintEl.textContent = `Selected: ${sel.length}`;
-      const total = panel.querySelectorAll('.row-check').length;
-      allEl.checked = total > 0 && sel.length === total;
-      allEl.indeterminate = sel.length > 0 && sel.length < total;
+      const selection = selectionSetForTab(tab);
+      hintEl.textContent = `Selected: ${selection.size}`;
+      const visibleRows = Array.from(panel.querySelectorAll('.row-check'));
+      const visibleChecked = visibleRows.filter((el) => selection.has(Number(el.dataset.id))).length;
+      const totalVisible = visibleRows.length;
+      allEl.checked = totalVisible > 0 && visibleChecked === totalVisible;
+      allEl.indeterminate = visibleChecked > 0 && visibleChecked < totalVisible;
     }
 
     function statusBadge(label, className) {
@@ -717,9 +744,10 @@
       const editButtonHtml = tab === TAB_LIBRARY
         ? `<button type="button" class="edit-launch" data-edit-id="${item.id}" aria-label="Editar item">✎</button>`
         : '';
+      const checkedAttr = selectionSetForTab(tab).has(Number(item.id)) ? ' checked' : '';
 
       return `
-        <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
+        <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"${checkedAttr}><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
         <td class="file-cell"><div class="file-cell-wrap"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}${editButtonHtml}</div></td>
       `;
     }
@@ -975,9 +1003,10 @@
       const editButtonHtml = tab === TAB_LIBRARY
         ? `<button type="button" class="edit-launch" data-edit-id="${item.id}" aria-label="Editar item">✎</button>`
         : '';
+      const checkedAttr = selectionSetForTab(tab).has(Number(item.id)) ? ' checked' : '';
 
       return `
-        <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
+        <td class="select-col"><div class="select-cell"><input type="checkbox" class="row-check" data-id="${item.id}"${checkedAttr}><img class="${thumbClass}" src="${escapeHtml(thumbnailUrl)}" alt="Thumbnail" ${thumbAttrs}></div></td>
         <td class="file-cell"><div class="file-cell-wrap"><div class="file-head">${fileIconsHtml}<div class="file-name">${escapeHtml(item.file_name)}</div></div>${originalLanguageHtml}${durationHtml}${youtubeTitleOriginalHtml}${youtubeTitlePtBrHtml}${sourceUrlHtml}${editButtonHtml}</div></td>
       `;
     }
@@ -1024,7 +1053,18 @@
         `;
       }).join('');
 
-      pipelinePanel.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', () => updateHint(TAB_PIPELINE)));
+      pipelinePanel.querySelectorAll('.row-check').forEach((el) => {
+        el.addEventListener('change', () => {
+          const itemId = Number(el.dataset.id);
+          const selection = selectionSetForTab(TAB_PIPELINE);
+          if (el.checked) {
+            selection.add(itemId);
+          } else {
+            selection.delete(itemId);
+          }
+          updateHint(TAB_PIPELINE);
+        });
+      });
       pipelinePanel.querySelectorAll('.tail-link').forEach(el => el.addEventListener('click', () => showLogTail(el.dataset.logUrl, el.dataset.fileName)));
       pipelinePanel.querySelectorAll('.video-thumb-clickable').forEach((el) => {
         el.addEventListener('click', () => openThumbOverlay(el.dataset.previewSrc, el.dataset.fileName));
@@ -1040,7 +1080,18 @@
         </tr>
       `).join('');
 
-      libraryPanel.querySelectorAll('.row-check').forEach(el => el.addEventListener('change', () => updateHint(TAB_LIBRARY)));
+      libraryPanel.querySelectorAll('.row-check').forEach((el) => {
+        el.addEventListener('change', () => {
+          const itemId = Number(el.dataset.id);
+          const selection = selectionSetForTab(TAB_LIBRARY);
+          if (el.checked) {
+            selection.add(itemId);
+          } else {
+            selection.delete(itemId);
+          }
+          updateHint(TAB_LIBRARY);
+        });
+      });
       libraryPanel.querySelectorAll('.video-thumb-clickable').forEach((el) => {
         el.addEventListener('click', () => openThumbOverlay(el.dataset.previewSrc, el.dataset.fileName));
       });
@@ -1080,10 +1131,22 @@
       const queued = Number(queue.queued || 0);
       const running = Number(queue.running || 0);
       const scopeCounts = worker.worker_scope_counts || {};
+      const expectedPerScope = worker.expected_worker_slots_per_scope || {};
       const coordinator = worker.coordinator_running ? 'on' : 'off';
-      const general = Number(scopeCounts.general || 0);
-      const transcribe = Number(scopeCounts.transcribe || 0);
-      const suffix = ` | coord: ${coordinator} | gen: ${general} | tr: ${transcribe} | queue: ${queued} | running: ${running}`;
+      const scopeLabel = {
+        download: 'DL',
+        extract: 'EX',
+        transcribe: 'TR',
+        translate: 'TL',
+        audiobook: 'AB',
+        remux: 'RX'
+      };
+      const phaseSummary = Object.entries(scopeLabel).map(([scope, label]) => {
+        const active = Number(scopeCounts[scope] || 0);
+        const expected = Number(expectedPerScope[scope] || 0);
+        return expected > 0 ? `${label}:${active}/${expected}` : `${label}:${active}`;
+      }).join(' ');
+      const suffix = ` | coord: ${coordinator} | ${phaseSummary} | queue: ${queued} | running: ${running}`;
 
       if (worker.running) {
         workerStatusEl.classList.add('worker-online');
@@ -1145,6 +1208,7 @@
         const workerData = await workerRes.json();
         const nextItems = Array.isArray(statusData.items) ? statusData.items : [];
         items = nextItems;
+        syncSelectionWithItems();
 
         if (includeLogTail) {
           phasePercentByItem.clear();
@@ -1436,12 +1500,30 @@
     });
 
     pipelineAll.addEventListener('change', () => {
-      pipelinePanel.querySelectorAll('.row-check').forEach(el => { el.checked = pipelineAll.checked; });
+      const selection = selectionSetForTab(TAB_PIPELINE);
+      pipelinePanel.querySelectorAll('.row-check').forEach((el) => {
+        const itemId = Number(el.dataset.id);
+        el.checked = pipelineAll.checked;
+        if (pipelineAll.checked) {
+          selection.add(itemId);
+        } else {
+          selection.delete(itemId);
+        }
+      });
       updateHint(TAB_PIPELINE);
     });
 
     libraryAll.addEventListener('change', () => {
-      libraryPanel.querySelectorAll('.row-check').forEach(el => { el.checked = libraryAll.checked; });
+      const selection = selectionSetForTab(TAB_LIBRARY);
+      libraryPanel.querySelectorAll('.row-check').forEach((el) => {
+        const itemId = Number(el.dataset.id);
+        el.checked = libraryAll.checked;
+        if (libraryAll.checked) {
+          selection.add(itemId);
+        } else {
+          selection.delete(itemId);
+        }
+      });
       updateHint(TAB_LIBRARY);
     });
 

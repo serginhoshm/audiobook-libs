@@ -55,11 +55,7 @@ Primary goals:
 
 ### 3.4 `ExecutionProfile`
 
-Per-file runtime options, including:
-
-- backend options
-- NLLB profile/tokens settings
-- endpoint and compatibility switches
+Per-file execution profile relation. Legacy translation backend options were removed because translation now uses the fixed robust chain in `scripts/translate_pipeline.py`.
 
 ## 4. Domain Services
 

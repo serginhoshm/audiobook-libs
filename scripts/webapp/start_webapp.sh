@@ -84,15 +84,13 @@ source "$VENV_DIR/bin/activate"
 cleanup_stale_pidfile "web" "$RUN_DIR/web.pid"
 cleanup_stale_pidfile "worker" "$RUN_DIR/worker.pid"
 cleanup_stale_pidfile "coordinator" "$RUN_DIR/coordinator.pid"
+cleanup_stale_pidfile "status-collector" "$RUN_DIR/status-collector.pid"
 
-# Safer defaults for SQLite contention and disabled LibreTranslate auto-management.
+# Safer defaults for SQLite contention.
 export SQLITE_TIMEOUT_SECONDS="${SQLITE_TIMEOUT_SECONDS:-90}"
 export WEBAPP_SQLITE_LOCK_RETRY_ATTEMPTS="${WEBAPP_SQLITE_LOCK_RETRY_ATTEMPTS:-12}"
 export WEBAPP_SQLITE_LOCK_RETRY_WAIT_SECONDS="${WEBAPP_SQLITE_LOCK_RETRY_WAIT_SECONDS:-0.5}"
-export WEBAPP_WORKER_MANAGE_LIBRETRANSLATE="${WEBAPP_WORKER_MANAGE_LIBRETRANSLATE:-0}"
-
-# To re-enable LibreTranslate worker management in the future:
-# export WEBAPP_WORKER_MANAGE_LIBRETRANSLATE=1
+export WEBAPP_WORKER_MAX_SLOTS_PER_SCOPE="${WEBAPP_WORKER_MAX_SLOTS_PER_SCOPE:-1}"
 
 if [ -f "$RUN_DIR/web.pid" ] && kill -0 "$(cat "$RUN_DIR/web.pid")" 2>/dev/null; then
   echo "[start_webapp] web is already running"
@@ -110,6 +108,16 @@ else
   wait_for_process_boot "coordinator" "$RUN_DIR/coordinator.pid" "$LOG_DIR/coordinator.log"
 fi
 
+if [ -f "$RUN_DIR/status-collector.pid" ] && kill -0 "$(cat "$RUN_DIR/status-collector.pid")" 2>/dev/null; then
+  echo "[start_webapp] status-collector is already running"
+else
+  nohup "$VENV_PY" "$MANAGE_PY" run_worker_status_collector > "$LOG_DIR/status-collector.log" 2>&1 &
+  echo $! > "$RUN_DIR/status-collector.pid"
+  wait_for_process_boot "status-collector" "$RUN_DIR/status-collector.pid" "$LOG_DIR/status-collector.log"
+fi
+
 echo "[start_webapp] URL: http://$HOST:$PORT/"
+echo "[start_webapp] worker slots per scope: ${WEBAPP_WORKER_MAX_SLOTS_PER_SCOPE}"
 echo "[start_webapp] web pid: $(cat "$RUN_DIR/web.pid")"
 echo "[start_webapp] coordinator pid: $(cat "$RUN_DIR/coordinator.pid")"
+echo "[start_webapp] status-collector pid: $(cat "$RUN_DIR/status-collector.pid")"

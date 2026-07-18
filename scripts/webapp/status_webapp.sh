@@ -25,6 +25,7 @@ status_by_pidfile() {
 
 status_by_pidfile "web" "$RUN_DIR/web.pid"
 status_by_pidfile "coordinator" "$RUN_DIR/coordinator.pid"
+status_by_pidfile "status-collector" "$RUN_DIR/status-collector.pid"
 status_by_pidfile "worker(legacy)" "$RUN_DIR/worker.pid"
 
 echo "[status_webapp] logs: $LOG_DIR"

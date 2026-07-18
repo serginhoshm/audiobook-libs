@@ -146,8 +146,8 @@ Para ambiente local pessoal:
 Referências já existentes de configuração no projeto:
 
 - [config](../config)
-- [config/translation/deepl.env](../config/translation/deepl.env)
 - [config/translation/gemini.env.template](../config/translation/gemini.env.template)
+- [config/translation/ollama.env.template](../config/translation/ollama.env.template)
 
 Recomendação:
 

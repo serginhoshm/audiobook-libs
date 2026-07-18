@@ -11,6 +11,7 @@ from django.utils import timezone
 from .models import PipelineRun, VideoAsset
 
 from .services import (
+    collect_and_store_worker_health_snapshot,
     delete_assets,
     get_discovery_status,
     list_assets,
@@ -20,6 +21,7 @@ from .services import (
     request_stop_for_runs,
     run_evidence_worker,
     scan_videos,
+    serialize_profile,
     set_discovery_status,
     update_library_asset_fields,
     update_execution_profile,
@@ -63,6 +65,7 @@ def api_scan(request: HttpRequest) -> JsonResponse:
         completed_at = timezone.now().isoformat()
     finally:
         set_discovery_status(in_progress=False, last_completed_at=completed_at)
+    collect_and_store_worker_health_snapshot(source="api_scan")
     return JsonResponse({"ok": True, "summary": summary, "evidence": evidence, "discovery": get_discovery_status()})
 
 
@@ -75,6 +78,7 @@ def api_runs_start(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "video_ids is empty"}, status=400)
 
     result = queue_runs([int(v) for v in video_ids])
+    collect_and_store_worker_health_snapshot(source="api_runs_start")
     return JsonResponse({"ok": True, "result": result})
 
 
@@ -93,6 +97,7 @@ def api_download_add(request: HttpRequest) -> JsonResponse:
     except Exception as exc:
         return _json_error(str(exc), status=500)
 
+    collect_and_store_worker_health_snapshot(source="api_download_add")
     return JsonResponse({"ok": True, "result": result})
 
 
@@ -107,6 +112,7 @@ def api_runs_stop(request: HttpRequest) -> JsonResponse:
         run_ids=[int(v) for v in run_ids] if run_ids else None,
         video_ids=[int(v) for v in video_ids] if video_ids else None,
     )
+    collect_and_store_worker_health_snapshot(source="api_runs_stop")
     return JsonResponse({"ok": True, "requested_stop": count})
 
 
@@ -246,13 +252,6 @@ def api_video_options_patch(request: HttpRequest, video_id: int) -> JsonResponse
         {
             "ok": True,
             "video_id": video_id,
-            "profile": {
-                "backend": profile.backend,
-                "nllb_profile": profile.nllb_profile,
-                "nllb_max_input_length": profile.nllb_max_input_length,
-                "nllb_max_new_tokens": profile.nllb_max_new_tokens,
-                "nllb_legacy": profile.nllb_legacy,
-                "deepl_endpoint": profile.deepl_endpoint,
-            },
+            "profile": serialize_profile(profile),
         }
     )
