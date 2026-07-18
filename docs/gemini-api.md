@@ -2,8 +2,9 @@
 
 This project supports Google Gemini for:
 
-1. SRT translation through the Python translation script (`gemini` backend).
-2. General-purpose prompting via a utility script.
+1. General-purpose prompting via a utility script.
+
+Gemini is not a pipeline translation backend.
 
 ## Local Key File (Not Versioned)
 
@@ -31,17 +32,6 @@ GEMINI_MODEL=gemini-1.5-flash
 ```
 
 Note: `config/translation/gemini.env` is ignored by git and is never committed.
-
-## SRT Translation with Gemini Backend
-
-Use the Python script directly:
-
-```bash
-./.venv/bin/python scripts/traduzir.py \
-    input.srt output.srtpt es \
-    --backend gemini \
-    --gemini-model gemini-1.5-flash
-```
 
 ## General Prompting
 

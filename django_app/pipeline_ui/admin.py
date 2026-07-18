@@ -12,8 +12,7 @@ class VideoAssetAdmin(admin.ModelAdmin):
 
 @admin.register(ExecutionProfile)
 class ExecutionProfileAdmin(admin.ModelAdmin):
-    list_display = ("id", "video_asset", "backend", "updated_at")
-    list_filter = ("backend",)
+    list_display = ("id", "video_asset", "updated_at")
 
 
 @admin.register(PipelineRun)

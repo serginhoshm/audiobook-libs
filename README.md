@@ -56,6 +56,8 @@ Additional notes:
 - You can control allowed hosts using `DJANGO_ALLOWED_HOSTS` (when unset, `workflows/webapp.sh` auto-adds `127.0.0.1`, `localhost`, LAN IP, and local hostname).
 - Library title refresh uses the official YouTube Data API and reads `config/pipeline.ini` from `[webapp] youtube_data_api_key` or `[youtube] data_api_key`.
 - An environment variable `YOUTUBE_DATA_API_KEY` can still override the INI value if you need it.
+- Worker coordinator keeps up to 2 workers per pipeline phase by default: DL (download), EX (extract), TR (transcribe), TL (translate), AB (audiobook), RX (remux).
+- You can change this limit with `WEBAPP_WORKER_MAX_SLOTS_PER_SCOPE` (default: `2`).
 
 Manual evidence sync:
 
@@ -88,10 +90,19 @@ Scope setting:
 
 ## Translation Configuration
 
+Official translation chain:
+
+1. `deep_translator`
+2. `google_simple`
+3. `ollama_local`
+
+Set `WEBAPP_TRANSLATION_OFFLINE_ONLY=1` to force local Ollama-only translation.
+
 Gemini local key file:
 
 - Versioned template: `config/translation/gemini.env.template`
 - Local runtime file (gitignored): `config/translation/gemini.env`
+- Gemini is kept as a general prompt utility through `scripts/gemini_prompt.py`, not as a pipeline translation backend.
 
 Ollama local backend:
 
@@ -100,22 +111,7 @@ Ollama local backend:
 - Versioned template: `config/translation/ollama.env.template`
 - Local runtime file (gitignored): `config/translation/ollama.env`
 - Default model: `qwen2.5:14b`
-- Backend name in webapp/pipeline: `ollama`
-- `bash workflows/webapp.sh setup` executa bootstrap do Ollama automaticamente quando `TRANSLATION_BACKEND=ollama` (ou quando `config/translation/ollama.env` existe), escolhendo script por ambiente.
-
-DeepL key template and runtime key rotation:
-
-- Versioned template: `config/translation/deepl_keys_template.ini`
-- Local runtime keys (gitignored): `config/translation/deepl_keys.ini`
-- Runtime blocked-key state (gitignored): `config/translation/deepl_keys_state.ini`
-
-When `deepl_doc` is selected, the pipeline rotates DeepL keys and falls back to Google only if all keys are exhausted/blocked.
-
-NLLB (Hugging Face) backend option:
-
-- Backend name in webapp/pipeline: `nllb_hf`
-- Setup script: `bash setup/setup-nllb-hf.sh`
-- Optional model override: `export NLLB_HF_MODEL=facebook/nllb-200-distilled-600M`
+- `bash workflows/webapp.sh setup` executa bootstrap do Ollama automaticamente quando `config/translation/ollama.env` existe, escolhendo script por ambiente.
 
 ## Notes
 

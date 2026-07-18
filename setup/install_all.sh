@@ -419,8 +419,6 @@ main() {
   ensure_translation_deps
   ensure_sync_deps
   ensure_youtube_deps
-  # Legacy optional setup kept commented for future reactivation.
-  # bash "$ROOT_DIR/setup/libretranslate/setup_libretranslate.sh"
   ensure_webapp_python_deps
   ensure_piper
   ensure_model
