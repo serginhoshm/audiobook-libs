@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 
+from pipeline_ui.logging_utils import format_timestamped_message
 from pipeline_ui.services import run_evidence_worker
 
 
@@ -19,7 +20,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             self.style.SUCCESS(
-                "[sync_evidence] completed synced=%s missing=%s"
+                format_timestamped_message("[sync_evidence] completed synced=%s missing=%s")
                 % (result.get("synced", 0), result.get("missing", 0))
             )
         )
