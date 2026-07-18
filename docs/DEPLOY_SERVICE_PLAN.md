@@ -171,9 +171,9 @@ After=network.target
 Type=simple
 User=webapp
 Group=webapp
-WorkingDirectory=/home/sergiohm/audiobook-libs/django_app
+WorkingDirectory=/home/sergio85/audiobook-libs/django_app
 EnvironmentFile=/etc/audiobook-libs/webapp.env
-ExecStart=/home/sergiohm/audiobook-libs/.venv/bin/gunicorn webapp_project.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile -
+ExecStart=/home/sergio85/audiobook-libs/.venv/bin/gunicorn webapp_project.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=3
 TimeoutStartSec=60
@@ -183,7 +183,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=false
-ReadWritePaths=/home/sergiohm/audiobook-libs/logs
+ReadWritePaths=/home/sergio85/audiobook-libs/logs
 
 [Install]
 WantedBy=multi-user.target
@@ -198,11 +198,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=sergiohm
-Group=sergiohm
-WorkingDirectory=/home/sergiohm/audiobook-libs/django_app
-EnvironmentFile=/home/sergiohm/audiobook-libs/config/webapp.env
-ExecStart=/home/sergiohm/audiobook-libs/.venv/bin/gunicorn webapp_project.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120
+User=sergio85
+Group=sergio85
+WorkingDirectory=/home/sergio85/audiobook-libs/django_app
+EnvironmentFile=/home/sergio85/audiobook-libs/config/webapp.env
+ExecStart=/home/sergio85/audiobook-libs/.venv/bin/gunicorn webapp_project.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120
 Restart=always
 RestartSec=3
 
@@ -269,16 +269,16 @@ After=network.target
 Type=simple
 User=webapp
 Group=webapp
-WorkingDirectory=/home/sergiohm/audiobook-libs/django_app
+WorkingDirectory=/home/sergio85/audiobook-libs/django_app
 EnvironmentFile=/etc/audiobook-libs/webapp.env
-ExecStart=/home/sergiohm/audiobook-libs/.venv/bin/python manage.py run_worker
+ExecStart=/home/sergio85/audiobook-libs/.venv/bin/python manage.py run_worker
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=false
-ReadWritePaths=/home/sergiohm/audiobook-libs/logs
+ReadWritePaths=/home/sergio85/audiobook-libs/logs
 
 [Install]
 WantedBy=multi-user.target
