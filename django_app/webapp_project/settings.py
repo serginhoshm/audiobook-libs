@@ -86,6 +86,13 @@ def _read_pipeline_ini() -> configparser.ConfigParser:
     return cfg
 
 
+def _resolve_data_root() -> Path:
+    raw = _PIPELINE_INI.get("paths", "data_root_relative", fallback="data").strip()
+    if raw.startswith("/"):
+        return Path(raw)
+    return ROOT_DIR / raw
+
+
 _PIPELINE_INI = _read_pipeline_ini()
 
 
@@ -108,7 +115,7 @@ WEBAPP = {
         "YOUTUBE_DATA_API_KEY",
         _pipeline_ini_value("webapp", "youtube_data_api_key", _pipeline_ini_value("youtube", "data_api_key", "")),
     ),
-    "WEBAPP_LOG_DIR": ROOT_DIR / "logs" / "webapp",
+    "WEBAPP_LOG_DIR": _resolve_data_root() / "logs" / "webapp",
     # Legacy LibreTranslate settings kept commented for possible future reactivation.
     # "LIBRETRANSLATE_URL": os.environ.get("LIBRETRANSLATE_URL", "http://127.0.0.1:5000"),
     # "LIBRETRANSLATE_HOST": os.environ.get("LIBRETRANSLATE_HOST", "127.0.0.1"),

@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN_DIR="$ROOT_DIR/.run/webapp"
-LOG_DIR="$ROOT_DIR/logs/webapp"
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
+LOG_DIR="$DATA_ROOT/logs/webapp"
 
 status_by_pidfile() {
   local name="$1"

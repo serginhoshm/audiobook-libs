@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
 
 usage() {
   cat <<'EOF'
@@ -27,8 +28,13 @@ if [ "${1:-}" = "" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 INPUT_SRTPT="$1"
-if [ ! -f "$INPUT_SRTPT" ]; then
-  echo "[piper_from_srtpt] input file not found: $INPUT_SRTPT" >&2
+INPUT_PATH="$INPUT_SRTPT"
+if [[ "$INPUT_SRTPT" != /* ]]; then
+  INPUT_PATH="$DATA_ROOT/$INPUT_SRTPT"
+fi
+
+if [ ! -f "$INPUT_PATH" ]; then
+  echo "[piper_from_srtpt] input file not found: $INPUT_PATH" >&2
   exit 1
 fi
 
@@ -70,7 +76,7 @@ if [ ! -f "$PIPER_MODEL" ]; then
   exit 1
 fi
 
-INPUT_ABS="$(realpath "$INPUT_SRTPT")"
+INPUT_ABS="$(realpath "$INPUT_PATH")"
 INPUT_DIR="$(dirname "$INPUT_ABS")"
 INPUT_BASE="$(basename "$INPUT_ABS")"
 OUTPUT_WAV="$INPUT_DIR/${INPUT_BASE%.*}.wav"

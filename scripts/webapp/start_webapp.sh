@@ -4,10 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
+
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 VENV_PY="$VENV_DIR/bin/python"
 RUN_DIR="$ROOT_DIR/.run/webapp"
-LOG_DIR="$ROOT_DIR/logs/webapp"
+LOG_DIR="$DATA_ROOT/logs/webapp"
 MANAGE_PY="$ROOT_DIR/django_app/manage.py"
 HOST="${WEBAPP_HOST:-127.0.0.1}"
 PORT="${WEBAPP_PORT:-8000}"

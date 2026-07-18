@@ -16,6 +16,8 @@ NLLB_HF_EXPECTED_BYTES="${NLLB_HF_EXPECTED_BYTES:-2600000000}"
 NLLB_HF_SITEPKG_EXPECTED_BYTES="${NLLB_HF_SITEPKG_EXPECTED_BYTES:-1500000000}"
 CACHE_ROOT="${HF_HOME:-$HOME/.cache/huggingface}"
 CACHE_MODEL_DIR="$CACHE_ROOT/hub/models--facebook--nllb-200-distilled-600M"
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
+LOG_DIR="$DATA_ROOT/logs"
 
 is_immutable_host() {
   [ -f /run/ostree-booted ] || command -v rpm-ostree >/dev/null 2>&1
@@ -79,9 +81,9 @@ monitor_path_progress() {
   done
 }
 
-mkdir -p "$ROOT_DIR/logs"
+mkdir -p "$LOG_DIR"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-LOG_FILE="$ROOT_DIR/logs/setup-nllb-hf-${TIMESTAMP}.log"
+LOG_FILE="$LOG_DIR/setup-nllb-hf-${TIMESTAMP}.log"
 
 {
   echo "==> setup-nllb-hf"

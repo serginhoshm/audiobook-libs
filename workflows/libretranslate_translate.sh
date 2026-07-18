@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
 
 usage() {
   cat <<'EOF'
@@ -29,8 +30,13 @@ if [ "${1:-}" = "" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 INPUT_SRT="$1"
-if [ ! -f "$INPUT_SRT" ]; then
-  echo "[libretranslate] input file not found: $INPUT_SRT" >&2
+INPUT_PATH="$INPUT_SRT"
+if [[ "$INPUT_SRT" != /* ]]; then
+  INPUT_PATH="$DATA_ROOT/$INPUT_SRT"
+fi
+
+if [ ! -f "$INPUT_PATH" ]; then
+  echo "[libretranslate] input file not found: $INPUT_PATH" >&2
   exit 1
 fi
 
@@ -132,7 +138,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-INPUT_ABS="$(realpath "$INPUT_SRT")"
+INPUT_ABS="$(realpath "$INPUT_PATH")"
 INPUT_DIR="$(dirname "$INPUT_ABS")"
 INPUT_BASE="$(basename "$INPUT_ABS")"
 OUTPUT_SRTPT="$INPUT_DIR/${INPUT_BASE%.*}.srtpt"

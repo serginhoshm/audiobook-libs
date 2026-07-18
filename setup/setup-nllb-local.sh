@@ -18,9 +18,11 @@ PIP_INDEX_URLS="${PIP_INDEX_URLS:-$PIP_INDEX_URLS_DEFAULT}"
 HF_ENDPOINTS_DEFAULT="https://huggingface.co https://hf-mirror.com"
 HF_ENDPOINTS="${HF_ENDPOINTS:-$HF_ENDPOINTS_DEFAULT}"
 
-mkdir -p "$ROOT_DIR/logs"
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
+LOG_DIR="$DATA_ROOT/logs"
+mkdir -p "$LOG_DIR"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-LOG_FILE="$ROOT_DIR/logs/setup-nllb-local-${TIMESTAMP}.log"
+LOG_FILE="$LOG_DIR/setup-nllb-local-${TIMESTAMP}.log"
 SCRIPT_NAME="setup-nllb-local"
 SCRIPT_START_TIME="$(date +%s)"
 

@@ -44,7 +44,6 @@ EXEC_DIR="$DATA_ROOT/exec"
 TEMP_DIR="$DATA_ROOT/temp"
 THUMBS_DIR="$DATA_ROOT/thumbs"
 DATA_LOGS_DIR="$DATA_ROOT/logs"
-REPO_LOGS_DIR="$ROOT_DIR/logs"
 
 CODE="$(printf "%04d-%02d" "$((RANDOM % 10000))" "$((RANDOM % 100))")"
 
@@ -56,7 +55,6 @@ echo "Pasta exec:   $EXEC_DIR"
 echo "Pasta temp:   $TEMP_DIR"
 echo "Pasta thumbs: $THUMBS_DIR"
 echo "Logs data:    $DATA_LOGS_DIR"
-echo "Logs repo:    $REPO_LOGS_DIR"
 echo
 echo "Para continuar, digite o codigo: $CODE"
 read -r -p "> " TYPED_CODE
@@ -137,9 +135,7 @@ wipe_dir_contents "$THUMBS_DIR"
 
 echo "[3/5] Removendo logs..."
 DATA_LOGS_BEFORE="$(count_entries "$DATA_LOGS_DIR")"
-REPO_LOGS_BEFORE="$(count_entries "$REPO_LOGS_DIR")"
 wipe_dir_contents "$DATA_LOGS_DIR"
-wipe_dir_contents "$REPO_LOGS_DIR"
 
 echo "[4/5] Removendo arquivos da pasta exec..."
 EXEC_BEFORE="$(count_entries "$EXEC_DIR")"
@@ -155,7 +151,6 @@ echo " LIMPEZA CONCLUIDA"
 echo "=========================================="
 echo "thumbs removidos (entradas):   $THUMBS_BEFORE"
 echo "logs data removidos (entradas): $DATA_LOGS_BEFORE"
-echo "logs repo removidos (entradas): $REPO_LOGS_BEFORE"
 echo "exec removidos (entradas):      $EXEC_BEFORE"
 echo "temp removidos (entradas):      $TEMP_BEFORE"
 echo

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
 
 usage() {
   cat <<'EOF'
@@ -15,7 +16,7 @@ Environment variables:
   SRT_EQUALIZER_EXTRA_PYTHONPATH  Extra path to prepend to PYTHONPATH (for local checkouts)
 
 Example:
-  bash workflows/srt_equalizer.sh data_test/published/ABelaAdormecida.srtpt
+  bash workflows/srt_equalizer.sh library/ABelaAdormecida.srtpt
 EOF
 }
 
@@ -25,8 +26,13 @@ if [ "${1:-}" = "" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 INPUT_SRT="$1"
-if [ ! -f "$INPUT_SRT" ]; then
-  echo "[srt_equalizer] input file not found: $INPUT_SRT" >&2
+INPUT_PATH="$INPUT_SRT"
+if [[ "$INPUT_SRT" != /* ]]; then
+  INPUT_PATH="$DATA_ROOT/$INPUT_SRT"
+fi
+
+if [ ! -f "$INPUT_PATH" ]; then
+  echo "[srt_equalizer] input file not found: $INPUT_PATH" >&2
   exit 1
 fi
 
@@ -58,10 +64,7 @@ if ! [[ "$TARGET_CHARS" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-INPUT_ABS="$ROOT_DIR/$INPUT_SRT"
-if [[ "$INPUT_SRT" = /* ]]; then
-  INPUT_ABS="$INPUT_SRT"
-fi
+INPUT_ABS="$INPUT_PATH"
 
 export PYTHONPATH="${SRT_EQUALIZER_EXTRA_PYTHONPATH:-}${PYTHONPATH:+:$PYTHONPATH}"
 

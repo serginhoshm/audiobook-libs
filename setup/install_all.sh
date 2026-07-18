@@ -16,9 +16,11 @@ else
 fi
 
 # Setup logging
-mkdir -p "$ROOT_DIR/logs"
+DATA_ROOT="$(python3 "$ROOT_DIR/scripts/resolve_data_root.py" data-root)"
+LOG_DIR="$DATA_ROOT/logs"
+mkdir -p "$LOG_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_FILE="$ROOT_DIR/logs/install_all-${TIMESTAMP}.log"
+LOG_FILE="$LOG_DIR/install_all-${TIMESTAMP}.log"
 SCRIPT_NAME="install_all"
 SCRIPT_START_TIME=$(date +%s)
 
