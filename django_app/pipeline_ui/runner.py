@@ -16,6 +16,7 @@ from urllib import request as urlrequest
 from django.conf import settings
 from django.utils import timezone
 
+from .logging_utils import TimestampedWriter
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus
 from .services import (
     DOWNLOAD_DURATION_TOLERANCE_SECONDS,
@@ -48,47 +49,6 @@ DOWNLOAD_FORMAT_PROFILES: list[tuple[str, str]] = [
     ("mp4-or-best", "best[ext=mp4]/best"),
 ]
 
-NLLB_LANG_MAP = {
-    "ar": "arb_Arab",
-    "de": "deu_Latn",
-    "en": "eng_Latn",
-    "es": "spa_Latn",
-    "fr": "fra_Latn",
-    "hi": "hin_Deva",
-    "it": "ita_Latn",
-    "ja": "jpn_Jpan",
-    "ko": "kor_Hang",
-    "nl": "nld_Latn",
-    "pl": "pol_Latn",
-    "pt": "por_Latn",
-    "ru": "rus_Cyrl",
-    "tr": "tur_Latn",
-    "uk": "ukr_Cyrl",
-    "zh": "zho_Hans",
-    "zh-cn": "zho_Hans",
-    "zh-hans": "zho_Hans",
-}
-
-TRANSLATION_SOURCE_BY_NLLB = {
-    "arb_Arab": "ar",
-    "deu_Latn": "de",
-    "eng_Latn": "en",
-    "fra_Latn": "fr",
-    "hin_Deva": "hi",
-    "ita_Latn": "it",
-    "jpn_Jpan": "ja",
-    "kor_Hang": "ko",
-    "nld_Latn": "nl",
-    "pol_Latn": "pl",
-    "por_Latn": "pt",
-    "rus_Cyrl": "ru",
-    "spa_Latn": "es",
-    "tur_Latn": "tr",
-    "ukr_Cyrl": "uk",
-    "zho_Hans": "zh-CN",
-}
-
-
 def _bool_to_on_off(value: bool) -> str:
     return "on" if value else "off"
 
@@ -110,10 +70,8 @@ def build_exec_command(profile: ExecutionProfile) -> list[str]:
 
 def _infer_source_lang(run: PipelineRun, video_path: Path) -> str:
     lang = (run.video_asset.original_language or "auto").strip()
-    if lang in {"es", "zh-CN", "auto"}:
+    if lang in {"ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "uk", "zh-CN", "auto"}:
         return lang
-    if lang in TRANSLATION_SOURCE_BY_NLLB:
-        return TRANSLATION_SOURCE_BY_NLLB[lang]
     name = video_path.name.lower()
     if "spanish" in name:
         return "es"
@@ -124,8 +82,8 @@ def _infer_source_lang(run: PipelineRun, video_path: Path) -> str:
 
 def _infer_translation_source_lang(run: PipelineRun, video_path: Path, srt_path: Path) -> str:
     persisted = (run.video_asset.original_language or "").strip()
-    if persisted in TRANSLATION_SOURCE_BY_NLLB:
-        return TRANSLATION_SOURCE_BY_NLLB[persisted]
+    if persisted in {"ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "uk", "zh-CN"}:
+        return persisted
 
     lang = _infer_source_lang(run, video_path)
     if lang in {"es", "zh-CN"}:
@@ -193,19 +151,15 @@ def _detect_language_with_google(sample_text: str) -> str | None:
     return None
 
 
-def _map_to_nllb_code(detected_lang: str | None) -> str:
+def _normalize_detected_language(detected_lang: str | None) -> str:
     if not detected_lang:
         return "unknown"
     normalized = detected_lang.strip().lower()
     if not normalized:
         return "unknown"
-
-    direct = NLLB_LANG_MAP.get(normalized)
-    if direct:
-        return direct
-
-    primary = normalized.split("-")[0]
-    return NLLB_LANG_MAP.get(primary, "unknown")
+    if normalized in {"zh", "zh-cn", "zh-hans"}:
+        return "zh-CN"
+    return normalized.split("-")[0]
 
 
 def _persist_detected_language_from_srt(run: PipelineRun, srt_path: Path, log_fh: Any) -> str:
@@ -218,15 +172,15 @@ def _persist_detected_language_from_srt(run: PipelineRun, srt_path: Path, log_fh
         return "unknown"
 
     detected_lang = _detect_language_with_google(sample)
-    nllb_code = _map_to_nllb_code(detected_lang)
-    run.video_asset.original_language = nllb_code
+    source_lang = _normalize_detected_language(detected_lang)
+    run.video_asset.original_language = source_lang
     run.video_asset.save(update_fields=["original_language"])
     if detected_lang:
-        log_fh.write(f"[language] detected={detected_lang} nllb={nllb_code}\n")
+        log_fh.write(f"[language] detected={detected_lang} source_lang={source_lang}\n")
     else:
         log_fh.write("[language] detection failed; original_language=unknown\n")
     log_fh.flush()
-    return nllb_code
+    return source_lang
 
 
 def _whisper_lang_from_source(source_lang: str) -> str:
@@ -235,6 +189,86 @@ def _whisper_lang_from_source(source_lang: str) -> str:
     if source_lang == "zh-CN":
         return "zh"
     return "auto"
+
+
+def _env_value(name: str, default: str = "") -> str:
+    return str(os.environ.get(name, default)).strip()
+
+
+def _youtube_download_backend_order() -> list[str]:
+    backend = _env_value("WEBAPP_YOUTUBE_DOWNLOAD_BACKEND", "auto").lower()
+    if backend in {"yt-dlp", "ytdlp", "yt_dlp"}:
+        return ["yt-dlp", "pytubefix"]
+    if backend in {"pytubefix", "pytube", "auto", "default", ""}:
+        return ["pytubefix", "yt-dlp"]
+    return ["pytubefix", "yt-dlp"]
+
+
+def _download_with_pytubefix(source_url: str, video_path: Path, log_fh: Any) -> tuple[bool, str]:
+    try:
+        from pytubefix import YouTube
+    except Exception as exc:
+        return False, f"pytubefix unavailable: {exc}"
+
+    try:
+        yt = YouTube(source_url)
+        stream = yt.streams.filter(progressive=True, file_extension="mp4").order_by("resolution").desc().first()
+        if stream is None:
+            stream = yt.streams.filter(only_video=True, file_extension="mp4").order_by("resolution").desc().first()
+        if stream is None:
+            return False, "pytubefix did not expose an mp4 stream"
+
+        log_fh.write(
+            "[download] primary backend=pytubefix "
+            f"itag={getattr(stream, 'itag', '?')} "
+            f"mime_type={getattr(stream, 'mime_type', '')} "
+            f"resolution={getattr(stream, 'resolution', '')}\n"
+        )
+        log_fh.flush()
+
+        downloaded_path = Path(
+            stream.download(
+                output_path=str(video_path.parent),
+                filename=video_path.stem,
+            )
+        )
+
+        if downloaded_path != video_path and downloaded_path.exists():
+            if video_path.exists():
+                video_path.unlink()
+            downloaded_path.rename(video_path)
+
+        if video_path.exists():
+            return True, "Downloaded via pytubefix"
+        return False, f"pytubefix downloaded file not found: {downloaded_path}"
+    except Exception as exc:
+        return False, f"pytubefix failed: {exc}"
+
+
+def _download_with_ytdlp(
+    run: PipelineRun,
+    source_url: str,
+    video_path: Path,
+    temp_dir: Path,
+    root_dir: Path,
+    log_fh: Any,
+) -> tuple[bool, str]:
+    rc = 1
+    candidates = _build_download_command_candidates(source_url, video_path, temp_dir)
+    for idx, (profile_name, download_cmd) in enumerate(candidates, start=1):
+        log_fh.write(f"[download] fallback attempt {idx}/{len(candidates)} profile={profile_name}\n")
+        log_fh.flush()
+        rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
+        if rc == 0:
+            break
+
+    if rc != 0:
+        return False, "yt-dlp failed"
+
+    ok, detail = _persist_download_result(run, video_path)
+    if ok:
+        return True, detail
+    return False, detail
 
 
 def _yt_dlp_supports_option(option: str) -> bool:
@@ -255,10 +289,14 @@ def _yt_dlp_js_runtime_args() -> list[str]:
     if not _yt_dlp_supports_option("--js-runtimes"):
         return []
 
-    for runtime in ("deno", "node"):
+    runtimes: list[str] = []
+    for runtime in ("node", "deno"):
         runtime_path = shutil.which(runtime)
         if runtime_path:
-            return ["--js-runtimes", f"{runtime}:{runtime_path}"]
+            runtimes.append(f"{runtime}:{runtime_path}")
+
+    if runtimes:
+        return ["--js-runtimes", ",".join(runtimes)]
     return []
 
 
@@ -311,6 +349,44 @@ def _build_download_command_candidates(
     # Final fallback lets yt-dlp choose any available A/V stream.
     commands.append(("auto-format", base))
     return commands
+
+
+def _download_video_with_backends(
+    run: PipelineRun,
+    source_url: str,
+    video_path: Path,
+    temp_dir: Path,
+    root_dir: Path,
+    log_fh: Any,
+) -> tuple[int, str]:
+    for backend_name in _youtube_download_backend_order():
+        if backend_name == "pytubefix":
+            log_fh.write("[download] backend=pytubefix\n")
+            log_fh.flush()
+            primary_ok, primary_detail = _download_with_pytubefix(source_url, video_path, log_fh)
+            if primary_ok:
+                return 0, primary_detail
+            log_fh.write(f"[download] backend=pytubefix failed: {primary_detail}\n")
+            log_fh.flush()
+            continue
+
+        if backend_name == "yt-dlp":
+            log_fh.write("[download] backend=yt-dlp\n")
+            log_fh.flush()
+            fallback_ok, fallback_detail = _download_with_ytdlp(
+                run,
+                source_url,
+                video_path,
+                temp_dir,
+                root_dir,
+                log_fh,
+            )
+            if fallback_ok:
+                return 0, fallback_detail
+            log_fh.write(f"[download] backend=yt-dlp failed: {fallback_detail}\n")
+            log_fh.flush()
+
+    return 2, "Download failed"
 
 
 def _download_target_is_valid(run: PipelineRun, video_path: Path) -> tuple[bool, str]:
@@ -736,12 +812,6 @@ def _execute_pipeline_steps(
     srtpt_path = work_dir / f"{base_name}.srtpt"
     out_wav_path = work_dir / f"{base_name}.pt.wav"
 
-    backend = profile.backend
-    if backend == "libretranslate":
-        # Legacy rows may still carry libretranslate; route them to google by default.
-        backend = "google"
-        log_fh.write("[worker] legacy backend libretranslate detected; using google\n")
-
     download_step = run.steps.filter(step_name="download").first()
     if download_step and download_step.status == "pending":
         if video_path.exists() and not run.video_asset.source_url:
@@ -754,25 +824,19 @@ def _execute_pipeline_steps(
         log_fh.write("step 0 - download\n")
         log_fh.flush()
         _set_step_status(run.id, "download", "running", "step 0 - download")
-        rc = 1
-        candidates = _build_download_command_candidates(run.video_asset.source_url, video_path, temp_dir)
-        for idx, (profile_name, download_cmd) in enumerate(candidates, start=1):
-            log_fh.write(
-                f"[download] attempt {idx}/{len(candidates)} profile={profile_name}\n"
-            )
-            log_fh.flush()
-            rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
-            if rc == 0:
-                break
-
+        rc, detail = _download_video_with_backends(
+            run,
+            run.video_asset.source_url,
+            video_path,
+            temp_dir,
+            root_dir,
+            log_fh,
+        )
         if rc != 0:
-            _set_step_status(run.id, "download", "failed", "Download failed")
-            return rc, "Download failed"
+            _set_step_status(run.id, "download", "failed", detail)
+            return rc, detail
 
-        ok, detail = _persist_download_result(run, video_path)
-        _set_step_status(run.id, "download", "success" if ok else "failed", detail)
-        if not ok:
-            return 2, detail
+        _set_step_status(run.id, "download", "success", detail)
     elif video_path.exists() and run.video_asset.source_url:
         ok, detail = _persist_download_result(run, video_path)
         if ok:
@@ -851,16 +915,13 @@ def _execute_pipeline_steps(
     reuse_translation, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
     if reuse_translation:
         log_fh.write(f"step 2 - translate skipped ({translation_detail})\n")
-        log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain profile_backend={backend}\n")
+        log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain\n")
         log_fh.flush()
         _set_step_status(run.id, "translate", "success", translation_detail)
     else:
         log_fh.write(f"{translation_detail}\n")
         log_fh.write("step 3 - translate\n")
-        log_fh.write(
-            f"[translation] source_lang={source_lang} strategy=robust_chain "
-            f"profile_backend={backend} (profile kept for compatibility)\n"
-        )
+        log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain\n")
         log_fh.flush()
         _set_step_status(run.id, "translate", "running", "step 3 - translate")
         translation_checkpoint = temp_dir / f"{base_name}.translate.checkpoint.json"
@@ -1035,16 +1096,32 @@ def _reset_step_rows_for_attempt(run: PipelineRun) -> None:
     PipelineStepStatus.objects.filter(pipeline_run=run, step_name__in=PIPELINE_STEP_ORDER).update(
         status="pending",
         detail="",
+        started_at=None,
+        finished_at=None,
         updated_at=timezone.now(),
     )
 
 
 def _set_step_status(run_id: int, step_name: str, status: str, detail: str = "") -> None:
-    PipelineStepStatus.objects.filter(pipeline_run_id=run_id, step_name=step_name).update(
-        status=status,
-        detail=detail,
-        updated_at=timezone.now(),
-    )
+    step = PipelineStepStatus.objects.filter(pipeline_run_id=run_id, step_name=step_name).first()
+    if step is None:
+        return
+
+    now = timezone.now()
+    step.status = status
+    step.detail = detail
+
+    if status == "running":
+        if step.started_at is None:
+            step.started_at = now
+        step.finished_at = None
+    elif status in {"success", "failed", "skipped"}:
+        if step.started_at is None:
+            step.started_at = now
+        if step.finished_at is None:
+            step.finished_at = now
+
+    step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
 
 
 def _step_status_map(run: PipelineRun) -> dict[str, str]:
@@ -1080,11 +1157,6 @@ def _execute_pipeline_single_step(
     srtpt_path = work_dir / f"{base_name}.srtpt"
     out_wav_path = work_dir / f"{base_name}.pt.wav"
 
-    backend = profile.backend
-    if backend == "libretranslate":
-        backend = "google"
-        log_fh.write("[worker] legacy backend libretranslate detected; using google\n")
-
     if target_step == "download":
         if video_path.exists() and not run.video_asset.source_url:
             _set_step_status(run.id, "download", "skipped", "Skipped: local MP4 already present")
@@ -1102,24 +1174,20 @@ def _execute_pipeline_single_step(
         log_fh.write("step 0 - download\n")
         log_fh.flush()
         _set_step_status(run.id, "download", "running", "step 0 - download")
-        rc = 1
-        candidates = _build_download_command_candidates(run.video_asset.source_url, video_path, temp_dir)
-        for idx, (profile_name, download_cmd) in enumerate(candidates, start=1):
-            log_fh.write(
-                f"[download] attempt {idx}/{len(candidates)} profile={profile_name}\n"
-            )
-            log_fh.flush()
-            rc = _run_subprocess_with_streaming(run, download_cmd, log_fh, root_dir)
-            if rc == 0:
-                break
-
+        rc, detail = _download_video_with_backends(
+            run,
+            run.video_asset.source_url,
+            video_path,
+            temp_dir,
+            root_dir,
+            log_fh,
+        )
         if rc != 0:
-            _set_step_status(run.id, "download", "failed", "Download failed")
-            return rc, "Download failed"
+            _set_step_status(run.id, "download", "failed", detail)
+            return rc, detail
 
-        ok, detail = _persist_download_result(run, video_path)
-        _set_step_status(run.id, "download", "success" if ok else "failed", detail)
-        return (0, "") if ok else (2, detail)
+        _set_step_status(run.id, "download", "success", detail)
+        return 0, detail
 
     if not video_path.exists():
         return 127, f"Input video not found: {video_path}"
@@ -1208,7 +1276,7 @@ def _execute_pipeline_single_step(
         reuse_translation, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
         if reuse_translation:
             log_fh.write(f"step 3 - translate skipped ({translation_detail})\n")
-            log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain profile_backend={backend}\n")
+            log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain\n")
             log_fh.flush()
             _set_step_status(run.id, "translate", "success", translation_detail)
             return 0, ""
@@ -1219,10 +1287,7 @@ def _execute_pipeline_single_step(
 
         log_fh.write(f"{translation_detail}\n")
         log_fh.write("step 3 - translate\n")
-        log_fh.write(
-            f"[translation] source_lang={source_lang} strategy=robust_chain "
-            f"profile_backend={backend} (profile kept for compatibility)\n"
-        )
+        log_fh.write(f"[translation] source_lang={source_lang} strategy=robust_chain\n")
         log_fh.flush()
         _set_step_status(run.id, "translate", "running", "step 3 - translate")
 
@@ -1432,30 +1497,43 @@ def _promote_step_from_log_line(run_id: int, line: str, current_step: str | None
 
 def _finalize_step_states(run_id: int, run_status: str, fallback_error: str = "") -> None:
     steps = PipelineStepStatus.objects.filter(pipeline_run_id=run_id)
+    now = timezone.now()
     for step in steps:
         if run_status == "success":
             if step.status in {"pending", "running"}:
                 step.status = "success"
                 if not step.detail:
                     step.detail = "Completed successfully"
-                step.save(update_fields=["status", "detail", "updated_at"])
+                if step.started_at is None:
+                    step.started_at = now
+                if step.finished_at is None:
+                    step.finished_at = now
+                step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
         elif run_status == "stopped":
-            if step.status == "running":
+            if step.status in {"pending", "running"}:
                 step.status = "skipped"
                 step.detail = "Stopped by user"
-                step.save(update_fields=["status", "detail", "updated_at"])
+                if step.started_at is None:
+                    step.started_at = now
+                if step.finished_at is None:
+                    step.finished_at = now
+                step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
         elif run_status == "failed":
             if step.status == "running":
                 step.status = "failed"
                 if fallback_error:
                     step.detail = fallback_error
-                step.save(update_fields=["status", "detail", "updated_at"])
+                if step.started_at is None:
+                    step.started_at = now
+                if step.finished_at is None:
+                    step.finished_at = now
+                step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
 
 
 def execute_run(run: PipelineRun) -> None:
     run.refresh_from_db()
-    profile = run.video_asset.execution_profile
     _ensure_step_rows(run)
+    profile, _ = ExecutionProfile.objects.get_or_create(video_asset=run.video_asset)
 
     target_step = _next_pending_step_name(run)
     if target_step is None:
@@ -1512,7 +1590,8 @@ def execute_run(run: PipelineRun) -> None:
 
     current_step = None
 
-    with open(log_file, "a", encoding="utf-8") as fh:
+    with open(log_file, "a", encoding="utf-8") as raw_fh:
+        fh = TimestampedWriter(raw_fh)
         fh.write("[webapp] command: script-based direct pipeline\n")
         fh.write(f"[webapp] run mode: {run.run_mode}\n")
         fh.write(f"[webapp] target step: {target_step}\n")

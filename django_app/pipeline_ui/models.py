@@ -30,29 +30,7 @@ class VideoAsset(models.Model):
 
 
 class ExecutionProfile(models.Model):
-    BACKEND_CHOICES = [
-        # ("libretranslate", "libretranslate"),  # Legacy option kept commented for possible reactivation.
-        ("google", "google"),
-        ("nllb_local", "nllb_local"),
-        ("nllb_hf", "nllb_hf"),
-        ("deepl_doc", "deepl_doc"),
-        ("gemini", "gemini"),
-        ("ollama", "ollama"),
-    ]
-
-    NLLB_PROFILE_CHOICES = [
-        ("fast", "fast"),
-        ("legacy", "legacy"),
-        ("custom", "custom"),
-    ]
-
     video_asset = models.OneToOneField(VideoAsset, on_delete=models.CASCADE, related_name="execution_profile")
-    backend = models.CharField(max_length=32, choices=BACKEND_CHOICES, default="ollama")
-    nllb_profile = models.CharField(max_length=16, choices=NLLB_PROFILE_CHOICES, default="legacy")
-    nllb_max_input_length = models.PositiveIntegerField(default=768)
-    nllb_max_new_tokens = models.PositiveIntegerField(default=192)
-    nllb_legacy = models.BooleanField(default=True)
-    deepl_endpoint = models.CharField(max_length=64, default="free")
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -116,6 +94,8 @@ class PipelineStepStatus(models.Model):
     step_name = models.CharField(max_length=24, choices=STEP_CHOICES)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="pending")
     detail = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

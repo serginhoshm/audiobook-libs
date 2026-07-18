@@ -9,33 +9,41 @@ def _now_string() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _emit(line: str = "", stream=None) -> None:
+    target = stream or sys.stdout
+    if line:
+        print(f"[{_now_string()}] {line}", file=target)
+        return
+    print(f"[{_now_string()}]", file=target)
+
+
 def cmd_header(args: argparse.Namespace) -> int:
-    print("")
-    print("╔════════════════════════════════════════════════════════════╗")
-    print(f"║ [START] {args.script_name}")
-    print(f"║ Timestamp: {_now_string()}")
-    print(f"║ Log: {args.log_file}")
-    print("╚════════════════════════════════════════════════════════════╝")
-    print("")
+    _emit()
+    _emit("╔════════════════════════════════════════════════════════════╗")
+    _emit(f"║ [START] {args.script_name}")
+    _emit(f"║ Timestamp: {_now_string()}")
+    _emit(f"║ Log: {args.log_file}")
+    _emit("╚════════════════════════════════════════════════════════════╝")
+    _emit()
     return 0
 
 
 def cmd_section(args: argparse.Namespace) -> int:
-    print("")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print(f"▶ {args.title}")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("")
+    _emit()
+    _emit("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    _emit(f"▶ {args.title}")
+    _emit("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    _emit()
     return 0
 
 
 def cmd_step(args: argparse.Namespace) -> int:
-    print(f"  ✓ {args.message}")
+    _emit(f"  ✓ {args.message}")
     return 0
 
 
 def cmd_error(args: argparse.Namespace) -> int:
-    print(f"  ✗ ERROR: {args.message}", file=sys.stderr)
+    _emit(f"  ✗ ERROR: {args.message}", stream=sys.stderr)
     return 0
 
 
@@ -46,19 +54,19 @@ def cmd_summary(args: argparse.Namespace) -> int:
     seconds = elapsed % 60
     time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    print("")
-    print("╔════════════════════════════════════════════════════════════╗")
+    _emit()
+    _emit("╔════════════════════════════════════════════════════════════╗")
     if args.status.upper() == "SUCCESS":
-        print(f"║ [SUCCESS] {args.script_name}")
+        _emit(f"║ [SUCCESS] {args.script_name}")
     else:
-        print(f"║ [FAILURE] {args.script_name}")
-    print(f"║ Status: {args.status}")
-    print(f"║ Duration: {time_str}")
+        _emit(f"║ [FAILURE] {args.script_name}")
+    _emit(f"║ Status: {args.status}")
+    _emit(f"║ Duration: {time_str}")
     if args.error_message:
-        print(f"║ Error: {args.error_message}")
-    print(f"║ Finished: {_now_string()}")
-    print("╚════════════════════════════════════════════════════════════╝")
-    print("")
+        _emit(f"║ Error: {args.error_message}")
+    _emit(f"║ Finished: {_now_string()}")
+    _emit("╚════════════════════════════════════════════════════════════╝")
+    _emit()
     return 0
 
 

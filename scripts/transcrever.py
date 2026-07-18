@@ -9,8 +9,12 @@ from pathlib import Path
 
 from faster_whisper import WhisperModel
 
-
-logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+)
 
 
 def parse_args():
@@ -104,18 +108,15 @@ def main():
     )
     model_dir = models_root / args.model_size
     if not model_dir.is_dir():
-        print(
-            (
-                f"Error: local Whisper model not found at {model_dir}. "
-                "Run setup/install_all.sh to prepare local artifacts."
-            ),
-            flush=True,
+        logging.error(
+            "Error: local Whisper model not found at %s. Run setup/install_all.sh to prepare local artifacts.",
+            model_dir,
         )
         sys.exit(1)
 
     language = (args.language or "").strip().lower()
     if language not in {"es", "zh", "auto"}:
-        print("Error: invalid language. Use only 'es', 'zh', or 'auto'.", flush=True)
+        logging.error("Error: invalid language. Use only 'es', 'zh', or 'auto'.")
         sys.exit(1)
 
     try:
@@ -127,7 +128,7 @@ def main():
         segments = _collect_segments(model, audio, language)
         logging.info(f"[whisper] Transcription completed with {len(segments)} segments")
         _write_srt(artifact_srt, segments)
-        print(f"Completed: {audio.name}", flush=True)
+        logging.info("Completed: %s", audio.name)
         return
     except Exception as exc:
         logging.error("[whisper] Transcription failed: %s", exc)

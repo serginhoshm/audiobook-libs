@@ -29,6 +29,17 @@ Relacionamento com o plano mestre:
 
 ## 3. Operação diária
 
+Observação de concorrência do pipeline:
+
+- O coordenador mantém 1 worker por fase do pipeline por padrão (DL, EX, TR, TL, AB, RX).
+- Para ajustar este limite, use a variável de ambiente `WEBAPP_WORKER_MAX_SLOTS_PER_SCOPE`.
+- Em máquina local única, mantenha `1` como padrão e aumente para `2` somente após medir ganho real de throughput sem aumento de falhas ou lock/retry de SQLite.
+
+Observação de observabilidade:
+
+- Logs operacionais e de pipeline usam carimbo de timestamp no formato `[YYYY-MM-DD hh:mm:ss]`.
+- Cada etapa do pipeline registra `started_at` e `finished_at` no SQLite, permitindo cálculo de duração por etapa.
+
 ### 3.1 Iniciar serviço
 
 Comando:

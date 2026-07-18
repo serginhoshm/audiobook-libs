@@ -7,11 +7,11 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from pipeline_ui.logging_utils import format_timestamped_message
-from pipeline_ui.services import ensure_worker_running
+from pipeline_ui.services import collect_and_store_worker_health_snapshot
 
 
 class Command(BaseCommand):
-    help = "Run dedicated worker coordinator to keep step-scoped workers active"
+    help = "Run dedicated worker status collector to publish process snapshots"
 
     def _log(self, message: str, style=None) -> None:
         payload = format_timestamped_message(message)
@@ -29,10 +29,10 @@ class Command(BaseCommand):
         return root / ".run" / "webapp"
 
     def _pid_file(self) -> Path:
-        return self._run_dir() / "coordinator.pid"
+        return self._run_dir() / "status-collector.pid"
 
     def _lock_file(self) -> Path:
-        return self._run_dir() / "coordinator.lock"
+        return self._run_dir() / "status-collector.lock"
 
     def _acquire_singleton_lock(self):
         lock_file = self._lock_file()
@@ -65,29 +65,30 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         requested_poll = int(options.get("poll_seconds") or 0)
-        default_poll = int(settings.WEBAPP.get("COORDINATOR_POLL_SECONDS", 5))
+        default_poll = int(settings.WEBAPP.get("WORKER_STATUS_COLLECTOR_POLL_SECONDS", 3))
         poll_seconds = max(1, requested_poll if requested_poll > 0 else default_poll)
         run_once = bool(options.get("once"))
 
         lock_handle = self._acquire_singleton_lock()
         if lock_handle is None:
-            self._log("[coordinator] another instance is already active; exiting", style=self.style.WARNING)
+            self._log("[status-collector] another instance is already active; exiting", style=self.style.WARNING)
             return
 
         self._write_pid_file()
-        self._log(f"[coordinator] started (poll={poll_seconds}s once={run_once})", style=self.style.SUCCESS)
+        self._log(f"[status-collector] started (poll={poll_seconds}s once={run_once})", style=self.style.SUCCESS)
 
         try:
             while True:
-                summary = ensure_worker_running()
-                if summary.get("started"):
-                    started = summary.get("started_worker_pids") or []
-                    self._log(f"[coordinator] ensured workers: started={started}")
+                payload = collect_and_store_worker_health_snapshot(source="collector")
+                self._log(
+                    "[status-collector] snapshot refreshed "
+                    f"workers={payload.get('worker_count', 0)} queued={payload.get('queue', {}).get('queued', 0)}"
+                )
                 if run_once:
                     break
                 time.sleep(poll_seconds)
         except KeyboardInterrupt:
-            self._log("[coordinator] shutting down...")
+            self._log("[status-collector] shutting down...")
         finally:
             self._cleanup_pid_file()
             try:

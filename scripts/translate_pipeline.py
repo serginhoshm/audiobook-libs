@@ -33,6 +33,14 @@ class Window:
     block_ids: List[int]
 
 
+def _ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _log(message: str) -> None:
+    print(f"[{_ts()}] {message}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Robust subtitle translation pipeline")
     parser.add_argument("--in", dest="input_file", type=Path, required=True, help="Input subtitle (.srt or .vtt)")
@@ -273,9 +281,9 @@ def main() -> int:
     report_path = args.report or Path("logs") / "translation" / f"report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     write_report(report, report_path)
 
-    print(f"DONE: translated file -> {args.output_file}")
-    print(f"REPORT: {report_path}")
-    print(f"CHECKPOINT: {checkpoint_path}")
+    _log(f"DONE: translated file -> {args.output_file}")
+    _log(f"REPORT: {report_path}")
+    _log(f"CHECKPOINT: {checkpoint_path}")
     return 0
 
 

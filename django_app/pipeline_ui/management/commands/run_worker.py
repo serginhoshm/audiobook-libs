@@ -1,7 +1,6 @@
 import fcntl
 import os
 from pathlib import Path
-import signal
 import time
 
 from django.conf import settings
@@ -10,6 +9,7 @@ from django.db import OperationalError
 from django.db import transaction
 from django.utils import timezone
 
+from pipeline_ui.logging_utils import format_timestamped_message
 from pipeline_ui.models import PipelineRun
 from pipeline_ui.runner import (
     PIPELINE_STEP_ORDER,
@@ -18,11 +18,23 @@ from pipeline_ui.runner import (
     execute_run,
     request_stop,
 )
-from pipeline_ui.services import WORKER_SCOPE_GENERAL, ensure_worker_running, resolve_asset_video_path
+from pipeline_ui.services import (
+    WORKER_SCOPE_GENERAL,
+    ensure_worker_running,
+    resolve_asset_video_path,
+    worker_max_slots_per_scope,
+)
 
 
 class Command(BaseCommand):
     help = "Run local worker to consume queued runs"
+
+    def _log(self, message: str, style=None) -> None:
+        payload = format_timestamped_message(message)
+        if style is not None:
+            self.stdout.write(style(payload))
+            return
+        self.stdout.write(payload)
 
     def add_arguments(self, parser):
         parser.add_argument("--scope", default="general")
@@ -41,82 +53,6 @@ class Command(BaseCommand):
 
     def _worker_pid_file(self) -> Path:
         return self._worker_run_dir() / f"{self._worker_suffix()}.pid"
-
-    # Legacy LibreTranslate lifecycle helpers are intentionally disabled.
-    # Keep this code for future reactivation if local LT orchestration returns.
-    # def _libretranslate_url(self) -> str:
-    #     return str(settings.WEBAPP.get("LIBRETRANSLATE_URL", "http://127.0.0.1:5000")).rstrip("/")
-
-    # def _libretranslate_is_ready(self) -> bool:
-    #     try:
-    #         with urlrequest.urlopen(f"{self._libretranslate_url()}/languages", timeout=2) as resp:
-    #             return int(getattr(resp, "status", 200)) < 400
-    #     except Exception:
-    #         return False
-
-    # def _resolve_libretranslate_executable(self) -> Path:
-    #     root = Path(settings.WEBAPP["ROOT_DIR"])
-    #     configured = str(settings.WEBAPP.get("LIBRETRANSLATE_EXECUTABLE", "")).strip()
-    #     if configured:
-    #         return Path(configured)
-    #     return root / "external" / "LibreTranslate" / ".venv" / "bin" / "libretranslate"
-
-    # def _start_libretranslate_for_run(self) -> tuple[subprocess.Popen | None, str]:
-    #     if self._libretranslate_is_ready():
-    #         return None, "[worker] libretranslate already ready"
-    #
-    #     executable = self._resolve_libretranslate_executable()
-    #     if not executable.exists():
-    #         raise RuntimeError(
-    #             f"LibreTranslate executable not found: {executable}. "
-    #             "Run: bash setup/libretranslate/setup_libretranslate.sh"
-    #         )
-    #
-    #     load_only = str(settings.WEBAPP.get("LIBRETRANSLATE_LOAD_ONLY_LANG_CODES", "en,es,zh,pt")).strip()
-    #     start_timeout = int(settings.WEBAPP.get("LIBRETRANSLATE_START_TIMEOUT_SECONDS", 60))
-    #     host = str(settings.WEBAPP.get("LIBRETRANSLATE_HOST", "127.0.0.1")).strip() or "127.0.0.1"
-    #     port = str(settings.WEBAPP.get("LIBRETRANSLATE_PORT", "5000")).strip() or "5000"
-    #
-    #     command = [str(executable), "--host", host, "--port", port]
-    #     if load_only:
-    #         command.extend(["--load-only", load_only])
-    #
-    #     proc = subprocess.Popen(
-    #         command,
-    #         stdout=subprocess.DEVNULL,
-    #         stderr=subprocess.DEVNULL,
-    #         start_new_session=True,
-    #     )
-    #
-    #     for _ in range(max(1, start_timeout)):
-    #         if self._libretranslate_is_ready():
-    #             return proc, "[worker] libretranslate started for run"
-    #         time.sleep(1)
-    #
-    #     try:
-    #         os.killpg(proc.pid, signal.SIGTERM)
-    #     except Exception:
-    #         pass
-    #     raise RuntimeError("LibreTranslate server did not become ready in time")
-
-    # def _stop_libretranslate_for_run(self, proc: subprocess.Popen | None) -> None:
-    #     if proc is None:
-    #         return
-    #
-    #     try:
-    #         os.killpg(proc.pid, signal.SIGTERM)
-    #     except Exception:
-    #         return
-    #
-    #     for _ in range(8):
-    #         if proc.poll() is not None:
-    #             return
-    #         time.sleep(0.5)
-    #
-    #     try:
-    #         os.killpg(proc.pid, signal.SIGKILL)
-    #     except Exception:
-    #         return
 
     def _write_pid_file(self) -> None:
         run_dir = self._worker_run_dir()
@@ -153,35 +89,32 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         requested_scope = str(options.get("scope") or WORKER_SCOPE_GENERAL).strip().lower() or WORKER_SCOPE_GENERAL
         requested_slot = max(1, int(options.get("slot") or 1))
+        max_slots = worker_max_slots_per_scope()
         supported_scopes = {WORKER_SCOPE_GENERAL, *PIPELINE_STEP_ORDER}
 
         if requested_scope not in supported_scopes:
             valid = ", ".join(sorted(supported_scopes))
             raise CommandError(f"Unsupported worker scope '{requested_scope}'. Expected one of: {valid}")
-        if requested_slot != 1:
-            raise CommandError("Only slot=1 is supported for run_worker")
+        if requested_slot > max_slots:
+            raise CommandError(f"Invalid slot={requested_slot}. Supported range is 1..{max_slots}")
 
         self.scope = requested_scope
         self.slot = requested_slot
 
         lock_handle = self._acquire_singleton_lock()
         if lock_handle is None:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"[worker:{self.scope}:{self.slot}] another matching run_worker instance is already active; exiting"
-                )
+            self._log(
+                f"[worker:{self.scope}:{self.slot}] another matching run_worker instance is already active; exiting",
+                style=self.style.WARNING,
             )
             return
 
         poll_seconds = int(settings.WEBAPP["WORKER_POLL_SECONDS"])
         idle_exit_seconds = int(settings.WEBAPP.get("WORKER_IDLE_EXIT_SECONDS", 180))
-        manage_libretranslate = False
-        # To re-enable legacy auto-management:
-        # manage_libretranslate = str(settings.WEBAPP.get("WORKER_MANAGE_LIBRETRANSLATE", "1")).strip() != "0"
         idle_started_at = time.monotonic()
 
         self._write_pid_file()
-        self.stdout.write(self.style.SUCCESS(f"[worker:{self.scope}:{self.slot}] started"))
+        self._log(f"[worker:{self.scope}:{self.slot}] started", style=self.style.SUCCESS)
         self._with_db_retry(self._reconcile_inflight_runs)
 
         try:
@@ -194,31 +127,26 @@ class Command(BaseCommand):
                 if run is None:
                     self._with_db_retry(self._sync_stop_requests)
                     if idle_exit_seconds > 0 and (time.monotonic() - idle_started_at) >= idle_exit_seconds:
-                        self.stdout.write(f"[worker] idle timeout reached ({idle_exit_seconds}s); exiting")
+                        self._log(f"[worker] idle timeout reached ({idle_exit_seconds}s); exiting")
                         break
                     time.sleep(poll_seconds)
                     continue
 
                 idle_started_at = time.monotonic()
 
-                self.stdout.write(
+                self._log(
                     f"[worker:{self.scope}:{self.slot}] processing run id={run.id} "
                     f"mode={run.run_mode} video={run.video_asset.file_name}"
                 )
                 try:
-                    # if manage_libretranslate:
-                    #     lt_proc, message = self._start_libretranslate_for_run()
-                    #     self.stdout.write(message)
                     execute_run(run)
                 except Exception as exc:
                     self._mark_run_failed(run, f"Worker internal error: {exc}")
                 finally:
                     ensure_worker_running()
-                    # if manage_libretranslate:
-                    #     self._stop_libretranslate_for_run(lt_proc)
                     pass
         except KeyboardInterrupt:
-            self.stdout.write(f"[worker:{self.scope}:{self.slot}] shutting down...")
+            self._log(f"[worker:{self.scope}:{self.slot}] shutting down...")
         finally:
             self._cleanup_pid_file()
             try:
@@ -236,10 +164,9 @@ class Command(BaseCommand):
                 if "database is locked" not in str(exc).lower() or attempt == attempts:
                     raise
                 wait_seconds = base_wait * attempt
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"[worker] sqlite lock detected; retrying in {wait_seconds:.2f}s (attempt {attempt}/{attempts})"
-                    )
+                self._log(
+                    f"[worker] sqlite lock detected; retrying in {wait_seconds:.2f}s (attempt {attempt}/{attempts})",
+                    style=self.style.WARNING,
                 )
                 time.sleep(wait_seconds)
 
@@ -291,13 +218,32 @@ class Command(BaseCommand):
                     if download_step.status != "success" or download_step.detail != detail:
                         download_step.status = "success"
                         download_step.detail = detail
-                        download_step.save(update_fields=["status", "detail", "updated_at"])
+                        now = timezone.now()
+                        if download_step.started_at is None:
+                            download_step.started_at = now
+                        if download_step.finished_at is None:
+                            download_step.finished_at = now
+                        download_step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
                     continue
 
             if run.process_group_id:
                 request_stop(run)
+
+            now = timezone.now()
+            for step in run.steps.all():
+                if step.status not in {"pending", "running"}:
+                    continue
+                step.status = "failed"
+                if not step.detail:
+                    step.detail = "Run reconciled after worker restart"
+                if step.started_at is None:
+                    step.started_at = now
+                if step.finished_at is None:
+                    step.finished_at = now
+                step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
+
             run.status = "failed"
-            run.finished_at = timezone.now()
+            run.finished_at = now
             if not run.error_message:
                 run.error_message = "Run reconciled after worker restart"
             run.pid = None

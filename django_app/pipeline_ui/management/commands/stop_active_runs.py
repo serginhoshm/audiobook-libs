@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from pipeline_ui.logging_utils import format_timestamped_message
 from pipeline_ui.models import PipelineRun
 
 
@@ -50,7 +51,11 @@ class Command(BaseCommand):
                 if step.status in {"pending", "running"}:
                     step.status = "skipped"
                     step.detail = "Interrompido durante stop da webapp"
-                    step.save(update_fields=["status", "detail", "updated_at"])
+                    if step.started_at is None:
+                        step.started_at = now
+                    if step.finished_at is None:
+                        step.finished_at = now
+                    step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
 
             run.stop_requested = True
             run.status = "stopped"
@@ -74,4 +79,4 @@ class Command(BaseCommand):
             )
             stopped_count += 1
 
-        self.stdout.write(self.style.SUCCESS(f"[stop_active_runs] runs interrompidos: {stopped_count}"))
+        self.stdout.write(self.style.SUCCESS(format_timestamped_message(f"[stop_active_runs] runs interrompidos: {stopped_count}")))

@@ -11,7 +11,7 @@ import unicodedata
 from urllib import error as urlerror
 from urllib.parse import parse_qs, urlparse
 from urllib import request as urlrequest
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,11 @@ _YT_DLP_HELP_CACHE: str | None = None
 _YOUTUBE_API_SERVICE = None
 WORKER_SCOPE_GENERAL = "general"
 WORKER_STEP_SCOPES = tuple(PIPELINE_STEP_ORDER)
-TRANSLATION_BACKEND_DEFAULT = os.environ.get("WEBAPP_TRANSLATION_BACKEND_DEFAULT", "google").strip().lower() or "google"
+
+
+def worker_max_slots_per_scope() -> int:
+    configured = int(settings.WEBAPP.get("WORKER_MAX_SLOTS_PER_SCOPE", 1))
+    return max(1, configured)
 
 
 def _with_sqlite_lock_retry(fn, *args, **kwargs):
@@ -67,7 +71,8 @@ def _with_sqlite_lock_retry(fn, *args, **kwargs):
 
 
 def _worker_role_specs() -> list[tuple[str, int]]:
-    return [(scope, 1) for scope in WORKER_STEP_SCOPES]
+    max_slots = worker_max_slots_per_scope()
+    return [(scope, slot) for scope in WORKER_STEP_SCOPES for slot in range(1, max_slots + 1)]
 
 
 def _worker_file_name(kind: str, scope: str, slot: int) -> str:
@@ -127,6 +132,10 @@ def _worker_run_dir() -> Path:
 
 def _coordinator_pid_file() -> Path:
     return _worker_run_dir() / "coordinator.pid"
+
+
+def _worker_status_snapshot_file() -> Path:
+    return _worker_run_dir() / "worker-status.json"
 
 
 def _pid_is_running(pid: int | None) -> bool:
@@ -469,12 +478,6 @@ def export_scan_index_markdown(work_exec: Path) -> None:
                 [
                     ("id", profile.id),
                     ("video_asset_id", profile.video_asset_id),
-                    ("backend", profile.backend),
-                    ("nllb_profile", profile.nllb_profile),
-                    ("nllb_max_input_length", profile.nllb_max_input_length),
-                    ("nllb_max_new_tokens", profile.nllb_max_new_tokens),
-                    ("nllb_legacy", profile.nllb_legacy),
-                    ("deepl_endpoint", profile.deepl_endpoint),
                     ("updated_at", profile.updated_at),
                 ],
             )
@@ -1041,10 +1044,14 @@ def _yt_dlp_js_runtime_args() -> list[str]:
     if not _yt_dlp_supports_option("--js-runtimes"):
         return []
 
-    for runtime in ("deno", "node"):
+    runtimes: list[str] = []
+    for runtime in ("node", "deno"):
         runtime_path = shutil.which(runtime)
         if runtime_path:
-            return ["--js-runtimes", f"{runtime}:{runtime_path}"]
+            runtimes.append(f"{runtime}:{runtime_path}")
+
+    if runtimes:
+        return ["--js-runtimes", ",".join(runtimes)]
     return []
 
 
@@ -1081,6 +1088,16 @@ def _next_download_basename(for_date=None) -> str:
 
 
 def _probe_youtube_metadata(url: str) -> dict[str, Any]:
+    try:
+        from pytubefix import YouTube
+
+        yt = YouTube(url)
+        title = str(getattr(yt, "title", "") or "").strip()
+        if title:
+            return {"title": title}
+    except Exception:
+        pass
+
     base = [
         "yt-dlp",
         "--ignore-config",
@@ -1113,16 +1130,28 @@ def _probe_youtube_metadata(url: str) -> dict[str, Any]:
     else:
         raise RuntimeError(f"yt-dlp failed to read metadata: {last_detail}")
 
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError as exc:
+    data: dict[str, Any] | None = None
+    parse_error: json.JSONDecodeError | None = None
+
+    # yt-dlp can emit warnings before the JSON payload even with --dump-single-json.
+    candidates = [output.strip()]
+    candidates.extend(line.strip() for line in reversed(output.splitlines()) if line.strip())
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            parse_error = exc
+            continue
+        if isinstance(parsed, dict):
+            data = parsed
+            break
+
+    if data is None:
         preview = output.strip().splitlines()[0] if output.strip() else ""
         raise RuntimeError(
             f"yt-dlp returned non-JSON metadata output{': ' + preview if preview else ''}"
-        ) from exc
+        ) from parse_error
 
-    if not isinstance(data, dict):
-        raise RuntimeError("yt-dlp metadata response is invalid")
     return data
 
 
@@ -1353,17 +1382,6 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
 
 def ensure_execution_profile(asset: VideoAsset) -> ExecutionProfile:
     profile, _ = ExecutionProfile.objects.get_or_create(video_asset=asset)
-    valid_backends = {choice for choice, _ in ExecutionProfile.BACKEND_CHOICES}
-    desired_backend = profile.backend
-
-    if desired_backend == "libretranslate":
-        desired_backend = "google"
-    elif desired_backend not in valid_backends:
-        desired_backend = TRANSLATION_BACKEND_DEFAULT if TRANSLATION_BACKEND_DEFAULT in valid_backends else "google"
-
-    if desired_backend != profile.backend:
-        profile.backend = desired_backend
-        _with_sqlite_lock_retry(profile.save, update_fields=["backend", "updated_at"])
     return profile
 
 
@@ -1831,7 +1849,7 @@ def run_evidence_worker(
     return {"synced": synced, "missing": missing}
 
 
-def worker_health_status() -> dict[str, Any]:
+def _collect_worker_health_status() -> dict[str, Any]:
     discovered = _discover_worker_processes()
     coordinator = _discover_coordinator_process()
     discovered_pids = [proc["pid"] for proc in discovered]
@@ -1841,10 +1859,13 @@ def worker_health_status() -> dict[str, Any]:
     stopping = PipelineRun.objects.filter(status="stopping").count()
 
     pid = discovered_pids[0] if discovered_pids else None
-    scope_counts = {WORKER_SCOPE_GENERAL: 0}
+    scope_counts = {WORKER_SCOPE_GENERAL: 0, **{scope: 0 for scope in WORKER_STEP_SCOPES}}
     for proc in discovered:
         scope = str(proc.get("scope") or WORKER_SCOPE_GENERAL)
         scope_counts[scope] = scope_counts.get(scope, 0) + 1
+
+    expected_slots_per_scope = {scope: worker_max_slots_per_scope() for scope in WORKER_STEP_SCOPES}
+    expected_worker_count = sum(expected_slots_per_scope.values())
 
     return {
         "running": bool(discovered_pids),
@@ -1856,6 +1877,8 @@ def worker_health_status() -> dict[str, Any]:
         "worker_pids": discovered_pids,
         "worker_count": len(discovered_pids),
         "worker_scope_counts": scope_counts,
+        "expected_worker_slots_per_scope": expected_slots_per_scope,
+        "expected_worker_count": expected_worker_count,
         "workers": discovered,
         "queue": {
             "queued": queued,
@@ -1863,6 +1886,73 @@ def worker_health_status() -> dict[str, Any]:
             "stopping": stopping,
         },
     }
+
+
+def _write_worker_status_snapshot(worker_payload: dict[str, Any], source: str) -> dict[str, Any]:
+    run_dir = _worker_run_dir()
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    snapshot = {
+        "collected_at": timezone.now().isoformat(),
+        "source": str(source or "collector"),
+        "worker": worker_payload,
+    }
+
+    target = _worker_status_snapshot_file()
+    temp = target.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(target)
+    return snapshot
+
+
+def _read_worker_status_snapshot() -> dict[str, Any] | None:
+    path = _worker_status_snapshot_file()
+    if not path.exists():
+        return None
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    if not isinstance(payload.get("worker"), dict):
+        return None
+    return payload
+
+
+def collect_and_store_worker_health_snapshot(source: str = "collector") -> dict[str, Any]:
+    worker_payload = _collect_worker_health_status()
+    _write_worker_status_snapshot(worker_payload, source=source)
+    return worker_payload
+
+
+def worker_health_status() -> dict[str, Any]:
+    stale_after_seconds = max(1, int(settings.WEBAPP.get("WORKER_STATUS_SNAPSHOT_STALE_SECONDS", 15)))
+    snapshot = _read_worker_status_snapshot()
+    if snapshot:
+        collected_at = str(snapshot.get("collected_at") or "").strip()
+        try:
+            collected_dt = datetime.fromisoformat(collected_at)
+            if timezone.is_naive(collected_dt):
+                collected_dt = timezone.make_aware(collected_dt, timezone.get_current_timezone())
+            age_seconds = (timezone.now() - collected_dt).total_seconds()
+        except Exception:
+            age_seconds = stale_after_seconds + 1
+
+        if age_seconds <= stale_after_seconds:
+            worker_payload = dict(snapshot["worker"])
+            worker_payload["source"] = "snapshot"
+            worker_payload["snapshot_source"] = snapshot.get("source")
+            worker_payload["snapshot_collected_at"] = snapshot.get("collected_at")
+            worker_payload["snapshot_age_seconds"] = max(0, int(age_seconds))
+            return worker_payload
+
+    worker_payload = _collect_worker_health_status()
+    _write_worker_status_snapshot(worker_payload, source="api_fallback")
+    worker_payload["source"] = "process_scan"
+    return worker_payload
 
 
 def active_run_exists(video_asset_id: int, run_mode: str | None = None) -> bool:
@@ -1917,50 +2007,9 @@ def request_stop_for_runs(run_ids: list[int] | None = None, video_ids: list[int]
     return count
 
 
-def parse_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    return text in {"1", "true", "yes", "on", "sim", "s"}
-
-
 def update_execution_profile(video_id: int, payload: dict[str, Any]) -> ExecutionProfile:
     asset = VideoAsset.objects.get(id=video_id)
-    profile = ensure_execution_profile(asset)
-
-    valid_backends = {choice for choice, _ in ExecutionProfile.BACKEND_CHOICES}
-    allowed = {
-        "backend",
-        "nllb_profile",
-        "nllb_max_input_length",
-        "nllb_max_new_tokens",
-        "nllb_legacy",
-        "deepl_endpoint",
-    }
-
-    for key in allowed:
-        if key not in payload:
-            continue
-        value = payload[key]
-        if key in {"nllb_max_input_length", "nllb_max_new_tokens"}:
-            try:
-                value = int(value)
-            except Exception:
-                continue
-        elif key == "backend":
-            value = str(value or "").strip().lower()
-            if value == "libretranslate":
-                value = "google"
-            if value not in valid_backends:
-                continue
-        elif key in {"nllb_legacy"}:
-            value = parse_bool(value, default=getattr(profile, key))
-        setattr(profile, key, value)
-
-    profile.save()
-    return profile
+    return ensure_execution_profile(asset)
 
 
 def format_duration(seconds: float | None) -> str:
@@ -1976,12 +2025,8 @@ def format_duration(seconds: float | None) -> str:
 
 def serialize_profile(profile: ExecutionProfile) -> dict[str, Any]:
     return {
-        "backend": profile.backend,
-        "nllb_profile": profile.nllb_profile,
-        "nllb_max_input_length": profile.nllb_max_input_length,
-        "nllb_max_new_tokens": profile.nllb_max_new_tokens,
-        "nllb_legacy": profile.nllb_legacy,
-        "deepl_endpoint": profile.deepl_endpoint,
+        "id": profile.id,
+        "updated_at": profile.updated_at,
     }
 
 
@@ -2065,6 +2110,13 @@ def serialize_asset(
                 "step_name": s.step_name,
                 "status": s.status,
                 "detail": s.detail,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+                "duration_seconds": (
+                    round((s.finished_at - s.started_at).total_seconds(), 3)
+                    if s.started_at and s.finished_at
+                    else None
+                ),
                 "updated_at": s.updated_at.isoformat(),
             }
             for s in latest_run.steps.order_by("id")
