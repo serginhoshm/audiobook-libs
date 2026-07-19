@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from pipeline_ui.logging_utils import format_timestamped_message
@@ -189,8 +190,21 @@ class Command(BaseCommand):
         self._with_db_retry(_update)
 
     def _reconcile_inflight_runs(self):
-        running_like = PipelineRun.objects.select_related("video_asset").filter(status__in=["running", "stopping"])
+        running_like = (
+            PipelineRun.objects.select_related("video_asset")
+            .prefetch_related("steps")
+            .filter(Q(status__in=["running", "stopping"]) | Q(status="queued", steps__status="running"))
+            .distinct()
+        )
         for run in running_like:
+            has_running_step = any(step.status == "running" for step in run.steps.all())
+
+            # Heal inconsistent state: a step is running but the run was left queued.
+            if run.status == "queued" and has_running_step and self._run_process_is_alive(run):
+                run.status = "running"
+                run.save(update_fields=["status", "updated_at"])
+                continue
+
             if self._run_process_is_alive(run):
                 continue
 
@@ -202,7 +216,15 @@ class Command(BaseCommand):
 
             download_step = run.steps.filter(step_name="download").first()
             video_path = resolve_asset_video_path(run.video_asset)
-            if download_step and run.video_asset.source_url and video_path.exists():
+            next_step = _next_pending_step_name(run)
+            can_requeue_from_download = (
+                download_step is not None
+                and not has_running_step
+                and run.video_asset.source_url
+                and video_path.exists()
+                and next_step == "download"
+            )
+            if can_requeue_from_download:
                 try:
                     ok, detail = _persist_download_result(run, video_path)
                 except Exception:

@@ -695,6 +695,7 @@ def _run_subprocess_with_streaming(
     log_fh: Any,
     cwd: Path,
     progress_reporter: Callable[[], str | None] | None = None,
+    heartbeat_timeout_seconds: int = 0,
 ) -> int:
     grace = int(settings.WEBAPP["WORKER_GRACE_SECONDS"])
     temp_dir = load_work_temp_dir()
@@ -726,12 +727,14 @@ def _run_subprocess_with_streaming(
     stdout_stream = proc.stdout
     rc: int | None = None
     last_progress_check = 0.0
+    last_activity = time.time()
 
     if progress_reporter is not None:
         initial_progress = progress_reporter()
         if initial_progress:
             log_fh.write(f"{initial_progress}\n")
             log_fh.flush()
+            last_activity = time.time()
 
     while True:
         if stdout_stream:
@@ -741,6 +744,7 @@ def _run_subprocess_with_streaming(
                 if line:
                     log_fh.write(line)
                     log_fh.flush()
+                    last_activity = time.time()
 
         rc = proc.poll()
 
@@ -751,6 +755,7 @@ def _run_subprocess_with_streaming(
             if progress_line:
                 log_fh.write(f"{progress_line}\n")
                 log_fh.flush()
+                last_activity = now
 
         run.refresh_from_db(fields=["stop_requested", "status"])
         if rc is not None:
@@ -768,6 +773,28 @@ def _run_subprocess_with_streaming(
             if rc is None:
                 _signal_process_group(run.process_group_id or proc.pid, signal.SIGKILL)
                 rc = proc.wait(timeout=10)
+            break
+
+        if heartbeat_timeout_seconds > 0 and (now - last_activity) >= heartbeat_timeout_seconds:
+            timeout_msg = (
+                "[webapp] heartbeat timeout: no subprocess output/progress for "
+                f"{heartbeat_timeout_seconds}s; terminating process group"
+            )
+            log_fh.write(f"{timeout_msg}\n")
+            log_fh.flush()
+            _signal_process_group(run.process_group_id or proc.pid, signal.SIGTERM)
+            waited = 0
+            while waited < grace:
+                rc = proc.poll()
+                if rc is not None:
+                    break
+                time.sleep(1)
+                waited += 1
+            if rc is None:
+                _signal_process_group(run.process_group_id or proc.pid, signal.SIGKILL)
+                rc = proc.wait(timeout=10)
+            if rc == 0:
+                rc = 124
             break
 
     if stdout_stream:
@@ -950,12 +977,17 @@ def _execute_pipeline_steps(
         translate_progress = _build_translate_checkpoint_progress_reporter(srt_path, translation_checkpoint)
         if translate_progress is None:
             translate_progress = _build_translate_progress_reporter(srt_path, srtpt_path)
+        translate_heartbeat_timeout = max(
+            0,
+            int(os.environ.get("WEBAPP_TRANSLATE_HEARTBEAT_TIMEOUT_SECONDS", "1800") or "1800"),
+        )
         rc = _run_subprocess_with_streaming(
             run,
             translate_cmd,
             log_fh,
             root_dir,
             progress_reporter=translate_progress,
+            heartbeat_timeout_seconds=translate_heartbeat_timeout,
         )
         if rc != 0:
             _set_step_status(run.id, "translate", "failed", "Translation failed")
