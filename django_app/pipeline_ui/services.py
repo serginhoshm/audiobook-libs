@@ -14,10 +14,11 @@ from urllib import request as urlrequest
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from tempfile import NamedTemporaryFile
 
 from django.conf import settings
 from django.db import OperationalError
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
 from .models import ExecutionProfile, PipelineRun, PipelineStepStatus, VideoAsset
@@ -50,6 +51,8 @@ _YT_DLP_HELP_CACHE: str | None = None
 _YOUTUBE_API_SERVICE = None
 WORKER_SCOPE_GENERAL = "general"
 WORKER_STEP_SCOPES = tuple(PIPELINE_STEP_ORDER)
+_LEGACY_WORKDIR_WARNED = False
+PLEX_POSTER_SUFFIX = "-poster.jpg"
 
 
 def worker_max_slots_per_scope() -> int:
@@ -99,6 +102,11 @@ def _discover_worker_processes() -> list[dict[str, Any]]:
             pid_text, _, command = raw.partition(" ")
             if not pid_text.isdigit():
                 continue
+
+            # Keep only true run_worker command lines (exclude coordinator/collector).
+            if not re.search(r"(?:^|\s)run_worker(?:\s|$)", command):
+                continue
+
             pid = int(pid_text)
             if pid in seen_pids:
                 continue
@@ -291,10 +299,17 @@ def pipeline_config_path() -> Path:
 
 
 def load_data_root() -> Path:
+    global _LEGACY_WORKDIR_WARNED
+
     cfg = configparser.ConfigParser(interpolation=None)
     cfg.read(pipeline_config_path(), encoding="utf-8")
 
-    raw = cfg.get("paths", "data_root_relative", fallback="data").strip()
+    raw = cfg.get("paths", "workdir", fallback="").strip()
+    if not raw:
+        raw = cfg.get("paths", "data_root_relative", fallback="data").strip()
+        if not _LEGACY_WORKDIR_WARNED:
+            logger.warning("[config] [paths] data_root_relative is deprecated; use [paths] workdir")
+            _LEGACY_WORKDIR_WARNED = True
     if raw.startswith("/"):
         return Path(raw)
     return project_root() / raw
@@ -627,6 +642,61 @@ def normalize_run_log_storage(run: PipelineRun) -> bool:
     return True
 
 
+def _next_available_destination(destination: Path) -> Path:
+    if not destination.exists():
+        return destination
+
+    stem = destination.stem
+    suffix = destination.suffix
+    index = 1
+    while True:
+        if suffix:
+            alternative = destination.parent / f"{stem}.migrated-{index}{suffix}"
+        else:
+            alternative = destination.parent / f"{stem}.migrated-{index}"
+        if not alternative.exists():
+            return alternative
+        index += 1
+
+
+def _is_related_asset_name(candidate_name: str, canonical_name: str, stem: str) -> bool:
+    if candidate_name == canonical_name:
+        return True
+    return candidate_name.startswith(f"{stem}.") or candidate_name.startswith(f"{stem} ") or candidate_name.startswith(f"{stem}(")
+
+
+def _rename_library_artifacts(asset: VideoAsset, new_base_name: str) -> str:
+    canonical_name = canonical_asset_file_name(asset)
+    if not canonical_name:
+        return ""
+
+    source_dir = load_library_dir()
+    if not source_dir.exists():
+        return canonical_name
+
+    current_stem = Path(canonical_name).stem
+    desired_stem = _truncate_filesystem_name(new_base_name)
+    if not desired_stem or desired_stem == current_stem:
+        return canonical_name
+
+    renamed_video_name = canonical_name
+    for candidate in sorted(source_dir.iterdir(), key=lambda path: path.name.lower()):
+        if not candidate.is_file():
+            continue
+        if not _is_related_asset_name(candidate.name, canonical_name, current_stem):
+            continue
+
+        suffix = candidate.name[len(current_stem):]
+        destination = source_dir / f"{desired_stem}{suffix}"
+        destination = _next_available_destination(destination)
+        shutil.move(str(candidate), str(destination))
+
+        if candidate.name == canonical_name:
+            renamed_video_name = destination.name
+
+    return renamed_video_name
+
+
 def _canonical_thumbnail_name(value: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -742,6 +812,100 @@ def _download_thumbnail_from_url(url: str, target_stem: str) -> Path | None:
         return None
     except Exception:
         return None
+
+
+def _download_best_thumbnail_for_asset(asset: VideoAsset, metadata: dict[str, Any] | None = None) -> Path | None:
+    details = metadata if isinstance(metadata, dict) else {}
+    stem = Path(canonical_asset_file_name(asset)).stem or f"video-{asset.id}"
+
+    thumb_url = _youtube_thumbnail_url_from_metadata(details)
+    if thumb_url:
+        saved = _download_thumbnail_from_url(thumb_url, f"{stem}-{asset.id}-refresh")
+        if saved is not None:
+            return saved
+
+    for fallback_url in _youtube_thumbnail_fallback_urls(asset.source_url):
+        saved = _download_thumbnail_from_url(fallback_url, f"{stem}-{asset.id}-refresh")
+        if saved is not None:
+            return saved
+
+    return None
+
+
+def _convert_image_to_jpeg(source_path: Path, destination_path: Path) -> None:
+    try:
+        from PIL import Image, ImageOps
+    except Exception as exc:
+        raise RuntimeError(f"Pillow unavailable for JPEG conversion: {exc}") from exc
+
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+    temporary_path: Path | None = None
+    try:
+        with Image.open(source_path) as image:
+            normalized = ImageOps.exif_transpose(image)
+            if normalized.mode != "RGB":
+                normalized = normalized.convert("RGB")
+
+            with NamedTemporaryFile(
+                mode="wb",
+                delete=False,
+                dir=str(destination_path.parent),
+                suffix=".tmp",
+            ) as temp_file:
+                temporary_path = Path(temp_file.name)
+
+            normalized.save(temporary_path, format="JPEG", quality=92)
+
+        temporary_path.replace(destination_path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            try:
+                temporary_path.unlink()
+            except Exception:
+                pass
+
+
+def _refresh_plex_posters_for_library_asset(
+    asset: VideoAsset,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if _asset_storage_location(asset) != STORAGE_LOCATION_LIBRARY:
+        return {
+            "status": "skipped",
+            "detail": "asset is not in library",
+            "files": [],
+        }
+
+    source_image = _download_best_thumbnail_for_asset(asset, metadata=metadata)
+    if source_image is None:
+        return {
+            "status": "failed",
+            "detail": "thumbnail unavailable for Plex poster generation",
+            "files": [],
+        }
+
+    video_name = canonical_asset_file_name(asset)
+    video_stem = Path(video_name).stem if video_name else ""
+    if not video_stem:
+        return {
+            "status": "failed",
+            "detail": "unable to resolve video file name for Plex poster generation",
+            "files": [],
+        }
+
+    library_dir = load_library_dir()
+    stem_poster = library_dir / f"{video_stem}.jpg"
+    plex_poster = library_dir / f"{video_stem}{PLEX_POSTER_SUFFIX}"
+
+    _convert_image_to_jpeg(source_image, stem_poster)
+    _convert_image_to_jpeg(source_image, plex_poster)
+
+    return {
+        "status": "updated",
+        "detail": "generated stem poster and stem-poster.jpg",
+        "files": [stem_poster.name, plex_poster.name],
+    }
 
 
 def _youtube_video_id_from_url(source_url: Any) -> str:
@@ -948,7 +1112,10 @@ def _youtube_metadata_from_api(video_id: str) -> dict[str, Any]:
     response = service.videos().list(
         part="snippet",
         id=video_id,
-        fields="items(id,snippet(title,channelTitle,publishedAt,defaultAudioLanguage,defaultLanguage,tags,localized))",
+        fields=(
+            "items(id,snippet(title,channelTitle,publishedAt,defaultAudioLanguage,defaultLanguage,tags,localized,"
+            "thumbnails(default(url),medium(url),high(url),standard(url),maxres(url))))"
+        ),
     ).execute()
 
     items = response.get("items") or []
@@ -959,6 +1126,19 @@ def _youtube_metadata_from_api(video_id: str) -> dict[str, Any]:
     snippet = item.get("snippet") if isinstance(item, dict) else {}
     if not isinstance(snippet, dict):
         return {}
+
+    thumbnails_payload = snippet.get("thumbnails")
+    thumbnails: list[dict[str, Any]] = []
+    if isinstance(thumbnails_payload, dict):
+        quality_order = ["default", "medium", "high", "standard", "maxres"]
+        for quality in quality_order:
+            candidate = thumbnails_payload.get(quality)
+            if not isinstance(candidate, dict):
+                continue
+            url = str(candidate.get("url") or "").strip()
+            if not url:
+                continue
+            thumbnails.append({"url": url, "quality": quality})
 
     return {
         "id": str(item.get("id") or video_id),
@@ -971,6 +1151,8 @@ def _youtube_metadata_from_api(video_id: str) -> dict[str, Any]:
             or ""
         ).strip(),
         "tags": snippet.get("tags") if isinstance(snippet.get("tags"), list) else [],
+        "thumbnail": thumbnails[-1]["url"] if thumbnails else "",
+        "thumbnails": thumbnails,
     }
 
 
@@ -1160,11 +1342,26 @@ def refresh_youtube_title_fields(video_ids: list[int] | None = None) -> dict[str
     if not ids:
         raise ValueError("video_ids is empty")
 
-    results = {"refreshed": 0, "skipped": 0, "failed": 0, "items": []}
+    results = {
+        "refreshed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "plex_generated": 0,
+        "plex_failed": 0,
+        "plex_skipped": 0,
+        "items": [],
+    }
     assets = VideoAsset.objects.filter(id__in=ids, is_deleted=False, storage_location=STORAGE_LOCATION_LIBRARY)
 
     for asset in assets:
-        item_result = {"video_id": asset.id, "status": "skipped", "detail": ""}
+        item_result = {
+            "video_id": asset.id,
+            "status": "skipped",
+            "detail": "",
+            "plex_poster_status": "skipped",
+            "plex_poster_detail": "",
+            "plex_poster_files": [],
+        }
         try:
             if not _is_youtube_source(asset.source_url):
                 item_result["detail"] = "source is not YouTube"
@@ -1179,51 +1376,66 @@ def refresh_youtube_title_fields(video_ids: list[int] | None = None) -> dict[str
                 results["items"].append(item_result)
                 continue
 
-            updates: list[str] = []
-
-            current_original = _normalize_title_text(asset.youtube_title_original)
-            current_pt_br = _normalize_title_text(asset.youtube_title_pt_br)
-
-            if current_original:
-                if not current_pt_br:
-                    translated = _translate_title_pt_br(current_original, asset.original_language) or current_original
-                    if asset.youtube_title_pt_br != translated:
-                        asset.youtube_title_pt_br = translated
-                        updates.append("youtube_title_pt_br")
-                if updates:
-                    _with_sqlite_lock_retry(asset.save, update_fields=updates)
-                    item_result["status"] = "refreshed"
-                    item_result["detail"] = ", ".join(updates)
-                    results["refreshed"] += 1
-                else:
-                    item_result["detail"] = "title already present"
-                    results["skipped"] += 1
-                results["items"].append(item_result)
-                continue
-
-            metadata: dict[str, Any] = {}
+            metadata: dict[str, Any]
             try:
                 metadata = _youtube_metadata_from_api(video_id)
             except Exception as api_exc:
+                item_result["status"] = "failed"
                 item_result["detail"] = f"metadata unavailable: {api_exc}"
-                results["skipped"] += 1
+                results["failed"] += 1
                 results["items"].append(item_result)
                 continue
 
             new_original = _truncate_filesystem_name(metadata.get("title"))
             if not new_original:
+                item_result["status"] = "failed"
                 item_result["detail"] = "title missing from API response"
-                results["skipped"] += 1
+                results["failed"] += 1
                 results["items"].append(item_result)
                 continue
 
-            asset.youtube_title_original = new_original
-            updates.append("youtube_title_original")
+            updates: list[str] = []
+
+            if asset.youtube_title_original != new_original:
+                asset.youtube_title_original = new_original
+                updates.append("youtube_title_original")
 
             translated = _translate_title_pt_br(new_original, metadata.get("language")) or new_original
             if asset.youtube_title_pt_br != translated:
                 asset.youtube_title_pt_br = translated
                 updates.append("youtube_title_pt_br")
+
+            if _asset_storage_location(asset) == STORAGE_LOCATION_LIBRARY:
+                current_name = canonical_asset_file_name(asset)
+                desired_base_name = _truncate_filesystem_name(asset.youtube_title_pt_br or asset.youtube_title_original)
+                renamed_name = _rename_library_artifacts(asset, desired_base_name)
+                if renamed_name and renamed_name != current_name:
+                    asset.file_name = renamed_name
+                    if not str(asset.file_path or "").strip() or Path(str(asset.file_path or "")).name == current_name:
+                        asset.file_path = renamed_name
+                    updates.append("file_name")
+                    if asset.file_path == renamed_name:
+                        updates.append("file_path")
+
+            try:
+                plex_result = _refresh_plex_posters_for_library_asset(asset, metadata=metadata)
+            except Exception as exc:
+                plex_result = {
+                    "status": "failed",
+                    "detail": f"unexpected error while generating Plex poster: {exc}",
+                    "files": [],
+                }
+
+            item_result["plex_poster_status"] = str(plex_result.get("status") or "skipped")
+            item_result["plex_poster_detail"] = str(plex_result.get("detail") or "")
+            item_result["plex_poster_files"] = plex_result.get("files") if isinstance(plex_result.get("files"), list) else []
+
+            if item_result["plex_poster_status"] == "updated":
+                results["plex_generated"] += 1
+            elif item_result["plex_poster_status"] == "failed":
+                results["plex_failed"] += 1
+            else:
+                results["plex_skipped"] += 1
 
             if updates:
                 _with_sqlite_lock_retry(asset.save, update_fields=updates)
@@ -1234,6 +1446,12 @@ def refresh_youtube_title_fields(video_ids: list[int] | None = None) -> dict[str
                 item_result["status"] = "unchanged"
                 item_result["detail"] = "no changes"
                 results["skipped"] += 1
+
+            if item_result["plex_poster_detail"]:
+                item_result["detail"] = (
+                    f"{item_result['detail']}; plex: {item_result['plex_poster_status']}"
+                    f" ({item_result['plex_poster_detail']})"
+                )
             results["items"].append(item_result)
         except Exception as exc:
             item_result["status"] = "failed"
@@ -1366,9 +1584,7 @@ def queue_download_run(source_url: str) -> dict[str, Any]:
         asset.save(update_fields=["thumbnail_path"])
     ensure_execution_profile(asset)
 
-    run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status="queued")
-    for step_name in PIPELINE_STEP_ORDER:
-        PipelineStepStatus.objects.create(pipeline_run=run, step_name=step_name, status="pending")
+    run = _create_pipeline_run(asset, status="queued")
 
     worker = ensure_worker_running()
     return {
@@ -1449,41 +1665,202 @@ def artifact_paths_for_asset(asset: VideoAsset) -> dict[str, Path]:
     }
 
 
-def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[bool, str]]:
+SRT_RANGE_PATTERN = re.compile(
+    r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})"
+)
+VIDEO_SRT_REUSE_TOLERANCE_SECONDS = 4.0
+TRANSLATION_REUSE_TOLERANCE_SECONDS = 1.5
+AUDIOBOOK_REUSE_TOLERANCE_SECONDS = 4.0
+
+
+def _parts_to_seconds(hours: str, minutes: str, seconds: str, millis: str) -> float:
+    return (int(hours) * 3600) + (int(minutes) * 60) + int(seconds) + (int(millis) / 1000.0)
+
+
+def _srt_last_end_seconds(path: Path) -> float | None:
+    if not path.exists():
+        return None
+
+    last_end: float | None = None
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                match = SRT_RANGE_PATTERN.search(line)
+                if not match:
+                    continue
+                last_end = _parts_to_seconds(match.group(5), match.group(6), match.group(7), match.group(8))
+    except Exception:
+        return None
+
+    return last_end
+
+
+def _can_reuse_transcript(video_path: Path, srt_path: Path) -> tuple[bool, str]:
+    video_duration = ffprobe_duration_seconds(video_path)
+    srt_end = _srt_last_end_seconds(srt_path)
+
+    if video_duration is None:
+        return False, "Transcript check skipped: unable to read video duration"
+    if srt_end is None:
+        return False, "Transcript check skipped: SRT not found or invalid"
+
+    if srt_end + VIDEO_SRT_REUSE_TOLERANCE_SECONDS >= video_duration:
+        return True, (
+            "Reused existing transcript: "
+            f"SRT end {srt_end:.1f}s >= video {video_duration:.1f}s - {VIDEO_SRT_REUSE_TOLERANCE_SECONDS:.1f}s"
+        )
+
+    return False, (
+        "Transcript regeneration required: "
+        f"SRT end {srt_end:.1f}s < video {video_duration:.1f}s - {VIDEO_SRT_REUSE_TOLERANCE_SECONDS:.1f}s"
+    )
+
+
+def _can_reuse_translation(srt_path: Path, srtpt_path: Path) -> tuple[bool, str]:
+    source_srt_end = _srt_last_end_seconds(srt_path)
+    translated_srt_end = _srt_last_end_seconds(srtpt_path)
+
+    if source_srt_end is None:
+        return False, "Translation check skipped: source SRT not found or invalid"
+    if translated_srt_end is None:
+        return False, "Translation check skipped: translated SRTPT not found or invalid"
+
+    if translated_srt_end + TRANSLATION_REUSE_TOLERANCE_SECONDS >= source_srt_end:
+        return True, (
+            "Reused existing translation: "
+            f"SRTPT end {translated_srt_end:.1f}s >= SRT {source_srt_end:.1f}s - {TRANSLATION_REUSE_TOLERANCE_SECONDS:.1f}s"
+        )
+
+    return False, (
+        "Translation regeneration required: "
+        f"SRTPT end {translated_srt_end:.1f}s < SRT {source_srt_end:.1f}s - {TRANSLATION_REUSE_TOLERANCE_SECONDS:.1f}s"
+    )
+
+
+def _can_reuse_audiobook(srt_path: Path, srtpt_path: Path, out_wav_path: Path) -> tuple[bool, str]:
+    if not out_wav_path.exists():
+        return False, "Audiobook check skipped: PT WAV not found"
+
+    translation_ok, translation_detail = _can_reuse_translation(srt_path, srtpt_path)
+    if not translation_ok:
+        return False, (
+            "Audiobook regeneration required: "
+            f"translation artifact check failed ({translation_detail})"
+        )
+
+    target_seconds = _srt_last_end_seconds(srtpt_path)
+    generated_seconds = ffprobe_duration_seconds(out_wav_path)
+
+    if target_seconds is None:
+        return False, "Audiobook check skipped: translated SRTPT not found or invalid"
+    if generated_seconds is None:
+        return False, "Audiobook check skipped: unable to read PT WAV duration"
+
+    delta_seconds = generated_seconds - target_seconds
+    if abs(delta_seconds) <= AUDIOBOOK_REUSE_TOLERANCE_SECONDS:
+        return True, (
+            "Reused existing audiobook: "
+            f"PT WAV {generated_seconds:.1f}s vs SRTPT {target_seconds:.1f}s "
+            f"(delta {delta_seconds:+.1f}s, tolerance {AUDIOBOOK_REUSE_TOLERANCE_SECONDS:.1f}s)"
+        )
+
+    return False, (
+        "Audiobook regeneration required: "
+        f"PT WAV {generated_seconds:.1f}s vs SRTPT {target_seconds:.1f}s "
+        f"(delta {delta_seconds:+.1f}s exceeds tolerance {AUDIOBOOK_REUSE_TOLERANCE_SECONDS:.1f}s)"
+    )
+
+
+def _infer_translation_source_lang_for_scan(asset: VideoAsset, video_path: Path) -> str:
+    persisted = (asset.original_language or "").strip()
+    if persisted in {"ar", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pl", "pt", "ru", "tr", "uk", "zh-CN"}:
+        return persisted
+
+    inferred = infer_language_from_srt(video_path)
+    if inferred in {"es", "zh-CN"}:
+        return inferred
+
+    return "auto"
+
+
+def step_evidence_for_asset(asset: VideoAsset) -> dict[str, tuple[str, str]]:
     artifacts = artifact_paths_for_asset(asset)
-    has_wav = artifacts["wav"].exists()
-    has_mp3 = artifacts["mp3"].exists()
-    has_srt = artifacts["srt"].exists()
-    has_srtpt = artifacts["srtpt"].exists()
-    has_pt_wav = artifacts["pt_wav"].exists()
-    has_audio_input = has_wav or has_mp3
-    has_download = artifacts["video"].exists()
+    has_video = artifacts["video"].exists()
+    has_remux = artifacts["remux_video"].exists()
 
-    download_found = False
-    download_detail = "Evidence: downloaded MP4 not found"
-    if has_download:
-        download_found, download_detail = _validate_downloaded_video(asset, artifacts["video"])
-        if not asset.source_url:
-            download_detail = "Evidence: MP4 file found"
-
-    return {
-        "download": (download_found or (has_download and not asset.source_url), download_detail),
-        "extract": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
-        "transcribe": (has_audio_input or has_srt or has_srtpt or has_pt_wav, "Evidence: WAV/MP3/SRT artifact found"),
-        "translate": (has_srtpt or has_pt_wav, "Evidence: .srtpt file found"),
-        "audiobook": (has_pt_wav, "Evidence: .pt.wav file found"),
-        "remux": (artifacts["remux_video"].exists(), "Evidence: remuxed video found in workdir/remux"),
+    step_map: dict[str, tuple[str, str]] = {
+        "download": ("pending", "Downloaded MP4 not found"),
+        "extract": ("pending", "Awaiting transcript validation"),
+        "transcribe": ("pending", "Awaiting transcript validation"),
+        "translate": ("pending", "Awaiting translation validation"),
+        "audiobook": ("pending", "Awaiting audiobook validation"),
+        "remux": ("pending", "Awaiting remux validation"),
     }
+
+    if has_video:
+        if asset.source_url:
+            download_ok, download_detail = _validate_downloaded_video(asset, artifacts["video"])
+            if download_ok:
+                step_map["download"] = ("success", download_detail)
+            else:
+                step_map["download"] = ("pending", download_detail)
+        else:
+            step_map["download"] = ("skipped", "Skipped: local MP4 already present")
+
+    transcript_ok, transcript_detail = _can_reuse_transcript(artifacts["video"], artifacts["srt"])
+    if transcript_ok:
+        step_map["extract"] = ("skipped", "Skipped: transcript already covers source duration")
+        step_map["transcribe"] = ("success", transcript_detail)
+    else:
+        step_map["extract"] = ("pending", transcript_detail)
+        step_map["transcribe"] = ("pending", transcript_detail)
+
+    source_lang = _infer_translation_source_lang_for_scan(asset, artifacts["video"])
+    if source_lang in {"", "auto", "unknown"}:
+        step_map["translate"] = (
+            "pending",
+            "Translation failed: unresolved source language; explicit source language is required",
+        )
+    elif transcript_ok:
+        translation_ok, translation_detail = _can_reuse_translation(artifacts["srt"], artifacts["srtpt"])
+        if translation_ok:
+            step_map["translate"] = ("success", translation_detail)
+        else:
+            step_map["translate"] = ("pending", translation_detail)
+    else:
+        step_map["translate"] = ("pending", "Translation pending: transcript validation not satisfied")
+
+    if step_map["translate"][0] == "success":
+        audiobook_ok, audiobook_detail = _can_reuse_audiobook(
+            artifacts["srt"],
+            artifacts["srtpt"],
+            artifacts["pt_wav"],
+        )
+        if audiobook_ok:
+            step_map["audiobook"] = ("success", audiobook_detail)
+        else:
+            step_map["audiobook"] = ("pending", audiobook_detail)
+    else:
+        step_map["audiobook"] = ("pending", "Audiobook pending: translation validation not satisfied")
+
+    if step_map["audiobook"][0] == "success" and has_remux:
+        step_map["remux"] = ("success", "Evidence: remuxed video found in workdir/remux")
+    elif step_map["audiobook"][0] == "success":
+        step_map["remux"] = ("pending", "Remux output not found")
+    else:
+        step_map["remux"] = ("pending", "Remux pending: audiobook validation not satisfied")
+
+    return step_map
 
 
 def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
     evidence = step_evidence_for_asset(asset)
     run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
-    if run is None and not any(found for found, _ in evidence.values()):
+    if run is None and not any(status in {"success", "skipped"} for status, _ in evidence.values()):
         return
 
     if run is None:
-        run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status="discovered")
+        run = _create_pipeline_run(asset, status="discovered")
 
     # Never override step states while a run is in-flight. During execution,
     # worker updates are the source of truth for UI progress.
@@ -1492,48 +1869,45 @@ def sync_run_steps_with_artifacts(asset: VideoAsset) -> None:
 
     step_changed = False
     for step_name in PIPELINE_STEP_ORDER:
-        found, detail = evidence[step_name]
+        desired_status, detail = evidence[step_name]
         step, created = PipelineStepStatus.objects.get_or_create(
             pipeline_run=run,
             step_name=step_name,
             defaults={"status": "pending", "detail": ""},
         )
 
-        if step_name == "download" and not asset.source_url and found:
-            desired_status = "skipped"
-        elif step_name == "download" and found:
-            desired_status = "success"
-        elif found:
-            desired_status = "success"
-        else:
-            desired_status = "pending"
+        if desired_status == "pending":
+            if step.status != "pending" or step.detail != detail or step.started_at is not None or step.finished_at is not None:
+                step.status = "pending"
+                step.detail = detail
+                step.started_at = None
+                step.finished_at = None
+                step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
+                step_changed = True
+            continue
 
-        if desired_status != "pending" and (created or step.status != desired_status or step.detail != detail):
-            step.status = desired_status
+        if created or step.status != desired_status or step.detail != detail:
+            step.status = "pending"
             step.detail = detail
             step.save(update_fields=["status", "detail", "updated_at"])
             step_changed = True
-        elif (not found) and step.status == "success" and step.detail.startswith("Evidence:"):
-            step.status = "pending"
-            step.detail = ""
-            step.save(update_fields=["status", "detail", "updated_at"])
-            step_changed = True
 
-    found_remux = evidence["remux"][0]
+    remux_completed = evidence["remux"][0] == "success"
     is_active = run.status in {"queued", "running", "stopping"}
 
-    if found_remux and (not is_active) and run.status != "success":
+    if remux_completed and (not is_active) and run.status != "success":
         run.status = "success"
         run.exit_code = 0
         run.error_message = ""
         if not run.finished_at:
             run.finished_at = timezone.now()
         run.save(update_fields=["status", "exit_code", "error_message", "finished_at", "updated_at"])
-    elif (not found_remux) and (not is_active) and run.status == "success":
+    elif (not remux_completed) and (not is_active) and run.status != "discovered":
         run.status = "discovered"
         run.exit_code = None
         run.finished_at = None
-        run.save(update_fields=["status", "exit_code", "finished_at", "updated_at"])
+        run.error_message = ""
+        run.save(update_fields=["status", "exit_code", "finished_at", "error_message", "updated_at"])
     elif step_changed:
         run.save(update_fields=["updated_at"])
 
@@ -1728,7 +2102,7 @@ def related_asset_files(asset: VideoAsset) -> list[Path]:
 
                 name_lower = candidate.name.lower()
                 related = False
-                if candidate.name == canonical_name:
+                if _is_related_asset_name(candidate.name, canonical_name, stem):
                     related = True
                 elif source_dir == load_work_exec_dir() and candidate.name.startswith(f"{stem}."):
                     related = True
@@ -1754,19 +2128,7 @@ def archive_asset(asset: VideoAsset) -> bool:
         if not candidate.exists() or not candidate.is_file():
             continue
         destination = destination_dir / candidate.name
-        if destination.exists() and destination.resolve() != candidate.resolve():
-            stem = destination.stem
-            suffix = destination.suffix
-            index = 1
-            while True:
-                if suffix:
-                    alternative = destination_dir / f"{stem}.migrated-{index}{suffix}"
-                else:
-                    alternative = destination_dir / f"{stem}.migrated-{index}"
-                if not alternative.exists():
-                    destination = alternative
-                    break
-                index += 1
+        destination = _next_available_destination(destination)
         shutil.move(str(candidate), str(destination))
         moved_any = True
 
@@ -1788,30 +2150,31 @@ def restore_assets(video_ids: list[int]) -> int:
         if _asset_storage_location(asset) != STORAGE_LOCATION_LIBRARY:
             continue
 
-        source = load_library_dir() / canonical_asset_file_name(asset)
-        if not source.exists() or not source.is_file():
+        sources = [candidate for candidate in related_asset_files(asset) if candidate.parent == load_library_dir()]
+        if not sources:
             continue
 
-        destination = destination_dir / source.name
-        if destination.exists() and destination.resolve() != source.resolve():
-            stem = destination.stem
-            suffix = destination.suffix
-            index = 1
-            while True:
-                if suffix:
-                    alternative = destination_dir / f"{stem}.migrated-{index}{suffix}"
-                else:
-                    alternative = destination_dir / f"{stem}.migrated-{index}"
-                if not alternative.exists():
-                    destination = alternative
-                    break
-                index += 1
+        moved_any = False
+        for source in sources:
+            if not source.exists() or not source.is_file():
+                continue
+            destination = destination_dir / source.name
+            destination = _next_available_destination(destination)
+            shutil.move(str(source), str(destination))
+            moved_any = True
 
-        shutil.move(str(source), str(destination))
+        if not moved_any:
+            continue
+
         asset.storage_location = STORAGE_LOCATION_EXEC
         asset.is_present = True
         asset.last_seen_at = timezone.now()
         _with_sqlite_lock_retry(asset.save, update_fields=["storage_location", "is_present", "last_seen_at"])
+
+        latest_run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
+        if latest_run is None or latest_run.status in {"success", "failed", "stopped", "skipped"}:
+            _create_pipeline_run(asset, status="discovered")
+
         restored += 1
     return restored
 
@@ -1922,6 +2285,20 @@ def _read_worker_status_snapshot() -> dict[str, Any] | None:
     return payload
 
 
+def _ensure_pipeline_step_rows(run: PipelineRun) -> None:
+    existing_step_names = set(run.steps.values_list("step_name", flat=True))
+    for step_name in PIPELINE_STEP_ORDER:
+        if step_name in existing_step_names:
+            continue
+        PipelineStepStatus.objects.create(pipeline_run=run, step_name=step_name, status="pending")
+
+
+def _create_pipeline_run(asset: VideoAsset, *, status: str) -> PipelineRun:
+    run = PipelineRun.objects.create(video_asset=asset, run_mode=RUN_MODE_PIPELINE, status=status)
+    _ensure_pipeline_step_rows(run)
+    return run
+
+
 def collect_and_store_worker_health_snapshot(source: str = "collector") -> dict[str, Any]:
     worker_payload = _collect_worker_health_status()
     _write_worker_status_snapshot(worker_payload, source=source)
@@ -1967,12 +2344,31 @@ def queue_runs(video_ids: list[int]) -> dict[str, Any]:
     skipped = 0
 
     for video_id in video_ids:
-        if active_run_exists(video_id, run_mode=RUN_MODE_PIPELINE):
+        asset = VideoAsset.objects.filter(id=video_id, is_deleted=False).first()
+        if asset is None or _asset_storage_location(asset) != STORAGE_LOCATION_EXEC:
             skipped += 1
             continue
-        run = PipelineRun.objects.create(video_asset_id=video_id, run_mode=RUN_MODE_PIPELINE, status="queued")
-        for step_name in PIPELINE_STEP_ORDER:
-            PipelineStepStatus.objects.create(pipeline_run=run, step_name=step_name, status="pending")
+
+        run = latest_run_for_asset(asset, run_mode=RUN_MODE_PIPELINE)
+        if run is None:
+            skipped += 1
+            continue
+
+        if run.status in {"queued", "running", "stopping"}:
+            skipped += 1
+            continue
+
+        if run.status != "discovered":
+            skipped += 1
+            continue
+
+        _ensure_pipeline_step_rows(run)
+        run.status = "queued"
+        run.started_at = None
+        run.finished_at = None
+        run.exit_code = None
+        run.error_message = ""
+        run.save(update_fields=["status", "started_at", "finished_at", "exit_code", "error_message", "updated_at"])
         queued_ids.append(run.id)
 
     worker = None
@@ -2031,10 +2427,33 @@ def serialize_profile(profile: ExecutionProfile) -> dict[str, Any]:
 
 
 def latest_run_for_asset(asset: VideoAsset, run_mode: str | None = None) -> PipelineRun | None:
-    qs = asset.runs.order_by("-created_at")
+    qs = asset.runs.all()
     if run_mode:
         qs = qs.filter(run_mode=run_mode)
-    return qs.first()
+
+    active_statuses = {"running", "queued", "stopping"}
+    active_run = (
+        qs.filter(status__in=active_statuses)
+        .annotate(
+            status_rank=Case(
+                When(status="running", then=Value(0)),
+                When(status="stopping", then=Value(1)),
+                When(status="queued", then=Value(2)),
+                default=Value(3),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by(
+            "status_rank",
+            "-updated_at",
+            "-created_at",
+        )
+        .first()
+    )
+    if active_run is not None:
+        return active_run
+
+    return qs.order_by("-created_at").first()
 
 
 def _safe_log_tail(log_file_path: str | None) -> str:

@@ -1136,6 +1136,42 @@ def _next_pending_step_name(run: PipelineRun) -> str | None:
     return None
 
 
+def _prepare_steps_for_current_attempt(run: PipelineRun, target_step: str) -> None:
+    """Normalize stale step states before running the next target step.
+
+    Reconciliations after worker restarts can leave downstream steps as failed
+    even when the run is retried from an earlier phase. For the current attempt,
+    all steps from target_step onwards must be pending, except the target step
+    itself which is allowed to start immediately.
+    """
+    now = timezone.now()
+    try:
+        target_index = PIPELINE_STEP_ORDER.index(target_step)
+    except ValueError:
+        return
+
+    for step in run.steps.all():
+        try:
+            step_index = PIPELINE_STEP_ORDER.index(step.step_name)
+        except ValueError:
+            continue
+
+        if step_index < target_index:
+            continue
+
+        # Keep an already-completed target as is; next selection will advance.
+        if step_index == target_index and step.status in {"success", "skipped"}:
+            continue
+
+        if step.status != "pending" or step.detail or step.started_at is not None or step.finished_at is not None:
+            step.status = "pending"
+            step.detail = ""
+            step.started_at = None
+            step.finished_at = None
+            step.updated_at = now
+            step.save(update_fields=["status", "detail", "started_at", "finished_at", "updated_at"])
+
+
 def _execute_pipeline_single_step(
     run: PipelineRun,
     profile: ExecutionProfile,
@@ -1553,6 +1589,8 @@ def execute_run(run: PipelineRun) -> None:
             "updated_at",
         ])
         return
+
+    _prepare_steps_for_current_attempt(run, target_step)
 
     try:
         selected_video_path = _resolve_video_path_for_run(run)

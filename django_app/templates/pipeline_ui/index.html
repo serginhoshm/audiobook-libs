@@ -885,12 +885,36 @@
 
     function buildDisplayStepMap(run) {
       const stepMap = new Map();
+      const stepDetailMap = new Map();
 
       (run?.steps || []).forEach((step) => {
         stepMap.set(step.step_name, step.status || 'pending');
+        stepDetailMap.set(step.step_name, String(step.detail || ''));
       });
 
-      return Object.fromEntries(orderedStepNames.map((stepName) => [stepName, stepMap.get(stepName) || 'pending']));
+      const result = Object.fromEntries(orderedStepNames.map((stepName) => [stepName, stepMap.get(stepName) || 'pending']));
+      const runStatus = String(run?.status || '').trim().toLowerCase();
+
+      // During an active run, ignore stale reconcile failures for downstream steps.
+      if (['queued', 'running', 'stopping'].includes(runStatus)) {
+        const firstOpenIndex = orderedStepNames.findIndex((stepName) => {
+          const raw = String(result[stepName] || 'pending').trim().toLowerCase();
+          return raw !== 'success' && raw !== 'skipped';
+        });
+
+        if (firstOpenIndex >= 0) {
+          for (let i = firstOpenIndex + 1; i < orderedStepNames.length; i += 1) {
+            const stepName = orderedStepNames[i];
+            const raw = String(result[stepName] || '').trim().toLowerCase();
+            const detail = String(stepDetailMap.get(stepName) || '').toLowerCase();
+            if (raw === 'failed' && detail.includes('reconciled after worker restart')) {
+              result[stepName] = 'pending';
+            }
+          }
+        }
+      }
+
+      return result;
     }
 
     function nextStepIndexFromMap(stepMap) {
@@ -1417,7 +1441,13 @@
         const refreshed = Number(payload?.result?.refreshed || 0);
         const skipped = Number(payload?.result?.skipped || 0);
         const failed = Number(payload?.result?.failed || 0);
-        window.alert(`Titulos atualizados: ${refreshed}. Ignorados: ${skipped}. Falhas: ${failed}.`);
+        const plexGenerated = Number(payload?.result?.plex_generated || 0);
+        const plexFailed = Number(payload?.result?.plex_failed || 0);
+        const plexSkipped = Number(payload?.result?.plex_skipped || 0);
+        window.alert(
+          `Titulos atualizados: ${refreshed}. Ignorados: ${skipped}. Falhas: ${failed}. ` +
+          `Capa Plex gerada: ${plexGenerated}. Capa Plex com falha: ${plexFailed}. Capa Plex ignorada: ${plexSkipped}.`
+        );
       } catch (error) {
         shouldReload = false;
         const message = String(error?.message || error || 'Falha ao atualizar titulos.');
