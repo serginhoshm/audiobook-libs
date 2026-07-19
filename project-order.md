@@ -3,7 +3,8 @@
 ## Main Entry
 - Legacy workflow wrappers were removed.
 - Use `bash workflows/webapp.sh` for webapp lifecycle operations.
-- `data_root_relative` accepts absolute paths (for external disks) or project-relative paths.
+- `workdir` accepts absolute paths (for external disks) or project-relative paths.
+- `data_root_relative` remains as legacy alias during transition.
 - Logs and `.pipeline-state/` are created under the configured scope.
 - Execution state and evidence are written under the configured scope.
 

@@ -146,6 +146,7 @@ Para ambiente local pessoal:
 Referências já existentes de configuração no projeto:
 
 - [config](../config)
+- [config/pipeline.ini](../config/pipeline.ini)
 - [config/translation/gemini.env.template](../config/translation/gemini.env.template)
 - [config/translation/ollama.env.template](../config/translation/ollama.env.template)
 

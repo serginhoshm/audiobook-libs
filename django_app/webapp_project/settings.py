@@ -1,5 +1,6 @@
 from pathlib import Path
 import configparser
+import logging
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -7,6 +8,7 @@ ROOT_DIR = BASE_DIR.parent
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-secret-key-change-me")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+logger = logging.getLogger(__name__)
 
 
 def _parse_allowed_hosts() -> list[str]:
@@ -87,7 +89,10 @@ def _read_pipeline_ini() -> configparser.ConfigParser:
 
 
 def _resolve_data_root() -> Path:
-    raw = _PIPELINE_INI.get("paths", "data_root_relative", fallback="data").strip()
+    raw = _PIPELINE_INI.get("paths", "workdir", fallback="").strip()
+    if not raw:
+        raw = _PIPELINE_INI.get("paths", "data_root_relative", fallback="data").strip()
+        logger.warning("[config] [paths] data_root_relative is deprecated; use [paths] workdir")
     if raw.startswith("/"):
         return Path(raw)
     return ROOT_DIR / raw
@@ -102,6 +107,14 @@ def _pipeline_ini_value(section: str, option: str, fallback: str = "") -> str:
     except Exception:
         return fallback
 
+
+def _pipeline_ini_first_nonempty(candidates: list[tuple[str, str]], fallback: str = "") -> str:
+    for section, option in candidates:
+        value = _pipeline_ini_value(section, option, "")
+        if value:
+            return value
+    return fallback
+
 WEBAPP = {
     "ROOT_DIR": ROOT_DIR,
     "PIPELINE_CONFIG": ROOT_DIR / "config" / "pipeline.ini",
@@ -115,7 +128,30 @@ WEBAPP = {
     "SQLITE_LOCK_RETRY_WAIT_SECONDS": float(os.environ.get("WEBAPP_SQLITE_LOCK_RETRY_WAIT_SECONDS", "0.25")),
     "YOUTUBE_DATA_API_KEY": os.environ.get(
         "YOUTUBE_DATA_API_KEY",
-        _pipeline_ini_value("webapp", "youtube_data_api_key", _pipeline_ini_value("youtube", "data_api_key", "")),
+        _pipeline_ini_first_nonempty(
+            [
+                ("api_keys", "youtube_data_api_key"),
+            ],
+            "",
+        ),
+    ),
+    "GEMINI_API_KEY": os.environ.get(
+        "GEMINI_API_KEY",
+        _pipeline_ini_first_nonempty(
+            [
+                ("api_keys", "gemini_api_key"),
+            ],
+            "",
+        ),
+    ),
+    "GEMINI_MODEL": os.environ.get(
+        "GEMINI_MODEL",
+        _pipeline_ini_first_nonempty(
+            [
+                ("models", "gemini_model"),
+            ],
+            "gemini-1.5-flash",
+        ),
     ),
     "WEBAPP_LOG_DIR": _resolve_data_root() / "logs" / "webapp",
 }

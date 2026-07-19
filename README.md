@@ -54,7 +54,7 @@ Additional notes:
 - `start-lan` and `restart-lan` are available as compatibility aliases.
 - Default port is `8000` and can be changed with `WEBAPP_PORT`.
 - You can control allowed hosts using `DJANGO_ALLOWED_HOSTS` (when unset, `workflows/webapp.sh` auto-adds `127.0.0.1`, `localhost`, LAN IP, and local hostname).
-- Library title refresh uses the official YouTube Data API and reads `config/pipeline.ini` from `[webapp] youtube_data_api_key` or `[youtube] data_api_key`.
+- Library title refresh uses the official YouTube Data API and reads `config/pipeline.ini` from `[api_keys] youtube_data_api_key`.
 - An environment variable `YOUTUBE_DATA_API_KEY` can still override the INI value if you need it.
 - Worker coordinator keeps up to 2 workers per pipeline phase by default: DL (download), EX (extract), TR (transcribe), TL (translate), AB (audiobook), RX (remux).
 - You can change this limit with `WEBAPP_WORKER_MAX_SLOTS_PER_SCOPE` (default: `2`).
@@ -86,7 +86,8 @@ Main file:
 
 Scope setting:
 
-- `data_root_relative` accepts absolute or project-relative paths.
+- `workdir` accepts absolute or project-relative paths.
+- `data_root_relative` is still accepted as a legacy alias during transition.
 
 ## Translation Configuration
 
@@ -98,10 +99,10 @@ Official translation chain:
 
 Set `WEBAPP_TRANSLATION_OFFLINE_ONLY=1` to force local Ollama-only translation.
 
-Gemini local key file:
+Gemini local key:
 
-- Versioned template: `config/translation/gemini.env.template`
-- Local runtime file (gitignored): `config/translation/gemini.env`
+- Primary source: `config/pipeline.ini` in `[api_keys] gemini_api_key`
+- Optional legacy fallback (gitignored): `config/translation/gemini.env`
 - Gemini is kept as a general prompt utility through `scripts/gemini_prompt.py`, not as a pipeline translation backend.
 
 Ollama local backend:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import configparser
 import os
 import sys
 from pathlib import Path
@@ -18,14 +19,14 @@ def parse_args():
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-        help="Gemini model to use.",
+        default="",
+        help="Gemini model to use. Defaults to ENV or config/pipeline.ini [models] gemini_model.",
     )
     parser.add_argument(
         "--env-file",
         type=Path,
         default=Path("config/translation/gemini.env"),
-        help="Local file containing GEMINI_API_KEY.",
+        help="Legacy fallback file containing GEMINI_API_KEY.",
     )
     parser.add_argument(
         "--system",
@@ -50,6 +51,27 @@ def load_env_file(env_file):
             os.environ[key] = value
 
 
+def load_pipeline_ini(path: Path) -> configparser.ConfigParser:
+    cfg = configparser.ConfigParser(interpolation=None)
+    cfg.read(path, encoding="utf-8")
+    return cfg
+
+
+def ini_value(cfg: configparser.ConfigParser, section: str, option: str, fallback: str = "") -> str:
+    try:
+        return cfg.get(section, option, fallback=fallback).strip()
+    except Exception:
+        return fallback
+
+
+def first_nonempty(cfg: configparser.ConfigParser, candidates, fallback: str = "") -> str:
+    for section, option in candidates:
+        value = ini_value(cfg, section, option, "")
+        if value:
+            return value
+    return fallback
+
+
 def read_prompt(args):
     if args.prompt.strip():
         return args.prompt.strip()
@@ -64,15 +86,29 @@ def read_prompt(args):
 
 def main():
     args = parse_args()
+
+    root_dir = Path(__file__).resolve().parent.parent
+    pipeline_ini = root_dir / "config" / "pipeline.ini"
+    cfg = load_pipeline_ini(pipeline_ini)
+
     load_env_file(args.env_file)
 
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = os.getenv(
+        "GEMINI_API_KEY",
+        first_nonempty(cfg, [("api_keys", "gemini_api_key")], ""),
+    ).strip()
     if not api_key:
         print(
-            "Error: GEMINI_API_KEY is not set. Configure it in config/translation/gemini.env",
+            "Error: GEMINI_API_KEY is not set. Configure it in config/pipeline.ini [api_keys] gemini_api_key",
             file=sys.stderr,
         )
         sys.exit(1)
+
+    model_name = (
+        args.model.strip()
+        or os.getenv("GEMINI_MODEL", "").strip()
+        or first_nonempty(cfg, [("models", "gemini_model")], "gemini-1.5-flash")
+    )
 
     prompt = read_prompt(args)
     if not prompt:
@@ -87,7 +123,7 @@ def main():
         raise SystemExit(1) from exc
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(args.model)
+    model = genai.GenerativeModel(model_name)
 
     final_prompt = prompt
     if args.system.strip():

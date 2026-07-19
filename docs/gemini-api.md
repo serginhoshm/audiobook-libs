@@ -6,7 +6,21 @@ This project supports Google Gemini for:
 
 Gemini is not a pipeline translation backend.
 
-## Local Key File (Not Versioned)
+## Key Source
+
+Primary source:
+
+- `config/pipeline.ini` in `[api_keys] gemini_api_key`
+
+Emergency override:
+
+- `GEMINI_API_KEY` environment variable
+
+Legacy fallback file (still supported):
+
+- `config/translation/gemini.env` (gitignored)
+
+## Legacy Fallback File (Optional)
 
 Versioned template:
 
@@ -31,7 +45,7 @@ GEMINI_API_KEY=your_key_here
 GEMINI_MODEL=gemini-1.5-flash
 ```
 
-Note: `config/translation/gemini.env` is ignored by git and is never committed.
+Note: `config/translation/gemini.env` is ignored by git and is never committed. Prefer `config/pipeline.ini` for centralized runtime configuration.
 
 ## General Prompting
 

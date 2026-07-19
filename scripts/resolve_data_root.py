@@ -15,7 +15,13 @@ def _load_data_root() -> Path:
     root_dir = _project_root()
     cfg = configparser.ConfigParser(interpolation=None)
     cfg.read(root_dir / "config" / "pipeline.ini", encoding="utf-8")
-    raw = cfg.get("paths", "data_root_relative", fallback="data").strip()
+    raw = cfg.get("paths", "workdir", fallback="").strip()
+    if not raw:
+        raw = cfg.get("paths", "data_root_relative", fallback="data").strip()
+        print(
+            "[config] warning: [paths] data_root_relative is deprecated; use [paths] workdir",
+            file=sys.stderr,
+        )
     if raw.startswith("/"):
         return Path(raw)
     return root_dir / raw

@@ -7,8 +7,9 @@
 
 ## General Rules
 
-- Runtime scope is configured in `config/pipeline.ini` via `data_root_relative`.
-- `data_root_relative` accepts absolute paths (for external storage) or project-relative paths.
+- Runtime scope is configured in `config/pipeline.ini` via `workdir`.
+- `workdir` accepts absolute paths (for external storage) or project-relative paths.
+- `data_root_relative` remains accepted as legacy alias during transition.
 - The configured scope must exist and be writable by the running user.
 - Logs and `.pipeline-state/` are created under the configured scope.
 
